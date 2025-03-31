@@ -17,6 +17,13 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
     ],
     targets: [
+        .target(
+            name: "VideoProcessor",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+            ],
+            path: "Sources/VideoProcessor"
+        ),
         .executableTarget(
             name: "App",
             dependencies: [
@@ -25,7 +32,9 @@ let package = Package(
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                .target(name: "VideoProcessor"),
             ],
+            path: "Sources/App",
             swiftSettings: swiftSettings
         ),
         .testTarget(

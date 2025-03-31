@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:telegramBot01}",
+            "name": "Debug App",
+            "program": "${workspaceFolder:telegramBot01}/.build/debug/App",
+            "preLaunchTask": "swift: Build Debug App"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:telegramBot01}",
+            "name": "Release App",
+            "program": "${workspaceFolder:telegramBot01}/.build/release/App",
+            "preLaunchTask": "swift: Build Release App"
+        }
+    ]
+}

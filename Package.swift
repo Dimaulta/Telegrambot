@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "telegramBot01",
     platforms: [
-       .macOS(.v13)
+       .macOS(.v12)
     ],
     dependencies: [
         // 💧 A server-side Swift web framework.

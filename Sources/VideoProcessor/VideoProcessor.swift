@@ -158,7 +158,7 @@ public struct VideoProcessor {
             "-vf", "scale=640:640,format=yuv420p",
             "-t", "59",
             "-b:v", "512k",
-            "-an", // Удаляем аудио
+          // "-an", // Удаляем аудио
             "-r", "30",
             "-preset", "fast",
             "-movflags", "+faststart", // Перемещаем метаданные в начало файла

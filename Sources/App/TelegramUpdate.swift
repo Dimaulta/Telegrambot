@@ -1,49 +1,49 @@
 import Vapor
 
-struct TelegramUpdate: Content {
-    var update_id: Int
-    var message: TelegramMessage?
+public struct TelegramUpdate: Codable {
+    public let update_id: Int
+    public let message: TelegramMessage?
 }
 
-struct TelegramMessage: Content {
-    var message_id: Int
-    var from: TelegramUser
-    var chat: Chat
-    var date: Int
-    var video: TelegramVideo?
+public struct TelegramMessage: Codable {
+    public let message_id: Int
+    public let from: TelegramUser
+    public let chat: Chat
+    public let date: Int
+    public let video: TelegramVideo?
+    public let text: String? // Добавляем поле text
+    public let entities: [MessageEntity]?
 }
 
-struct TelegramUser: Content {
-    var id: Int64
-    var is_bot: Bool
-    var first_name: String
-    var username: String?
-    var language_code: String?
-    var is_premium: Bool?
+public struct TelegramUser: Codable {
+    public let id: Int64
+    public let is_bot: Bool
+    public let first_name: String
+    public let username: String?
+    public let language_code: String?
 }
 
-struct Chat: Content {
-    var id: Int64
-    var first_name: String
-    var username: String?
-    var type: String
+public struct Chat: Codable, Sendable {
+    public let id: Int64
+    public let first_name: String?
+    public let last_name: String?
+    public let username: String?
+    public let type: String
 }
 
-struct TelegramVideo: Content {
-    var duration: Int
-    var width: Int
-    var height: Int
-    var file_name: String
-    var mime_type: String
-    var file_id: String
-    var file_size: Int?
-    var thumbnail: TelegramPhotoSize?
+public struct TelegramVideo: Codable {
+    public let file_id: String
+    public let file_unique_id: String
+    public let duration: Int
+    public let width: Int
+    public let height: Int
+    public let file_name: String?
+    public let mime_type: String
+    public let file_size: Int?
 }
 
-struct TelegramPhotoSize: Content {
-    var file_id: String
-    var file_unique_id: String
-    var width: Int
-    var height: Int
-    var file_size: Int?
+public struct MessageEntity: Codable {
+    public let offset: Int
+    public let length: Int
+    public let type: String
 }

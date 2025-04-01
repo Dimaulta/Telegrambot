@@ -1,16 +1,10 @@
 import Vapor
 
-public struct TelegramFileResponse: Codable {
-    public struct Result: Codable {
+public struct TelegramFileResponse: Codable, Sendable {
+    public struct Result: Codable, Sendable {
         public let file_path: String
-        
-        public init(file_path: String) {
-            self.file_path = file_path
-        }
     }
-    public let result: Result
     
-    public init(result: Result) {
-        self.result = result
-    }
+    public let ok: Bool
+    public let result: Result
 }

@@ -53,19 +53,19 @@ public struct VideoProcessor {
                 req.logger.error("Ошибка декодирования getFile: \(error)")
                 return req.eventLoop.makeFailedFuture(error)
             }
-        }.flatMap { (fileResponse: TelegramFileResponse) -> EventLoopFuture<(String, Int)> in
+        }.flatMap { (fileResponse: TelegramFileResponse) -> EventLoopFuture<(String, String, Int)> in
             req.logger.info("Декодирован ответ от Telegram API: \(fileResponse)")
             let filePath = fileResponse.result.file_path
             let downloadUrl = "https://api.telegram.org/file/bot\(botToken)/\(filePath)"
             req.logger.info("URL для скачивания видео: \(downloadUrl)")
 
-            return processVideo(downloadUrl: downloadUrl, req: req).map { processedFilePath in
-                let duration = getVideoDuration(processedFilePath)
-                req.logger.info("Видео обработано, путь к обработанному файлу: \(processedFilePath), длительность: \(duration) секунд")
-                return (processedFilePath, duration)
+            return processVideo(downloadUrl: downloadUrl, req: req).map { (inputFilePath, outputFilePath) in
+                let duration = getVideoDuration(outputFilePath)
+                req.logger.info("Видео обработано, путь к обработанному файлу: \(outputFilePath), длительность: \(duration) секунд")
+                return (inputFilePath, outputFilePath, duration)
             }
-        }.flatMap { (processedFilePath, duration) in
-            return sendProcessedVideo(processedFilePath, chatId: chatId, req: req)
+        }.flatMap { (inputFilePath, outputFilePath, duration) in
+            return sendProcessedVideo(inputFilePath: inputFilePath, outputFilePath: outputFilePath, chatId: chatId, req: req)
         }.flatMap { response in
             // Проверяем статус ответа от Telegram
             if response.status == HTTPStatus.ok {
@@ -87,7 +87,7 @@ public struct VideoProcessor {
         }
     }
 
-    private static func processVideo(downloadUrl: String, req: Request) -> EventLoopFuture<String> {
+    private static func processVideo(downloadUrl: String, req: Request) -> EventLoopFuture<(String, String)> {
         let currentDirectory = FileManager.default.currentDirectoryPath
         let tempDirectory = "\(currentDirectory)/temporaryvideoFiles"
         
@@ -108,7 +108,7 @@ public struct VideoProcessor {
         req.logger.info("Путь для входного файла: \(inputFilePath)")
         req.logger.info("Путь для выходного файла: \(outputFilePath)")
 
-        return req.client.get(URI(string: downloadUrl)).flatMap { response -> EventLoopFuture<String> in
+        return req.client.get(URI(string: downloadUrl)).flatMap { response -> EventLoopFuture<(String, String)> in
             req.logger.info("Скачиваем видео по URL: \(downloadUrl)")
             guard response.status == HTTPStatus.ok, let body = response.body else {
                 req.logger.error("Ошибка скачивания видео: \(response.status)")
@@ -122,22 +122,24 @@ public struct VideoProcessor {
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: inputFilePath)[.size] as? Int) ?? 0
                 req.logger.info("Размер видео: \(fileSize) байт")
                 if fileSize > 50 * 1024 * 1024 {
-                    // try? FileManager.default.removeItem(atPath: inputFilePath) // Закомментировано
+                    try? FileManager.default.removeItem(atPath: inputFilePath)
                     req.logger.error("Файл слишком большой: \(fileSize) байт")
-                    req.logger.info("Входной файл оставлен: \(inputFilePath)")
+                    req.logger.info("Входной файл удалён: \(inputFilePath)")
                     return req.eventLoop.makeFailedFuture(Abort(.badRequest, reason: "Файл слишком большой!"))
                 }
 
                 let duration = getVideoDuration(inputFilePath)
                 req.logger.info("Длительность видео: \(duration) секунд")
                 if duration > 59 {
-                    // try? FileManager.default.removeItem(atPath: inputFilePath) // Закомментировано
+                    try? FileManager.default.removeItem(atPath: inputFilePath)
                     req.logger.error("Видео слишком длинное: \(duration) секунд")
-                    req.logger.info("Входной файл оставлен: \(inputFilePath)")
+                    req.logger.info("Входной файл удалён: \(inputFilePath)")
                     return req.eventLoop.makeFailedFuture(Abort(.badRequest, reason: "Видео длиннее 59 секунд!"))
                 }
 
-                return runFFmpeg(inputFilePath: inputFilePath, outputFilePath: outputFilePath, req: req)
+                return runFFmpeg(inputFilePath: inputFilePath, outputFilePath: outputFilePath, req: req).map { outputFilePath in
+                    return (inputFilePath, outputFilePath)
+                }
             } catch {
                 req.logger.error("Ошибка записи файла: \(error)")
                 return req.eventLoop.makeFailedFuture(error)
@@ -147,7 +149,7 @@ public struct VideoProcessor {
 
     private static func runFFmpeg(inputFilePath: String, outputFilePath: String, req: Request) -> EventLoopFuture<String> {
         req.logger.info("Начинаем обработку видео через ffmpeg...")
-        req.logger.info("Команда ffmpeg: ffmpeg -i \(inputFilePath) -vf scale=640:640,format=yuv420p -t 59 -b:v 512k -an -r 30 -preset fast -movflags +faststart -y \(outputFilePath)")
+        req.logger.info("Команда ffmpeg: ffmpeg -i \(inputFilePath) -vf scale=640:640,format=yuv420p -t 59 -b:v 512k -r 30 -preset fast -movflags +faststart -y \(outputFilePath)")
 
         let promise = req.eventLoop.makePromise(of: String.self)
         
@@ -158,7 +160,6 @@ public struct VideoProcessor {
             "-vf", "scale=640:640,format=yuv420p",
             "-t", "59",
             "-b:v", "512k",
-          // "-an", // Удаляем аудио
             "-r", "30",
             "-preset", "fast",
             "-movflags", "+faststart", // Перемещаем метаданные в начало файла
@@ -224,16 +225,12 @@ public struct VideoProcessor {
             req.logger.info("Ожидаем завершения FFmpeg... Завершено.")
 
             if process.terminationStatus == 0 {
-                // try? FileManager.default.removeItem(atPath: inputFilePath) // Закомментировано
-                req.logger.info("Входной файл оставлен: \(inputFilePath)")
                 req.logger.info("Видео успешно обработано и сохранено по пути: \(outputFilePath)")
                 promise.succeed(outputFilePath)
             } else {
-                // try? FileManager.default.removeItem(atPath: inputFilePath) // Закомментировано
-                // try? FileManager.default.removeItem(atPath: outputFilePath) // Закомментировано
+                try? FileManager.default.removeItem(atPath: outputFilePath)
                 req.logger.error("Ошибка при обработке видео через ffmpeg. Код: \(process.terminationStatus)")
-                req.logger.info("Входной файл оставлен: \(inputFilePath)")
-                req.logger.info("Выходной файл оставлен (если создан): \(outputFilePath)")
+                req.logger.info("Выходной файл удалён (если был создан): \(outputFilePath)")
                 promise.fail(Abort(.internalServerError, reason: "Ошибка при обработке видео через ffmpeg"))
             }
         }
@@ -273,13 +270,13 @@ public struct VideoProcessor {
         return Int(Double(durationString ?? "0") ?? 0)
     }
 
-    private static func sendProcessedVideo(_ filePath: String, chatId: String, req: Request) -> EventLoopFuture<Response> {
+    private static func sendProcessedVideo(inputFilePath: String, outputFilePath: String, chatId: String, req: Request) -> EventLoopFuture<Response> {
         let botToken = "7901916114:AAEAXDcoWhYqq5Wx4TAw1RUaxWxGaXWgf-k"
         let url = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote?return_errors=true")
 
         req.logger.info("Читаем файл перед отправкой...")
-        guard let videoData = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
-            req.logger.error("Не удалось прочитать обработанный файл: \(filePath)")
+        guard let videoData = try? Data(contentsOf: URL(fileURLWithPath: outputFilePath)) else {
+            req.logger.error("Не удалось прочитать обработанный файл: \(outputFilePath)")
             return req.eventLoop.makeFailedFuture(Abort(.internalServerError, reason: "Не удалось прочитать файл"))
         }
         req.logger.info("Размер обработанного видео: \(videoData.count) байт")
@@ -323,16 +320,20 @@ public struct VideoProcessor {
             }
             
             if clientResponse.status == HTTPStatus.ok {
-                try? FileManager.default.removeItem(atPath: filePath)
-                req.logger.info("Выходной файл удалён после успешной отправки: \(filePath)")
+                try? FileManager.default.removeItem(atPath: inputFilePath)
+                req.logger.info("Входной файл удалён после успешной отправки: \(inputFilePath)")
+                try? FileManager.default.removeItem(atPath: outputFilePath)
+                req.logger.info("Выходной файл удалён после успешной отправки: \(outputFilePath)")
             } else {
-                req.logger.warning("Файл не удалён, так как отправка не удалась: \(filePath)")
+                req.logger.warning("Входной файл не удалён, так как отправка не удалась: \(inputFilePath)")
+                req.logger.warning("Выходной файл не удалён, так как отправка не удалась: \(outputFilePath)")
             }
             
             return Response(status: clientResponse.status, headers: clientResponse.headers, body: Response.Body(buffer: clientResponse.body ?? ByteBuffer()))
         }.flatMapError { error in
             req.logger.error("Ошибка при отправке видео: \(error)")
-            req.logger.info("Выходной файл сохранён для отладки: \(filePath)")
+            req.logger.info("Входной файл сохранён для отладки: \(inputFilePath)")
+            req.logger.info("Выходной файл сохранён для отладки: \(outputFilePath)")
             return req.eventLoop.makeFailedFuture(error)
         }
     }

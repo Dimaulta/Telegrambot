@@ -29,3 +29,4 @@ enum Entrypoint {
         try await app.asyncShutdown()
     }
 }
+// стабильная версия 1.0.0 от 18.04.2025 

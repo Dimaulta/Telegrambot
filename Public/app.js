@@ -11,22 +11,16 @@ let startDistance = 0;
 let videoFile = null;
 let lastTouchTime = 0;
 let lastScale = 1;
-let isCropSaved = false;
-let savedCropState = null;
-const SCALE_SENSITIVITY = 0.008;
-const MOVE_SENSITIVITY = 1;
 
 // Элементы интерфейса
 const selectScreen = document.getElementById('select-screen');
 const cropScreen = document.getElementById('crop-screen');
 const selectButton = document.getElementById('select-video');
 const videoPreview = document.getElementById('video-preview');
-const cropArea = document.getElementById('crop-area');
-const cropHandle = document.querySelector('.crop-handle');
+const cropFrame = document.querySelector('.crop-frame');
 const playPauseButton = document.getElementById('play-pause');
 const timeSlider = document.getElementById('time-slider');
-const saveCropButton = document.getElementById('save-crop');
-const confirmButton = document.getElementById('confirm-crop');
+const cropButton = document.getElementById('crop-video');
 
 // Инициализация Telegram Web App
 if (window.Telegram.WebApp.initData === '') {
@@ -57,6 +51,60 @@ selectButton.addEventListener('click', () => {
 
     input.click();
 });
+
+// Функция для показа статусного сообщения
+function showStatusMessage(message, duration = 4000) {
+    const statusMessage = document.getElementById('status-message');
+    statusMessage.textContent = message;
+    statusMessage.style.display = 'block';
+    
+    setTimeout(() => {
+        statusMessage.style.display = 'none';
+    }, duration);
+}
+
+// Обработка скроллинга для десктопа
+let isScrolling = false;
+let startScrollX = 0;
+let startScrollY = 0;
+let scrollLeft = 0;
+let scrollTop = 0;
+
+function initializeDesktopScroll() {
+    const videoContainer = document.querySelector('.video-container');
+    
+    if (window.innerWidth >= 768) {
+        videoContainer.addEventListener('mousedown', startScroll);
+        window.addEventListener('mousemove', handleScroll);
+        window.addEventListener('mouseup', stopScroll);
+        window.addEventListener('mouseleave', stopScroll);
+    }
+}
+
+function startScroll(e) {
+    isScrolling = true;
+    startScrollX = e.pageX - videoContainer.offsetLeft;
+    startScrollY = e.pageY - videoContainer.offsetTop;
+    scrollLeft = videoContainer.scrollLeft;
+    scrollTop = videoContainer.scrollTop;
+}
+
+function handleScroll(e) {
+    if (!isScrolling) return;
+    e.preventDefault();
+    
+    const x = e.pageX - videoContainer.offsetLeft;
+    const y = e.pageY - videoContainer.offsetTop;
+    const walkX = (x - startScrollX) * 2;
+    const walkY = (y - startScrollY) * 2;
+    
+    videoContainer.scrollLeft = scrollLeft - walkX;
+    videoContainer.scrollTop = scrollTop - walkY;
+}
+
+function stopScroll() {
+    isScrolling = false;
+}
 
 // Обработка выбранного видео
 function handleVideoSelect(file) {
@@ -89,18 +137,18 @@ function handleVideoSelect(file) {
         timeSlider.max = videoPreview.duration;
         timeSlider.value = 0;
         
+        // Автоматически воспроизводим видео
         videoPreview.play();
         playPauseButton.querySelector('.play-icon').textContent = '⏸';
 
-        // Сбрасываем состояние кропа
+        // Сбрасываем состояние
         currentX = 0;
         currentY = 0;
         currentScale = 1;
-        isCropSaved = false;
-        savedCropState = null;
-        confirmButton.disabled = true;
+        updateVideoTransform();
 
         initializeVideoControls();
+        initializeDesktopScroll();
     };
 }
 
@@ -144,32 +192,10 @@ function initializeVideoControls() {
     videoWrapper.addEventListener('touchstart', handlePinchStart, { passive: false });
     videoWrapper.addEventListener('touchmove', handlePinchMove, { passive: false });
     videoWrapper.addEventListener('touchend', handlePinchEnd);
-
-    // Сохранение области кропа
-    saveCropButton.addEventListener('click', () => {
-        savedCropState = {
-            x: currentX,
-            y: currentY,
-            scale: currentScale,
-            time: videoPreview.currentTime
-        };
-        isCropSaved = true;
-        confirmButton.disabled = false;
-        
-        if (typeof tg.showPopup === 'function') {
-            tg.showPopup({
-                title: 'Область сохранена',
-                message: 'Теперь нажмите "Готово" для создания видеокружка',
-                buttons: [{text: 'OK'}]
-            });
-        } else {
-            alert('Область сохранена. Теперь нажмите "Готово" для создания видеокружка');
-        }
-    });
 }
 
 function handleTouchStart(e) {
-    if (!isCropSaved && e.touches.length === 1) {
+    if (e.touches.length === 1) {
         isDragging = true;
         const touch = e.touches[0];
         startX = touch.clientX - currentX;
@@ -179,32 +205,21 @@ function handleTouchStart(e) {
 }
 
 function handleTouchMove(e) {
-    if (!isCropSaved && isDragging && e.touches.length === 1) {
+    if (isDragging && e.touches.length === 1) {
         const touch = e.touches[0];
-        const deltaX = (touch.clientX - startX - currentX) * MOVE_SENSITIVITY;
-        const deltaY = (touch.clientY - startY - currentY) * MOVE_SENSITIVITY;
-        
-        currentX += deltaX;
-        currentY += deltaY;
-        
-        startX = touch.clientX - currentX;
-        startY = touch.clientY - currentY;
-        
-        requestAnimationFrame(() => {
-            updateVideoTransform();
-        });
+        currentX = touch.clientX - startX;
+        currentY = touch.clientY - startY;
+        updateVideoTransform();
         e.preventDefault();
     }
 }
 
 function handleTouchEnd() {
-    if (!isCropSaved) {
-        isDragging = false;
-    }
+    isDragging = false;
 }
 
 function handlePinchStart(e) {
-    if (!isCropSaved && e.touches.length === 2) {
+    if (e.touches.length === 2) {
         const touch1 = e.touches[0];
         const touch2 = e.touches[1];
         startDistance = Math.hypot(
@@ -216,7 +231,7 @@ function handlePinchStart(e) {
 }
 
 function handlePinchMove(e) {
-    if (!isCropSaved && e.touches.length === 2) {
+    if (e.touches.length === 2) {
         const touch1 = e.touches[0];
         const touch2 = e.touches[1];
         const currentDistance = Math.hypot(
@@ -225,38 +240,25 @@ function handlePinchMove(e) {
         );
         
         if (startDistance > 0) {
-            const now = Date.now();
-            const timeDelta = now - lastTouchTime;
-            lastTouchTime = now;
-            
-            const scaleDelta = ((currentDistance / startDistance) - 1) * SCALE_SENSITIVITY * Math.min(timeDelta, 32);
-            const newScale = Math.min(Math.max(currentScale + scaleDelta, 0.5), 3);
-            
-            if (Math.abs(newScale - lastScale) > 0.01) {
-                currentScale = newScale;
-                lastScale = newScale;
-                requestAnimationFrame(() => {
-                    updateVideoTransform();
-                });
-            }
+            const scale = currentDistance / startDistance;
+            currentScale = Math.min(Math.max(currentScale * scale, 0.5), 3);
+            startDistance = currentDistance;
+            updateVideoTransform();
         }
         e.preventDefault();
     }
 }
 
 function handlePinchEnd() {
-    if (!isCropSaved) {
-        startDistance = 0;
-    }
+    startDistance = 0;
 }
 
 function updateVideoTransform() {
-    const transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
-    videoPreview.style.transform = transform;
+    videoPreview.style.transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
 }
 
-// Обработка кнопки "Готово"
-confirmButton.addEventListener('click', async () => {
+// Обработка кнопки "Обрезать"
+cropButton.addEventListener('click', async () => {
     if (!videoFile) {
         if (typeof tg.showAlert === 'function') {
             tg.showAlert('Пожалуйста, выберите видео');
@@ -266,72 +268,60 @@ confirmButton.addEventListener('click', async () => {
         return;
     }
 
-    if (!isCropSaved || !savedCropState) {
-        if (typeof tg.showAlert === 'function') {
-            tg.showAlert('Пожалуйста, сохраните выбранную область');
-        } else {
-            alert('Пожалуйста, сохраните выбранную область');
-        }
-        return;
-    }
-
-    if (typeof tg.showProgress === 'function') {
-        tg.showProgress();
-    }
-
     try {
+        showStatusMessage('Ваше видео обрабатывается, оно появится в чате с этим ботом');
+
         const video = document.getElementById('video-preview');
-        const container = document.querySelector('.video-container');
-        const cropFrame = document.querySelector('.crop-frame');
+        const videoRect = video.getBoundingClientRect();
+        const cropRect = cropFrame.getBoundingClientRect();
         
-        // Получаем реальные размеры видео
-        const videoWidth = video.videoWidth;
-        const videoHeight = video.videoHeight;
+        // Вычисляем относительные координаты (0-1) с учетом масштаба и позиции
+        const videoWidth = videoRect.width / currentScale;
+        const videoHeight = videoRect.height / currentScale;
         
-        // Получаем текущие размеры и позицию видео в контейнере
-        const rect = video.getBoundingClientRect();
+        // Центр видео с учетом смещения
+        const videoCenterX = videoRect.left + videoRect.width / 2;
+        const videoCenterY = videoRect.top + videoRect.height / 2;
         
-        // Вычисляем масштаб видео относительно оригинального размера
-        const scaleX = videoWidth / rect.width;
-        const scaleY = videoHeight / rect.height;
+        // Центр области кропа
+        const cropCenterX = cropRect.left + cropRect.width / 2;
+        const cropCenterY = cropRect.top + cropRect.height / 2;
         
-        // Нормализуем координаты (0-1)
-        const x = Math.max(0, Math.min(1, (-savedCropState.x * scaleX + videoWidth/2) / videoWidth));
-        const y = Math.max(0, Math.min(1, (-savedCropState.y * scaleY + videoHeight/2) / videoHeight));
+        // Относительное смещение центра кропа от центра видео
+        const offsetX = (cropCenterX - videoCenterX) / videoRect.width;
+        const offsetY = (cropCenterY - videoCenterY) / videoRect.height;
+        
+        // Вычисляем координаты с учетом масштаба и смещения
+        const x = Math.max(0, Math.min(1, 0.5 + offsetX / currentScale));
+        const y = Math.max(0, Math.min(1, 0.5 + offsetY / currentScale));
+        
+        // Размер области кропа с учетом масштаба
+        const width = Math.min(1, cropRect.width / (videoRect.width * currentScale));
+        const height = Math.min(1, cropRect.height / (videoRect.height * currentScale));
 
         const formData = new FormData();
         formData.append('video', videoFile);
         formData.append('cropData', JSON.stringify({
             x: x,
             y: y,
-            width: cropFrame.offsetWidth * scaleX / savedCropState.scale,
-            height: cropFrame.offsetHeight * scaleY / savedCropState.scale,
-            currentTime: savedCropState.time || 0
+            width: width,
+            height: height,
+            currentTime: video.currentTime,
+            scale: currentScale
         }));
 
-        // Получаем chatId из initData
-        try {
-            const initDataStr = window.Telegram.WebApp.initData;
-            const searchParams = new URLSearchParams(initDataStr);
-            const dataStr = searchParams.get('user') || '{}';
-            const data = JSON.parse(decodeURIComponent(dataStr));
-            console.log('Parsed initData:', data);
-            
-            if (data.id) {
-                formData.append('chatId', data.id.toString());
-            } else {
-                throw new Error('Не удалось получить идентификатор чата из user.id');
-            }
-        } catch (error) {
-            console.error('Ошибка при получении chatId:', error);
+        const initData = window.Telegram.WebApp.initDataUnsafe;
+        if (!initData.user?.id) {
             throw new Error('Не удалось получить идентификатор чата');
+        }
+        formData.append('chatId', initData.user.id.toString());
+
+        if (typeof tg.showProgress === 'function') {
+            tg.showProgress();
         }
 
         const response = await fetch('/api/upload', {
             method: 'POST',
-            headers: {
-                'ngrok-skip-browser-warning': 'true'
-            },
             body: formData
         });
 
@@ -340,14 +330,13 @@ confirmButton.addEventListener('click', async () => {
             throw new Error(errorText);
         }
 
-        const result = await response.json();
+        showStatusMessage('Видео готово ✅', 1000);
         
-        if (typeof tg.sendData === 'function') {
-            tg.sendData(JSON.stringify(result));
-        }
-        if (typeof tg.close === 'function') {
-            tg.close();
-        }
+        setTimeout(() => {
+            if (typeof tg.close === 'function') {
+                tg.close();
+            }
+        }, 1000);
 
     } catch (error) {
         console.error('Error:', error);

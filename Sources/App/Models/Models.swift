@@ -6,6 +6,7 @@ struct CropData: Content {
     let width: Double
     let height: Double
     let currentTime: Double
+    let scale: Double
 }
 
 struct UploadData: Content {

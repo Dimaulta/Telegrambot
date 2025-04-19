@@ -192,14 +192,14 @@ struct VideoProcessor {
         // Получаем размеры исходного видео
         let videoSize = try await getVideoSize(inputPath: filePath)
         
-        // Вычисляем размер и координаты для обрезки
+        // Вычисляем размер и координаты для обрезки с учетом масштаба
         let cropSize = min(videoSize.width, videoSize.height)
-        let x = Int(Double(videoSize.width) * cropData.x)
-        let y = Int(Double(videoSize.height) * cropData.y)
+        let scaledX = Int(Double(videoSize.width) * cropData.x * cropData.scale)
+        let scaledY = Int(Double(videoSize.height) * cropData.y * cropData.scale)
         
         // Проверяем и корректируем координаты, чтобы область не выходила за пределы видео
-        let safeX = max(0, min(x, videoSize.width - cropSize))
-        let safeY = max(0, min(y, videoSize.height - cropSize))
+        let safeX = max(0, min(scaledX, videoSize.width - cropSize))
+        let safeY = max(0, min(scaledY, videoSize.height - cropSize))
         
         let cropFilter = "crop=\(cropSize):\(cropSize):\(safeX):\(safeY)"
         let seekParam = cropData.currentTime > 0 ? ["-ss", String(cropData.currentTime)] : []
@@ -220,14 +220,14 @@ struct VideoProcessor {
             "-y", outputPath
         ]
         
-        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(safeX), y=\(safeY), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
+        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(safeX), y=\(safeY), size=\(cropSize), scale=\(cropData.scale) [\(dateFormatter.string(from: Date()))]")
         
         let stderr = Pipe()
         process.standardError = stderr
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
         
         try process.run()
-        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
+        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: "") ?? "") [\(dateFormatter.string(from: Date()))]")
         
         // Читаем stderr в реальном времени
         let stderrHandle = stderr.fileHandleForReading

@@ -76,24 +76,27 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    overflow: auto;
     background: #000;
+    -webkit-overflow-scrolling: touch;
 }
 
 .video-wrapper {
     position: relative;
-    width: 100%;
-    height: 100%;
+    min-width: 100%;
+    min-height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: visible;
 }
 
 #video-preview {
-    max-width: 100%;
-    max-height: 100%;
+    max-width: none;
+    max-height: none;
     object-fit: contain;
     transform-origin: center;
+    will-change: transform;
 }
 
 .crop-frame {
@@ -102,7 +105,7 @@ body {
     height: 300px;
     border-radius: 50%;
     border: 2px solid #fff;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
     pointer-events: none;
     z-index: 2;
 }
@@ -133,6 +136,9 @@ body {
     padding: 20px;
     box-sizing: border-box;
     background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
 }
 
 .video-controls {
@@ -278,4 +284,48 @@ body {
 
 .pulse {
     animation: pulse 2s infinite;
+}
+
+#crop-video {
+    width: 100%;
+    background-color: #64B5F6;
+    color: white;
+    border: none;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.status-message {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    z-index: 1000;
+    display: none;
+    text-align: center;
+}
+
+/* Стили для десктопа */
+@media (min-width: 768px) {
+    .video-container {
+        cursor: grab;
+    }
+    
+    .video-container:active {
+        cursor: grabbing;
+    }
+    
+    #video-preview {
+        cursor: grab;
+    }
+    
+    #video-preview:active {
+        cursor: grabbing;
+    }
 } 

@@ -11,8 +11,17 @@ struct IsProcessingKey: StorageKey {
 
 // configures your application
 public func configure(_ app: Application) async throws {
+    // Configure CORS
+    let corsConfiguration = CORSMiddleware.Configuration(
+        allowedOrigin: .all,
+        allowedMethods: [.GET, .POST, .PUT, .OPTIONS, .DELETE, .PATCH],
+        allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith, .userAgent, .accessControlAllowOrigin, .init("ngrok-skip-browser-warning")]
+    )
+    let cors = CORSMiddleware(configuration: corsConfiguration)
+    app.middleware.use(cors)
+    
     // uncomment to serve files from /Public folder
-    // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+    app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
 
     // Настройка базы данных SQLite
     app.databases.use(DatabaseConfigurationFactory.sqlite(.file("db.sqlite")), as: .sqlite)
@@ -21,7 +30,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateTodo())
 
     // Настройка сервера (хост и порт)
-    app.http.server.configuration.hostname = "127.0.0.1"
+    app.http.server.configuration.hostname = "0.0.0.0"
     app.http.server.configuration.port = 8080
 
     // Создание папки для временных файлов
@@ -34,6 +43,9 @@ public func configure(_ app: Application) async throws {
     await app.storage.setWithAsyncShutdown(IsProcessingKey.self, to: false)
     app.logger.info("Инициализировано isProcessing: \(app.isProcessing)")
 
+    // Настройка максимального размера тела запроса (100 МБ)
+    app.routes.defaultMaxBodySize = "100mb"
+    
     // register routes
     try routes(app)
 }

@@ -5,8 +5,8 @@ let botToken = "7901916114:AAEAXDcoWhYqq5Wx4TAw1RUaxWxGaXWgf-k"
 
 func routes(_ app: Application) throws {
     // Стартовая проверка
-    app.get { req async in
-        "It works!"
+    app.get { req async -> Response in
+        return req.redirect(to: "index.html")
     }
 
     app.get("hello") { req async -> String in
@@ -31,45 +31,35 @@ func routes(_ app: Application) throws {
                 _ = String(message.chat.id) // Оставляем для совместимости, хотя не используется
                 req.logger.info("Получено сообщение от пользователя: \(message.from.first_name) (ID: \(message.from.id))")
 
-           // Обработка команды /start
-if let text = message.text, text == "/start" {
-    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-    let boundary = UUID().uuidString
-    var body = ByteBufferAllocator().buffer(capacity: 0)
+                if let text = message.text {
+                    if text == "/start" {
+                        // Отправляем приветственное сообщение
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                        let boundary = UUID().uuidString
+                        var body = ByteBufferAllocator().buffer(capacity: 0)
 
-    body.writeString("--\(boundary)\r\n")
-    body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
-    body.writeString("\(message.chat.id)\r\n")
-    body.writeString("--\(boundary)\r\n")
-    body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
-    body.writeString("Привет! Отправь мне видео, и я превращу его в видеокружок.\r\n")
-    body.writeString("--\(boundary)\r\n")
-    body.writeString("Content-Disposition: form-data; name=\"reply_markup\"\r\n\r\n")
-    body.writeString("""
-    {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "Привет!",
-                    "callback_data": "greeting"
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                        body.writeString("\(message.chat.id)\r\n")
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+                        body.writeString("Привет! Я помогу тебе создать видеокружок. Нажми на кнопку ниже, чтобы открыть редактор видео.\r\n")
+                        body.writeString("--\(boundary)--\r\n")
+
+                        var headers = HTTPHeaders()
+                        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+
+                        let response = try await req.client.post(sendMessageUrl, headers: headers) { post in
+                            post.body = body
+                        }.get()
+
+                        req.logger.info("Ответ на /start отправлен. Статус: \(response.status)")
+                        return .ok
+                    } else {
+                        // Игнорируем другие команды
+                        return .ok
+                    }
                 }
-            ]
-        ]
-    }
-    \r\n
-    """)
-    body.writeString("--\(boundary)--\r\n")
-
-    var headers = HTTPHeaders()
-    headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
-
-    let response = try await req.client.post(sendMessageUrl, headers: headers) { post in
-        post.body = body
-    }.get()
-
-    req.logger.info("Ответ на /start отправлен. Статус: \(response.status)")
-    return .ok
-}
 
                 // Обработка видео
                 if let video = message.video {
@@ -241,6 +231,105 @@ if let text = message.text, text == "/start" {
             req.logger.error("Детали ошибки: \(error.localizedDescription)")
             return .badRequest
         }
+    }
+
+    // Serve static files from Public directory
+    app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+    
+    // Upload endpoint
+    app.post("api", "upload") { req async throws -> Response in
+        guard let uploadData = try? req.content.decode(UploadData.self) else {
+            throw Abort(.badRequest, reason: "Неверный формат данных")
+        }
+        
+        guard !uploadData.chatId.isEmpty else {
+            throw Abort(.badRequest, reason: "Не удалось получить идентификатор чата")
+        }
+
+        // Создаем уникальное имя файла
+        let uniqueId = UUID().uuidString
+        let temporaryDir = "\(app.directory.workingDirectory)/temporaryvideoFiles"
+        let filePath = "\(temporaryDir)/\(uniqueId).mp4"
+        let processedFilePath = filePath.replacingOccurrences(of: ".mp4", with: "_processed.mp4")
+        
+        req.logger.info("Рабочая директория: \(app.directory.workingDirectory)")
+        req.logger.info("Временная директория: \(temporaryDir)")
+        
+        // Создаем директорию, если она не существует
+        try FileManager.default.createDirectory(atPath: temporaryDir, withIntermediateDirectories: true, attributes: nil)
+        
+        defer {
+            // Удаляем временные файлы после обработки
+            try? FileManager.default.removeItem(atPath: filePath)
+            try? FileManager.default.removeItem(atPath: processedFilePath)
+            req.logger.info("Временные файлы удалены: \(filePath) и \(processedFilePath)")
+        }
+        
+        // Сохраняем файл
+        try await req.fileio.writeFile(uploadData.video.data, at: filePath)
+        req.logger.info("Файл сохранен: \(filePath)")
+        
+        // Декодируем данные обрезки
+        guard let cropDataJson = uploadData.cropData.data(using: .utf8),
+              let cropData = try? JSONDecoder().decode(CropData.self, from: cropDataJson) else {
+            throw Abort(.badRequest, reason: "Неверный формат данных обрезки")
+        }
+        
+        // Создаем экземпляр VideoProcessor
+        let videoProcessor = VideoProcessor(botToken: botToken, req: req)
+        
+        // Обрабатываем видео
+        try await videoProcessor.processUploadedVideo(filePath: filePath, cropData: cropData)
+        req.logger.info("Видео обработано: \(processedFilePath)")
+        
+        // Проверяем, что обработанный файл существует
+        guard FileManager.default.fileExists(atPath: processedFilePath) else {
+            throw Abort(.internalServerError, reason: "Не удалось найти обработанное видео")
+        }
+        
+        // Отправляем видео в Telegram
+        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
+        let boundary = UUID().uuidString
+        var requestBody = ByteBufferAllocator().buffer(capacity: 0)
+        
+        // Добавляем chat_id
+        requestBody.writeString("--\(boundary)\r\n")
+        requestBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        requestBody.writeString("\(uploadData.chatId)\r\n")
+        
+        // Добавляем видео
+        let videoData = try Data(contentsOf: URL(fileURLWithPath: processedFilePath))
+        requestBody.writeString("--\(boundary)\r\n")
+        requestBody.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
+        requestBody.writeString("Content-Type: video/mp4\r\n\r\n")
+        requestBody.writeBytes(videoData)
+        requestBody.writeString("\r\n")
+        requestBody.writeString("--\(boundary)--\r\n")
+        
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+        
+        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+            post.body = requestBody
+        }.get()
+        
+        guard response.status == .ok else {
+            if let body = response.body {
+                let errorData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+                if let errorStr = String(data: errorData, encoding: .utf8) {
+                    throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(errorStr)")
+                }
+            }
+            throw Abort(.badRequest, reason: "Не удалось отправить видео")
+        }
+        
+        req.logger.info("Видео успешно отправлено в Telegram")
+        return Response(status: .ok)
+    }
+    
+    // Структура для декодирования формы
+    struct FormData: Content {
+        var file: File?
     }
 
     try app.register(collection: TodoController())

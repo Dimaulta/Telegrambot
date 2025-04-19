@@ -5,8 +5,6 @@ struct VideoProcessor {
     let botToken: String
     let req: Request
 
- 
-
     func downloadAndProcess(videoId: String, chatId: String) async throws {
         let temporaryDir = "/Users/a1111/Desktop/projects/telegramBot01/temporaryvideoFiles"
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -172,6 +170,117 @@ struct VideoProcessor {
         req.logger.info("Выходной файл удалён после успешной отправки: \(outputPath)")
     }
 
+    func processUploadedVideo(filePath: String, cropData: CropData) async throws {
+        let outputPath = filePath.replacingOccurrences(of: ".mp4", with: "_processed.mp4")
+        
+        // Получаем длительность видео
+        let duration = try await getVideoDuration(inputPath: filePath)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "HH:mm:ss"
+        req.logger.info("Длительность видео: \(duration) секунд [\(dateFormatter.string(from: Date()))]")
+        
+        if duration > 60 {
+            throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
+        }
+        
+        // Обрабатываем видео с помощью FFmpeg
+        req.logger.info("Начинаем обработку видео через ffmpeg... [\(dateFormatter.string(from: Date()))]")
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        
+        // Получаем размеры исходного видео
+        let videoSize = try await getVideoSize(inputPath: filePath)
+        
+        // Вычисляем размер и координаты для обрезки
+        let cropSize = min(videoSize.width, videoSize.height)
+        let x = Int(Double(videoSize.width) * cropData.x)
+        let y = Int(Double(videoSize.height) * cropData.y)
+        
+        // Проверяем и корректируем координаты, чтобы область не выходила за пределы видео
+        let safeX = max(0, min(x, videoSize.width - cropSize))
+        let safeY = max(0, min(y, videoSize.height - cropSize))
+        
+        let cropFilter = "crop=\(cropSize):\(cropSize):\(safeX):\(safeY)"
+        let seekParam = cropData.currentTime > 0 ? ["-ss", String(cropData.currentTime)] : []
+        
+        process.arguments = seekParam + [
+            "-i", filePath,
+            "-vf", "\(cropFilter),scale=640:640,format=yuv420p",
+            "-t", "59",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-b:v", "2M",
+            "-maxrate", "2M",
+            "-bufsize", "2M",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "44100",
+            "-movflags", "+faststart",
+            "-y", outputPath
+        ]
+        
+        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(safeX), y=\(safeY), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
+        
+        let stderr = Pipe()
+        process.standardError = stderr
+        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
+        
+        try process.run()
+        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
+        
+        // Читаем stderr в реальном времени
+        let stderrHandle = stderr.fileHandleForReading
+        while process.isRunning {
+            let data = stderrHandle.availableData
+            if !data.isEmpty, let stderrOutput = String(data: data, encoding: .utf8) {
+                req.logger.info("FFmpeg stderr (поток): \(stderrOutput)")
+            }
+            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+        
+        process.waitUntilExit()
+        req.logger.info("FFmpeg успешно завершил работу [\(dateFormatter.string(from: Date()))]")
+        
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео")
+        }
+        
+        req.logger.info("Видео успешно обработано [\(dateFormatter.string(from: Date()))]")
+    }
+    
+    private func getVideoSize(inputPath: String) async throws -> (width: Int, height: Int) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
+        process.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            inputPath
+        ]
+        
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        
+        try process.run()
+        process.waitUntilExit()
+        
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: stdoutData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Не удалось получить размеры видео")
+        }
+        
+        let dimensions = output.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ",")
+        guard dimensions.count == 2,
+              let width = Int(dimensions[0]),
+              let height = Int(dimensions[1]) else {
+            throw Abort(.internalServerError, reason: "Неверный формат размеров видео")
+        }
+        
+        return (width: width, height: height)
+    }
+    
     private func getVideoDuration(inputPath: String) async throws -> Int {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
@@ -181,19 +290,19 @@ struct VideoProcessor {
             "-of", "default=noprint_wrappers=1:nokey=1",
             inputPath
         ]
-
+        
         let stdout = Pipe()
         process.standardOutput = stdout
-
+        
         try process.run()
         process.waitUntilExit()
-
+        
         let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
         guard let durationString = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let duration = Double(durationString) else {
             throw Abort(.internalServerError, reason: "Не удалось определить длительность видео")
         }
-
+        
         return Int(duration)
     }
 }

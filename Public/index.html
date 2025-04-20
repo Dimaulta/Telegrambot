@@ -19,7 +19,7 @@
         <div id="crop-screen" class="screen">
             <div class="video-container">
                 <div class="video-wrapper">
-                    <video id="video-preview" playsinline></video>
+                    <video id="video-preview" playsinline muted></video>
                     <div class="crop-frame"></div>
                 </div>
             </div>
@@ -30,12 +30,11 @@
                     </button>
                     <input type="range" id="time-slider" min="0" max="100" value="0" class="slider">
                 </div>
+                <div class="status-message" id="status-message"></div>
                 <button id="crop-video" class="button">Обрезать</button>
             </div>
         </div>
     </div>
-
-    <div class="status-message" id="status-message"></div>
     
     <script src="app.js"></script>
 </body>

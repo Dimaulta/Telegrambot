@@ -63,10 +63,10 @@ selectButton.addEventListener('click', () => {
 function showStatusMessage(message, duration = 4000) {
     const statusMessage = document.getElementById('status-message');
     statusMessage.textContent = message;
-    statusMessage.style.display = 'block';
+    statusMessage.classList.add('show');
     
     setTimeout(() => {
-        statusMessage.style.display = 'none';
+        statusMessage.classList.remove('show');
     }, duration);
 }
 
@@ -277,7 +277,7 @@ cropButton.addEventListener('click', async () => {
     }
 
     try {
-        showStatusMessage('Ваше видео обрабатывается, оно появится в чате с этим ботом');
+        showStatusMessage('Видео обрабатывается, оно появится в чате с этим ботом', 3000);
 
         const video = document.getElementById('video-preview');
         const videoRect = video.getBoundingClientRect();
@@ -338,13 +338,13 @@ cropButton.addEventListener('click', async () => {
             throw new Error(errorText);
         }
 
-        showStatusMessage('Видео готово ✅', 1000);
+        showStatusMessage('Видео готово ✅', 3000);
         
         setTimeout(() => {
             if (typeof tg.close === 'function') {
                 tg.close();
             }
-        }, 1000);
+        }, 2000);
 
     } catch (error) {
         console.error('Error:', error);

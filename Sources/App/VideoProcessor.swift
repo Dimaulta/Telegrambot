@@ -6,7 +6,7 @@ struct VideoProcessor {
     let req: Request
 
     func downloadAndProcess(videoId: String, chatId: String) async throws {
-        let temporaryDir = "/Users/a1111/Desktop/projects/telegramBot01/temporaryvideoFiles"
+        let temporaryDir = "\(req.application.directory.workingDirectory)temporaryvideoFiles"
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let uniqueId = UUID().uuidString.prefix(8)
         let inputPath = "\(temporaryDir)/input_\(timestamp)_\(uniqueId).mp4"

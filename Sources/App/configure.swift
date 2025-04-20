@@ -34,7 +34,7 @@ public func configure(_ app: Application) async throws {
     app.http.server.configuration.port = 8080
 
     // Создание папки для временных файлов
-    let temporaryDir = "/Users/a1111/Desktop/projects/telegramBot01/temporaryvideoFiles"
+    let temporaryDir = "\(app.directory.workingDirectory)temporaryvideoFiles"
     if !FileManager.default.fileExists(atPath: temporaryDir) {
         try FileManager.default.createDirectory(atPath: temporaryDir, withIntermediateDirectories: true)
     }

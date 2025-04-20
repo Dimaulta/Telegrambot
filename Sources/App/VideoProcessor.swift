@@ -6,13 +6,13 @@ struct VideoProcessor {
     let req: Request
 
     func downloadAndProcess(videoId: String, chatId: String) async throws -> URL {
-        let workingUrl = URL(fileURLWithPath: req.application.directory.workingDirectory)
-        let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
-        
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let uniqueId = UUID().uuidString.prefix(8)
-        let inputUrl = temporaryUrl.appendingPathComponent("input_\(timestamp)_\(uniqueId).mp4")
-        let outputUrl = temporaryUrl.appendingPathComponent("output_\(timestamp)_\(uniqueId).mp4")
+        let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
+        let outputFileName = "output_\(timestamp)_\(uniqueId).mp4"
+        
+        let inputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(inputFileName)
+        let outputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(outputFileName)
         let inputPath = inputUrl.path
         let outputPath = outputUrl.path
 
@@ -172,7 +172,8 @@ struct VideoProcessor {
 
     func processUploadedVideo(filePath: String, cropData: CropData) async throws -> URL {
         let fileUrl = URL(fileURLWithPath: filePath)
-        let outputUrl = fileUrl.deletingPathExtension().appendingPathExtension("processed.mp4")
+        let outputFileName = fileUrl.deletingPathExtension().lastPathComponent + ".processed.mp4"
+        let outputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(outputFileName)
         let outputPath = outputUrl.path
         
         // Получаем длительность видео

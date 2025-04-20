@@ -3,10 +3,17 @@ import Fluent
 import FluentSQLiteDriver
 import Vapor
 
-
-// Определяем ключ для хранения isProcessing
+// Определяем ключи для хранения
 struct IsProcessingKey: StorageKey {
     typealias Value = Bool
+}
+
+struct ResourcesPathKey: StorageKey {
+    typealias Value = String
+}
+
+struct TemporaryPathKey: StorageKey {
+    typealias Value = String
 }
 
 // configures your application
@@ -33,17 +40,27 @@ public func configure(_ app: Application) async throws {
     app.http.server.configuration.hostname = "0.0.0.0"
     app.http.server.configuration.port = 8080
 
-    // Создание папки для временных файлов
-    let workingUrl = URL(fileURLWithPath: app.directory.workingDirectory)
-    let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
-    let temporaryDir = temporaryUrl.path
+    // Создание папки для временных файлов с использованием относительного пути
+    let resourcesPath = "Resources"
+    let temporaryDirName = "temporaryvideoFiles"
+    let temporaryPath = "\(resourcesPath)/\(temporaryDirName)"
     
-    if !FileManager.default.fileExists(atPath: temporaryDir) {
-        try FileManager.default.createDirectory(atPath: temporaryDir, withIntermediateDirectories: true)
+    // Убеждаемся, что директория Resources существует
+    if !FileManager.default.fileExists(atPath: resourcesPath) {
+        try FileManager.default.createDirectory(atPath: resourcesPath, withIntermediateDirectories: true)
+    }
+    
+    // Убеждаемся, что директория для временных файлов существует
+    if !FileManager.default.fileExists(atPath: temporaryPath) {
+        try FileManager.default.createDirectory(atPath: temporaryPath, withIntermediateDirectories: true)
     }
 
-    app.logger.info("Рабочая директория: \(app.directory.workingDirectory)")
-    app.logger.info("Временная директория: \(temporaryDir)")
+    app.logger.info("Путь к ресурсам: \(resourcesPath)")
+    app.logger.info("Временная директория: \(temporaryPath)")
+
+    // Сохраняем пути в storage для использования в других частях приложения
+    app.storage.set(ResourcesPathKey.self, to: resourcesPath)
+    app.storage.set(TemporaryPathKey.self, to: temporaryPath)
 
     // Инициализация isProcessing в Application.storage
     await app.storage.setWithAsyncShutdown(IsProcessingKey.self, to: false)
@@ -65,5 +82,14 @@ extension Application {
         set {
             self.storage.set(IsProcessingKey.self, to: newValue)
         }
+    }
+    
+    // Добавляем удобные геттеры для путей
+    var resourcesPath: String {
+        return self.storage.get(ResourcesPathKey.self) ?? "Resources"
+    }
+    
+    var temporaryPath: String {
+        return self.storage.get(TemporaryPathKey.self) ?? "Resources/temporaryvideoFiles"
     }
 }

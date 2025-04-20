@@ -290,14 +290,13 @@ func routes(_ app: Application) throws {
         }
 
         // Создаем уникальное имя файла
-        let workingUrl = URL(fileURLWithPath: app.directory.workingDirectory)
-        let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
         let timestamp = Int(Date().timeIntervalSince1970)
         let uniqueId = UUID().uuidString
-        let fileUrl = temporaryUrl.appendingPathComponent("upload_\(timestamp)_\(uniqueId).mp4")
+        let fileName = "upload_\(timestamp)_\(uniqueId).mp4"
+        let fileUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(fileName)
         
-        req.logger.info("Рабочая директория: \(app.directory.workingDirectory)")
-        req.logger.info("Временная директория: \(temporaryUrl.path)")
+        req.logger.info("Путь к ресурсам: \(req.application.resourcesPath)")
+        req.logger.info("Временная директория: \(req.application.temporaryPath)")
         
         defer {
             // Удаляем входной файл

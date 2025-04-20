@@ -33,7 +33,14 @@ if (window.Telegram.WebApp.initData === '') {
     tg.enableClosingConfirmation();
 }
 
-// Выбор видео
+// Обработка нажатий на кнопки
+document.querySelectorAll('.button').forEach(button => {
+    button.addEventListener('click', function() {
+        this.classList.add('active');
+    });
+});
+
+// Обработка выбора видео
 selectButton.addEventListener('click', () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -120,6 +127,7 @@ function handleVideoSelect(file) {
     videoFile = file;
     const videoUrl = URL.createObjectURL(file);
     videoPreview.src = videoUrl;
+    videoPreview.classList.add('video-preview');
 
     videoPreview.onloadedmetadata = () => {
         if (videoPreview.duration > 60) {

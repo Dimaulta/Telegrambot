@@ -214,8 +214,9 @@ struct VideoProcessor {
             "-maxrate", "2M",
             "-bufsize", "2M",
             "-c:a", "aac",
-            "-b:a", "128k",
+            "-b:a", "192k",
             "-ar", "44100",
+            "-ac", "2",
             "-movflags", "+faststart",
             "-y", outputPath
         ]

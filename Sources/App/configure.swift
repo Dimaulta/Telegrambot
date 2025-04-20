@@ -34,10 +34,16 @@ public func configure(_ app: Application) async throws {
     app.http.server.configuration.port = 8080
 
     // Создание папки для временных файлов
-    let temporaryDir = "\(app.directory.workingDirectory)temporaryvideoFiles"
+    let workingUrl = URL(fileURLWithPath: app.directory.workingDirectory)
+    let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
+    let temporaryDir = temporaryUrl.path
+    
     if !FileManager.default.fileExists(atPath: temporaryDir) {
         try FileManager.default.createDirectory(atPath: temporaryDir, withIntermediateDirectories: true)
     }
+
+    app.logger.info("Рабочая директория: \(app.directory.workingDirectory)")
+    app.logger.info("Временная директория: \(temporaryDir)")
 
     // Инициализация isProcessing в Application.storage
     await app.storage.setWithAsyncShutdown(IsProcessingKey.self, to: false)

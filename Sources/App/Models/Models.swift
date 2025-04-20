@@ -5,7 +5,6 @@ struct CropData: Content {
     let y: Double
     let width: Double
     let height: Double
-    let currentTime: Double
     let scale: Double
 }
 

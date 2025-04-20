@@ -155,6 +155,16 @@ function handleVideoSelect(file) {
         currentScale = 1;
         updateVideoTransform();
 
+        // Устанавливаем начальный размер и позицию кроп-фрейма
+        const videoRect = videoPreview.getBoundingClientRect();
+        cropFrame.style.width = '300px';
+        cropFrame.style.height = '300px';
+        
+        // Центрируем кроп-фрейм
+        const cropRect = cropFrame.getBoundingClientRect();
+        currentX = (videoRect.width - cropRect.width) / 2;
+        currentY = (videoRect.height - cropRect.height) / 2;
+
         initializeVideoControls();
         initializeDesktopScroll();
     };
@@ -215,8 +225,22 @@ function handleTouchStart(e) {
 function handleTouchMove(e) {
     if (isDragging && e.touches.length === 1) {
         const touch = e.touches[0];
-        currentX = touch.clientX - startX;
-        currentY = touch.clientY - startY;
+        const videoRect = videoPreview.getBoundingClientRect();
+        const cropFrame = document.querySelector('.crop-frame');
+        const cropRect = cropFrame.getBoundingClientRect();
+        
+        // Вычисляем новые координаты
+        let newX = touch.clientX - startX;
+        let newY = touch.clientY - startY;
+        
+        // Ограничиваем перемещение рамки кропа границами видео
+        const maxX = videoRect.width - cropRect.width;
+        const maxY = videoRect.height - cropRect.height;
+        
+        // Применяем ограничения
+        currentX = Math.max(-maxX/2, Math.min(maxX/2, newX));
+        currentY = Math.max(-maxY/2, Math.min(maxY/2, newY));
+        
         updateVideoTransform();
         e.preventDefault();
     }
@@ -248,8 +272,14 @@ function handlePinchMove(e) {
         );
         
         if (startDistance > 0) {
+            const videoRect = videoPreview.getBoundingClientRect();
             const scale = currentDistance / startDistance;
-            currentScale = Math.min(Math.max(currentScale * scale, 0.5), 3);
+            
+            // Ограничиваем масштаб, чтобы видео всегда было больше области кропа
+            const minScale = 300 / Math.min(videoRect.width, videoRect.height);
+            const maxScale = 2;
+            currentScale = Math.min(Math.max(currentScale * scale, minScale), maxScale);
+            
             startDistance = currentDistance;
             updateVideoTransform();
         }
@@ -314,7 +344,6 @@ cropButton.addEventListener('click', async () => {
             y: y,
             width: width,
             height: height,
-            currentTime: video.currentTime,
             scale: currentScale
         }));
 

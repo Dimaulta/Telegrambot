@@ -189,8 +189,51 @@ func routes(_ app: Application) throws {
                     do {
                         // Обрабатываем видео с помощью VideoProcessor
                         let processor = VideoProcessor(botToken: botToken, req: req)
-                        try await processor.downloadAndProcess(videoId: video.file_id, chatId: targetChatId)
-                        req.logger.info("Видео успешно обработано и отправлено")
+                        let processedUrl = try await processor.downloadAndProcess(videoId: video.file_id, chatId: targetChatId)
+                        req.logger.info("Видео обработано и сохранено: \(processedUrl.path)")
+
+                        defer {
+                            try? FileManager.default.removeItem(at: processedUrl)
+                            req.logger.info("Выходной файл удалён после отправки: \(processedUrl.path)")
+                        }
+
+                        // Отправляем обработанное видео в Telegram
+                        let videoData = try Data(contentsOf: processedUrl)
+                        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
+                        let boundary = UUID().uuidString
+                        var requestBody = ByteBufferAllocator().buffer(capacity: 0)
+
+                        // Добавляем chat_id
+                        requestBody.writeString("--\(boundary)\r\n")
+                        requestBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                        requestBody.writeString("\(targetChatId)\r\n")
+
+                        // Добавляем видео
+                        requestBody.writeString("--\(boundary)\r\n")
+                        requestBody.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
+                        requestBody.writeString("Content-Type: video/mp4\r\n\r\n")
+                        requestBody.writeBytes(videoData)
+                        requestBody.writeString("\r\n")
+                        requestBody.writeString("--\(boundary)--\r\n")
+
+                        var headers = HTTPHeaders()
+                        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+
+                        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+                            post.body = requestBody
+                        }.get()
+
+                        guard response.status == .ok else {
+                            if let body = response.body {
+                                let errorData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+                                if let errorStr = String(data: errorData, encoding: .utf8) {
+                                    throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(errorStr)")
+                                }
+                            }
+                            throw Abort(.badRequest, reason: "Не удалось отправить видео")
+                        }
+
+                        req.logger.info("Видео успешно отправлено в Telegram")
                         return .ok
                     } catch {
                         req.logger.error("Ошибка при обработке видео: \(error)")
@@ -247,27 +290,29 @@ func routes(_ app: Application) throws {
         }
 
         // Создаем уникальное имя файла
+        let workingUrl = URL(fileURLWithPath: app.directory.workingDirectory)
+        let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
+        let timestamp = Int(Date().timeIntervalSince1970)
         let uniqueId = UUID().uuidString
-        let temporaryDir = "\(app.directory.workingDirectory)/temporaryvideoFiles"
-        let filePath = "\(temporaryDir)/\(uniqueId).mp4"
-        let processedFilePath = filePath.replacingOccurrences(of: ".mp4", with: "_processed.mp4")
+        let fileUrl = temporaryUrl.appendingPathComponent("upload_\(timestamp)_\(uniqueId).mp4")
         
         req.logger.info("Рабочая директория: \(app.directory.workingDirectory)")
-        req.logger.info("Временная директория: \(temporaryDir)")
-        
-        // Создаем директорию, если она не существует
-        try FileManager.default.createDirectory(atPath: temporaryDir, withIntermediateDirectories: true, attributes: nil)
+        req.logger.info("Временная директория: \(temporaryUrl.path)")
         
         defer {
-            // Удаляем временные файлы после обработки
-            try? FileManager.default.removeItem(atPath: filePath)
-            try? FileManager.default.removeItem(atPath: processedFilePath)
-            req.logger.info("Временные файлы удалены: \(filePath) и \(processedFilePath)")
+            // Удаляем входной файл
+            try? FileManager.default.removeItem(at: fileUrl)
+            req.logger.info("Входной файл удалён: \(fileUrl.path)")
+            
+            // Удаляем обработанный файл
+            let processedUrl = fileUrl.deletingPathExtension().appendingPathExtension("processed.mp4")
+            try? FileManager.default.removeItem(at: processedUrl)
+            req.logger.info("Обработанный файл удалён: \(processedUrl.path)")
         }
         
         // Сохраняем файл
-        try await req.fileio.writeFile(uploadData.video.data, at: filePath)
-        req.logger.info("Файл сохранен: \(filePath)")
+        try await req.fileio.writeFile(uploadData.video.data, at: fileUrl.path)
+        req.logger.info("Файл сохранён: \(fileUrl.path)")
         
         // Декодируем данные обрезки
         guard let cropDataJson = uploadData.cropData.data(using: .utf8),
@@ -279,13 +324,8 @@ func routes(_ app: Application) throws {
         let videoProcessor = VideoProcessor(botToken: botToken, req: req)
         
         // Обрабатываем видео
-        try await videoProcessor.processUploadedVideo(filePath: filePath, cropData: cropData)
-        req.logger.info("Видео обработано: \(processedFilePath)")
-        
-        // Проверяем, что обработанный файл существует
-        guard FileManager.default.fileExists(atPath: processedFilePath) else {
-            throw Abort(.internalServerError, reason: "Не удалось найти обработанное видео")
-        }
+        let processedUrl = try await videoProcessor.processUploadedVideo(filePath: fileUrl.path, cropData: cropData)
+        req.logger.info("Видео обработано: \(processedUrl.path)")
         
         // Отправляем видео в Telegram
         let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
@@ -298,7 +338,7 @@ func routes(_ app: Application) throws {
         requestBody.writeString("\(uploadData.chatId)\r\n")
         
         // Добавляем видео
-        let videoData = try Data(contentsOf: URL(fileURLWithPath: processedFilePath))
+        let videoData = try Data(contentsOf: processedUrl)
         requestBody.writeString("--\(boundary)\r\n")
         requestBody.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
         requestBody.writeString("Content-Type: video/mp4\r\n\r\n")

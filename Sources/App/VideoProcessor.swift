@@ -5,17 +5,21 @@ struct VideoProcessor {
     let botToken: String
     let req: Request
 
-    func downloadAndProcess(videoId: String, chatId: String) async throws {
-        let temporaryDir = "\(req.application.directory.workingDirectory)temporaryvideoFiles"
+    func downloadAndProcess(videoId: String, chatId: String) async throws -> URL {
+        let workingUrl = URL(fileURLWithPath: req.application.directory.workingDirectory)
+        let temporaryUrl = workingUrl.appendingPathComponent("temporaryvideoFiles")
+        
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let uniqueId = UUID().uuidString.prefix(8)
-        let inputPath = "\(temporaryDir)/input_\(timestamp)_\(uniqueId).mp4"
-        let outputPath = "\(temporaryDir)/output_\(timestamp)_\(uniqueId).mp4"
+        let inputUrl = temporaryUrl.appendingPathComponent("input_\(timestamp)_\(uniqueId).mp4")
+        let outputUrl = temporaryUrl.appendingPathComponent("output_\(timestamp)_\(uniqueId).mp4")
+        let inputPath = inputUrl.path
+        let outputPath = outputUrl.path
 
         defer {
             // Удаляем временные файлы после обработки
-            try? FileManager.default.removeItem(atPath: inputPath)
-            try? FileManager.default.removeItem(atPath: outputPath)
+            try? FileManager.default.removeItem(at: inputUrl)
+            try? FileManager.default.removeItem(at: outputUrl)
             req.logger.info("Входной файл удалён после обработки: \(inputPath)")
             req.logger.info("Выходной файл удалён после обработки: \(outputPath)")
         }
@@ -54,7 +58,7 @@ struct VideoProcessor {
         }
 
         let videoData = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        try videoData.write(to: URL(fileURLWithPath: inputPath))
+        try videoData.write(to: inputUrl)
         req.logger.info("Видео успешно скачано по пути: \(inputPath)")
         req.logger.info("Размер видео: \(videoData.count) байт")
 
@@ -128,7 +132,7 @@ struct VideoProcessor {
         var requestBody = ByteBufferAllocator().buffer(capacity: 0)
 
         req.logger.info("Читаем файл перед отправкой...")
-        let processedVideoData = try Data(contentsOf: URL(fileURLWithPath: outputPath))
+        let processedVideoData = try Data(contentsOf: outputUrl)
         req.logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
 
         requestBody.writeString("--\(boundary)\r\n")
@@ -163,15 +167,13 @@ struct VideoProcessor {
             throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
         }
 
-        // Удаляем файлы после успешной отправки
-        try FileManager.default.removeItem(atPath: inputPath)
-        try FileManager.default.removeItem(atPath: outputPath)
-        req.logger.info("Входной файл удалён после успешной отправки: \(inputPath)")
-        req.logger.info("Выходной файл удалён после успешной отправки: \(outputPath)")
+        return outputUrl
     }
 
-    func processUploadedVideo(filePath: String, cropData: CropData) async throws {
-        let outputPath = filePath.replacingOccurrences(of: ".mp4", with: "_processed.mp4")
+    func processUploadedVideo(filePath: String, cropData: CropData) async throws -> URL {
+        let fileUrl = URL(fileURLWithPath: filePath)
+        let outputUrl = fileUrl.deletingPathExtension().appendingPathExtension("processed.mp4")
+        let outputPath = outputUrl.path
         
         // Получаем длительность видео
         let duration = try await getVideoDuration(inputPath: filePath)
@@ -202,12 +204,10 @@ struct VideoProcessor {
         let safeY = max(0, min(scaledY, videoSize.height - cropSize))
         
         let cropFilter = "crop=\(cropSize):\(cropSize):\(safeX):\(safeY)"
-        let seekParam = cropData.currentTime > 0 ? ["-ss", String(cropData.currentTime)] : []
         
-        process.arguments = seekParam + [
+        process.arguments = [
             "-i", filePath,
             "-vf", "\(cropFilter),scale=640:640,format=yuv420p",
-            "-t", "59",
             "-c:v", "libx264",
             "-preset", "fast",
             "-b:v", "2M",
@@ -228,7 +228,7 @@ struct VideoProcessor {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
         
         try process.run()
-        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: "") ?? "") [\(dateFormatter.string(from: Date()))]")
+        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
         
         // Читаем stderr в реальном времени
         let stderrHandle = stderr.fileHandleForReading
@@ -248,6 +248,7 @@ struct VideoProcessor {
         }
         
         req.logger.info("Видео успешно обработано [\(dateFormatter.string(from: Date()))]")
+        return outputUrl
     }
     
     private func getVideoSize(inputPath: String) async throws -> (width: Int, height: Int) {

@@ -9,3 +9,7 @@ db.sqlite
 .env
 .env.*
 !.env.example
+setup_cursor_rules.py
+.cursor/rules/assistant.mdc
+.vscode/launch.json
+.vscode/settings.json

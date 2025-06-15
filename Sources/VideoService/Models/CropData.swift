@@ -6,10 +6,4 @@ struct CropData: Content {
     let width: Double
     let height: Double
     let scale: Double
-}
-
-struct UploadData: Content {
-    var video: File
-    var cropData: String
-    var chatId: String
 } 

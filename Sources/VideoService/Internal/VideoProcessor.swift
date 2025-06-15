@@ -1,9 +1,17 @@
 import Vapor
 import Foundation
+// import App // если CropData определён в общем модуле, иначе скорректировать импорт
 
 struct VideoProcessor {
-    let botToken: String
     let req: Request
+
+    var botToken: String {
+        Environment.get("VIDEO_BOT_TOKEN") ?? ""
+    }
+
+    var tempDir: String {
+        Environment.get("TEMP_DIR") ?? "video-service/Resources/temporaryvideoFiles/"
+    }
 
     func downloadAndProcess(videoId: String, chatId: String) async throws -> URL {
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -11,8 +19,8 @@ struct VideoProcessor {
         let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
         let outputFileName = "output_\(timestamp)_\(uniqueId).mp4"
         
-        let inputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(inputFileName)
-        let outputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(outputFileName)
+        let inputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(inputFileName)
+        let outputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(outputFileName)
         let inputPath = inputUrl.path
         let outputPath = outputUrl.path
 
@@ -173,7 +181,7 @@ struct VideoProcessor {
     func processUploadedVideo(filePath: String, cropData: CropData) async throws -> URL {
         let fileUrl = URL(fileURLWithPath: filePath)
         let outputFileName = fileUrl.deletingPathExtension().lastPathComponent + ".processed.mp4"
-        let outputUrl = URL(fileURLWithPath: req.application.temporaryPath).appendingPathComponent(outputFileName)
+        let outputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(outputFileName)
         let outputPath = outputUrl.path
         
         // Получаем длительность видео

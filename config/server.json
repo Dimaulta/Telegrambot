@@ -1,0 +1,8 @@
+{
+  "server": {
+    "ip": "123.45.67.89",
+    "port": 8080,
+    "protocol": "https",
+    "base_url": "https://123.45.67.89:8080"
+  }
+} 

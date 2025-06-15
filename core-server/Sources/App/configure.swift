@@ -40,27 +40,25 @@ public func configure(_ app: Application) async throws {
     app.http.server.configuration.hostname = "0.0.0.0"
     app.http.server.configuration.port = 8080
 
-    // Создание папки для временных файлов с использованием относительного пути
-    let resourcesPath = "Resources"
-    let temporaryDirName = "temporaryvideoFiles"
-    let temporaryPath = "\(resourcesPath)/\(temporaryDirName)"
-    
-    // Убеждаемся, что директория Resources существует
-    if !FileManager.default.fileExists(atPath: resourcesPath) {
-        try FileManager.default.createDirectory(atPath: resourcesPath, withIntermediateDirectories: true)
+    // Получаем TEMP_DIR из переменных окружения
+    let envTempDir = Environment.get("TEMP_DIR")
+    let temporaryPath: String
+    if let envTempDir, !envTempDir.isEmpty {
+        temporaryPath = envTempDir
+    } else {
+        let resourcesPath = "Resources"
+        let temporaryDirName = "temporaryvideoFiles"
+        temporaryPath = "\(resourcesPath)/\(temporaryDirName)"
     }
-    
     // Убеждаемся, что директория для временных файлов существует
     if !FileManager.default.fileExists(atPath: temporaryPath) {
         try FileManager.default.createDirectory(atPath: temporaryPath, withIntermediateDirectories: true)
     }
-
-    app.logger.info("Путь к ресурсам: \(resourcesPath)")
     app.logger.info("Временная директория: \(temporaryPath)")
+    app.storage.set(TemporaryPathKey.self, to: temporaryPath)
 
     // Сохраняем пути в storage для использования в других частях приложения
-    app.storage.set(ResourcesPathKey.self, to: resourcesPath)
-    app.storage.set(TemporaryPathKey.self, to: temporaryPath)
+    app.storage.set(ResourcesPathKey.self, to: "Resources")
 
     // Инициализация isProcessing в Application.storage
     await app.storage.setWithAsyncShutdown(IsProcessingKey.self, to: false)

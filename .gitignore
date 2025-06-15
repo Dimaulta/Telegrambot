@@ -13,3 +13,12 @@ setup_cursor_rules.py
 .cursor/rules/assistant.mdc
 .vscode/launch.json
 .vscode/settings.json
+
+# Конфигурация и секреты
+config/.env
+config/.env.*
+*.env
+
+# Логи и временные файлы
+*.log
+*.tmp

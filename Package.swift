@@ -19,7 +19,7 @@ let package = Package(
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver"),
                 .product(name: "Vapor", package: "vapor")
             ],
-            path: "Sources/App"
+            path: "Roundsvideobot/App"
         ),
         .target(
             name: "VideoService",
@@ -28,7 +28,7 @@ let package = Package(
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
-            path: "Sources/VideoService"
+            path: "Roundsvideobot/VideoService"
         ),
         .executableTarget(
             name: "VideoServiceRunner",
@@ -36,7 +36,7 @@ let package = Package(
                 .target(name: "VideoService"),
                 .product(name: "Vapor", package: "vapor")
             ],
-            path: "Sources/VideoServiceRunner"
+            path: "Roundsvideobot/VideoServiceRunner"
         ),
         .testTarget(
             name: "AppTests",

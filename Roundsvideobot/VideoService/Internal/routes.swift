@@ -2,9 +2,9 @@ import Vapor
 
 func routes(_ app: Application) async throws {
     // Базовый маршрут для проверки работоспособности
-    app.get { req async throws -> String in
-        return "VideoService is running!"
-    }
+    // app.get { req async throws -> String in
+    //     return "VideoService is running!"
+    // }
     
     // Маршрут для обработки webhook'а от Telegram
     app.post("webhook") { req async throws -> HTTPStatus in
@@ -80,9 +80,39 @@ func routes(_ app: Application) async throws {
                         return .badRequest
                     }
                     
-                    // Обрабатываем видео
+                    // Получаем информацию о файле
+                    let getFileUrl = URI(string: "https://api.telegram.org/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/getFile?file_id=\(video.file_id)")
+                    let fileResponse = try await req.client.get(getFileUrl).flatMapThrowing { res -> TelegramFileResponse in
+                        guard res.status == HTTPStatus.ok, let body = res.body else {
+                            throw Abort(.badRequest, reason: "Не удалось получить информацию о файле")
+                        }
+                        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
+                        return try JSONDecoder().decode(TelegramFileResponse.self, from: data)
+                    }.get()
+
+                    let filePath = fileResponse.result.file_path
+                    let downloadUrl = URI(string: "https://api.telegram.org/file/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/\(filePath)")
+                    
+                    // Скачиваем видео
+                    let downloadResponse = try await req.client.get(downloadUrl).get()
+                    guard downloadResponse.status == HTTPStatus.ok, let body = downloadResponse.body else {
+                        throw Abort(.badRequest, reason: "Не удалось скачать видео")
+                    }
+
+                    let videoData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+                    let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                    let uniqueId = UUID().uuidString.prefix(8)
+                    let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
+                    let inputUrl = URL(fileURLWithPath: "Roundsvideobot/Resources/temporaryvideoFiles/").appendingPathComponent(inputFileName)
+                    
+                    try videoData.write(to: inputUrl)
+                    
+                    // Обрабатываем видео и отправляем кружочек
                     let processor = VideoProcessor(req: req)
-                    _ = try await processor.downloadAndProcess(videoId: video.file_id, chatId: String(message.chat.id))
+                    try await processor.processAndSendCircleVideo(inputPath: inputUrl.path, chatId: String(message.chat.id))
+                    
+                    // Удаляем входной файл
+                    try? FileManager.default.removeItem(at: inputUrl)
                     
                     return .ok
                 }
@@ -113,5 +143,41 @@ func routes(_ app: Application) async throws {
         
         // Здесь будет логика проверки статуса
         return "Processing status for ID: \(id)"
+    }
+    
+    // Обработчик загрузки видео из мини-аппы
+    app.post(["api", "upload"]) { req async throws -> String in
+        struct UploadData: Content {
+            var video: File
+            var chatId: String
+        }
+        let upload = try req.content.decode(UploadData.self)
+        let file = upload.video
+        let chatId = upload.chatId
+        req.logger.info("Получен файл: \(file.filename), размер: \(file.data.readableBytes) байт")
+        
+        // Сохраняем файл во временную директорию
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let uniqueId = UUID().uuidString.prefix(8)
+        let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
+        let inputUrl = URL(fileURLWithPath: "Roundsvideobot/Resources/temporaryvideoFiles/").appendingPathComponent(inputFileName)
+        
+        let data = Data(buffer: file.data)
+        try data.write(to: inputUrl)
+        
+        // Обрабатываем видео и отправляем кружочек
+        let processor = VideoProcessor(req: req)
+        try await processor.processAndSendCircleVideo(inputPath: inputUrl.path, chatId: chatId)
+        
+        // Удаляем входной файл
+        try? FileManager.default.removeItem(at: inputUrl)
+        
+        return "Видео успешно обработано и отправлено!"
+    }
+    
+    // Отдаём index.html при GET /
+    app.get { req async throws -> Response in
+        let filePath = app.directory.publicDirectory + "index.html"
+        return req.fileio.streamFile(at: filePath)
     }
 } 

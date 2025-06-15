@@ -22,4 +22,13 @@ public func configure(_ app: Application) async throws {
 
     // Настраиваем маршруты
     try await routes(app)
+
+    // Кастомный путь к папке Public для этого видеосервиса
+    app.directory.publicDirectory = app.directory.workingDirectory + "Roundsvideobot/VideoService/Public/"
+
+    // Добавь FileMiddleware для отдачи статики
+    app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+
+    // Увеличиваем лимит на размер загружаемого файла
+    app.routes.defaultMaxBodySize = "100mb"
 } 

@@ -1,5 +1,7 @@
 import Vapor
 import Foundation
+import NIO
+import AsyncHTTPClient
 // import App // если CropData определён в общем модуле, иначе скорректировать импорт
 
 struct VideoProcessor {
@@ -10,7 +12,7 @@ struct VideoProcessor {
     }
 
     var tempDir: String {
-        Environment.get("TEMP_DIR") ?? "video-service/Resources/temporaryvideoFiles/"
+        Environment.get("TEMP_DIR") ?? "Roundsvideobot/Resources/temporaryvideoFiles/"
     }
 
     func downloadAndProcess(videoId: String, chatId: String) async throws -> URL {
@@ -315,5 +317,108 @@ struct VideoProcessor {
         }
         
         return Int(duration)
+    }
+
+    // Общая функция для обработки видео и отправки кружочка
+    func processAndSendCircleVideo(inputPath: String, chatId: String) async throws {
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let uniqueId = UUID().uuidString.prefix(8)
+        let outputFileName = "output_\(timestamp)_\(uniqueId).mp4"
+        let outputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(outputFileName)
+        let outputPath = outputUrl.path
+
+        defer {
+            // Удаляем временные файлы после обработки
+            try? FileManager.default.removeItem(at: outputUrl)
+            req.logger.info("Выходной файл удалён после обработки: \(outputPath)")
+        }
+
+        // Проверяем длительность видео
+        let duration = try await getVideoDuration(inputPath: inputPath)
+        req.logger.info("Длительность видео: \(duration) секунд")
+
+        if duration > 60 {
+            throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
+        }
+
+        // Обрабатываем видео с помощью FFmpeg
+        req.logger.info("Начинаем обработку видео через ffmpeg...")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.arguments = [
+            "-i", inputPath,
+            "-vf", "scale=640:640,format=yuv420p",
+            "-t", "59",
+            "-b:v", "512k",
+            "-r", "30",
+            "-preset", "fast",
+            "-movflags", "+faststart",
+            "-y", outputPath
+        ]
+
+        let stderr = Pipe()
+        process.standardError = stderr
+        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
+
+        try process.run()
+        req.logger.info("Запускаем FFmpeg...")
+
+        // Читаем stderr в реальном времени
+        let stderrHandle = stderr.fileHandleForReading
+        while process.isRunning {
+            let data = stderrHandle.availableData
+            if !data.isEmpty, let stderrOutput = String(data: data, encoding: .utf8) {
+                req.logger.info("FFmpeg stderr (поток): \(stderrOutput)")
+            }
+            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+
+        process.waitUntilExit()
+        req.logger.info("FFmpeg успешно завершил работу")
+
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео")
+        }
+
+        req.logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
+
+        // Отправляем обработанное видео как видеокружок
+        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
+        let boundary = UUID().uuidString
+        var requestBody = ByteBufferAllocator().buffer(capacity: 0)
+
+        req.logger.info("Читаем файл перед отправкой...")
+        let processedVideoData = try Data(contentsOf: outputUrl)
+        req.logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
+
+        requestBody.writeString("--\(boundary)\r\n")
+        requestBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        requestBody.writeString("\(chatId)\r\n")
+
+        requestBody.writeString("--\(boundary)\r\n")
+        requestBody.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
+        requestBody.writeString("Content-Type: video/mp4\r\n\r\n")
+        requestBody.writeBytes(processedVideoData)
+        requestBody.writeString("\r\n")
+
+        requestBody.writeString("--\(boundary)--\r\n")
+
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+
+        req.logger.info("Отправляем видеокружок в Telegram...")
+        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+            post.body = requestBody
+        }.get()
+
+        req.logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
+        if let responseBody = response.body {
+            let responseData = responseBody.getData(at: 0, length: responseBody.readableBytes) ?? Data()
+            req.logger.info("Тело ответа: \(String(data: responseData, encoding: .utf8) ?? "Не удалось декодировать тело ответа")")
+        }
+
+        guard response.status == HTTPStatus.ok else {
+            throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
+        }
     }
 }

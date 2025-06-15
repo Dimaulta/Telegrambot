@@ -175,7 +175,7 @@ func routes(_ app: Application) async throws {
         return "Видео успешно обработано и отправлено!"
     }
     
-    // Отдаём index.html при GET /
+    // Отдаём index.html при GET //
     app.get { req async throws -> Response in
         let filePath = app.directory.publicDirectory + "index.html"
         return req.fileio.streamFile(at: filePath)

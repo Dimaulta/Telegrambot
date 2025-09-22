@@ -19,7 +19,7 @@ let lastScale = 1;
 let pinchStartX = 0;
 let pinchStartY = 0;
 let videoContainerElem = null;
-const ELASTICITY = 0.2; // коэффициент упругости при выходе за границы
+const ELASTICITY = 0.4; // коэффициент упругости при выходе за границы (увеличен для более заметного эффекта)
 
 // Элементы интерфейса (инициализируем после загрузки DOM)
 let selectScreen, cropScreen, selectButton, videoPreview, cropFrame, playPauseButton, timeSlider, cropButton;
@@ -339,12 +339,12 @@ function handleVideoSelect(file) {
         selectScreen.classList.remove('active');
         cropScreen.classList.add('active');
 
-        timeSlider.max = videoPreview.duration;
-        timeSlider.value = 0;
+        // timeSlider.max = videoPreview.duration; // Закомментировано - убираем плеер
+        // timeSlider.value = 0;
         
         // Автоматически воспроизводим видео
         videoPreview.play();
-        playPauseButton.querySelector('.play-icon').textContent = '⏸';
+        // playPauseButton.querySelector('.play-icon').textContent = '⏸'; // Закомментировано - убираем плеер
 
         // Сбрасываем состояние
         currentX = 0;
@@ -352,9 +352,9 @@ function handleVideoSelect(file) {
         currentScale = 1;
         updateVideoTransform();
 
-        // Устанавливаем начальный размер кроп-фрейма (уменьшен на 30%)
-        cropFrame.style.width = '210px';
-        cropFrame.style.height = '210px';
+        // Устанавливаем начальный размер кроп-фрейма (уменьшен на 16% от оригинала)
+        cropFrame.style.width = '252px';
+        cropFrame.style.height = '252px';
         
         // Получаем реальные размеры видео и размеры на экране
         const videoRect = videoPreview.getBoundingClientRect();
@@ -384,23 +384,18 @@ function handleVideoSelect(file) {
         const maxScaleHorizontal = aspectRatio > 1 ? 4.0 : 2.5;
         currentScale = Math.max(minScaleGlobal, minScaleGlobal * 1.05);
         
-        // Для горизонтального видео вычисляем начальное смещение,
-        // чтобы оверлей был по центру видео, а не контейнера
-        if (aspectRatio > 1) {
-            // Горизонтальное видео: видео меньше по высоте контейнера
-            // Нужно сдвинуть видео так, чтобы оверлей был по центру видео
-            const videoActualHeight = videoRect.width / aspectRatio; // Реальная высота видео
-            const verticalOffset = (videoRect.height - videoActualHeight) / 2;
-            currentX = 0;
-            currentY = verticalOffset; // Сдвигаем видео вверх, чтобы оверлей попал в центр видео
-        } else {
-            // Вертикальное видео: стандартное центрирование
-            currentX = 0;
-            currentY = 0;
-        }
+        // Не применяем никаких смещений - позволяем CSS object-fit: contain самому центрировать
+        currentX = 0;
+        currentY = 0;
 
         updateVideoTransform();
-        initializeVideoControls();
+        
+        // Принудительно центрируем видео после загрузки
+        setTimeout(() => {
+            centerVideoAfterLoad();
+        }, 100);
+        
+        initializeMovementControls(); // Инициализируем только обработчики движения
         initializeDesktopScroll();
     };
 }
@@ -409,7 +404,8 @@ function handleVideoSelect(file) {
 let controlsInitialized = false;
 let appStateReset = false; // Флаг для предотвращения множественных сбросов
 
-// Инициализация контролов видео
+// Инициализация контролов видео - ЗАКОММЕНТИРОВАНО (убираем плеер)
+/*
 function initializeVideoControls() {
     if (controlsInitialized) return; // Предотвращаем дублирование обработчиков
     
@@ -454,6 +450,26 @@ function initializeVideoControls() {
     
     controlsInitialized = true;
 }
+*/
+
+// Инициализация только обработчиков движения (без плеера)
+function initializeMovementControls() {
+    if (controlsInitialized) return; // Предотвращаем дублирование обработчиков
+    
+    const videoWrapper = document.querySelector('.video-wrapper');
+
+    // Обработчики для перемещения
+    videoWrapper.addEventListener('touchstart', handleTouchStart, { passive: false });
+    videoWrapper.addEventListener('touchmove', handleTouchMove, { passive: false });
+    videoWrapper.addEventListener('touchend', handleTouchEnd);
+
+    // Обработчики для масштабирования
+    videoWrapper.addEventListener('touchstart', handlePinchStart, { passive: false });
+    videoWrapper.addEventListener('touchmove', handlePinchMove, { passive: false });
+    videoWrapper.addEventListener('touchend', handlePinchEnd);
+    
+    controlsInitialized = true;
+}
 
 function handleTouchStart(e) {
     if (e.touches.length === 1) {
@@ -472,9 +488,17 @@ function handleTouchMove(e) {
         let newX = touch.clientX - startX;
         let newY = touch.clientY - startY;
 
-        // Убираем ограничения - видео может свободно перемещаться
-        currentX = newX;
-        currentY = newY;
+        // Жестко ограничиваем движение - оверлей не может выйти за пределы видео
+        const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(currentScale, currentScale);
+        const dx = newX - currentX;
+        const dy = newY - currentY;
+        
+        // Ограничиваем смещение жесткими границами
+        const clampedDx = Math.max(minDx, Math.min(maxDx, dx));
+        const clampedDy = Math.max(minDy, Math.min(maxDy, dy));
+        
+        currentX = currentX + clampedDx;
+        currentY = currentY + clampedDy;
 
         updateVideoTransform();
         e.preventDefault();
@@ -483,6 +507,7 @@ function handleTouchMove(e) {
 
 function handleTouchEnd() {
     isDragging = false;
+    // Жесткие границы уже работают в handleTouchMove, дополнительный возврат не нужен
 }
 
 function handlePinchStart(e) {
@@ -534,9 +559,16 @@ function handlePinchMove(e) {
             const rawNewX = pinchStartX + (1 - ratio) * anchorX;
             const rawNewY = pinchStartY + (1 - ratio) * anchorY;
 
-            // Убираем ограничения - видео может свободно перемещаться
-            currentX = rawNewX;
-            currentY = rawNewY;
+            // Жестко ограничиваем движение при зуме - оверлей не может выйти за пределы видео
+            const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(clampedScale, pinchStartScale);
+            const dx = rawNewX - currentX;
+            const dy = rawNewY - currentY;
+            
+            const clampedDx = Math.max(minDx, Math.min(maxDx, dx));
+            const clampedDy = Math.max(minDy, Math.min(maxDy, dy));
+            
+            currentX = currentX + clampedDx;
+            currentY = currentY + clampedDy;
             currentScale = clampedScale;
             updateVideoTransform();
         }
@@ -546,11 +578,40 @@ function handlePinchMove(e) {
 
 function handlePinchEnd() {
     startDistance = 0;
-    // Убираем snapToBounds - видео остается в любом положении
+    // Жесткие границы уже работают в handlePinchMove, дополнительный возврат не нужен
 }
 
 function updateVideoTransform() {
     videoPreview.style.transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
+}
+
+// Функция для проверки центрирования видео после загрузки
+function centerVideoAfterLoad() {
+    if (!videoPreview || !videoFile) return;
+    
+    const videoRect = videoPreview.getBoundingClientRect();
+    const naturalWidth = videoPreview.videoWidth;
+    const naturalHeight = videoPreview.videoHeight;
+    const aspectRatio = naturalWidth / naturalHeight;
+    
+    // Убеждаемся что видео центрировано CSS object-fit: contain
+    // Не применяем никаких смещений - оставляем CSS делать свою работу
+    currentX = 0;
+    currentY = 0;
+    
+    console.log('Видео проверено на центрирование:', {
+        aspectRatio: aspectRatio,
+        videoRect: {
+            width: videoRect.width,
+            height: videoRect.height
+        },
+        naturalSize: {
+            width: naturalWidth,
+            height: naturalHeight
+        }
+    });
+    
+    updateVideoTransform();
 }
 
 // --------- Упругие границы и авто-возврат ---------
@@ -591,23 +652,18 @@ function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     const videoCenterXNow = vRect.left + vRect.width / 2;
     const videoCenterYNow = vRect.top + vRect.height / 2;
 
-    // Для горизонтального видео корректируем границы
+    // Вычисляем границы для всех типов видео
     let minCenterX, maxCenterX, minCenterY, maxCenterY;
     
-    if (aspectRatio > 1) {
-        // Горизонтальное видео: видео может двигаться влево-вправо и вверх-вниз
-        // Ограничения должны позволять оверлею оставаться над видео
-        minCenterX = overlayCenterX - Math.max(0, halfVideoWNew - halfCropW);
-        maxCenterX = overlayCenterX + Math.max(0, halfVideoWNew - halfCropW);
-        minCenterY = overlayCenterY - Math.max(0, halfVideoHNew - halfCropH);
-        maxCenterY = overlayCenterY + Math.max(0, halfVideoHNew - halfCropH);
-    } else {
-        // Вертикальное видео: стандартные ограничения
-        minCenterX = overlayCenterX - (halfVideoWNew - halfCropW);
-        maxCenterX = overlayCenterX + (halfVideoWNew - halfCropW);
-        minCenterY = overlayCenterY - (halfVideoHNew - halfCropH);
-        maxCenterY = overlayCenterY + (halfVideoHNew - halfCropH);
-    }
+    // Горизонтальное движение: оверлей должен оставаться над видео
+    const allowedHorizontalMovement = Math.max(0, halfVideoWNew - halfCropW);
+    minCenterX = overlayCenterX - allowedHorizontalMovement;
+    maxCenterX = overlayCenterX + allowedHorizontalMovement;
+    
+    // Вертикальное движение: оверлей должен оставаться над видео
+    const allowedVerticalMovement = Math.max(0, halfVideoHNew - halfCropH);
+    minCenterY = overlayCenterY - allowedVerticalMovement;
+    maxCenterY = overlayCenterY + allowedVerticalMovement;
 
     // dx = newCenterX - currentCenterX; dy аналогично
     const minDx = minCenterX - videoCenterXNow;
@@ -622,33 +678,39 @@ function applyElasticBounds(newX, newY, targetScale, options = {}) {
     const fromScale = useScaleChange ? useScaleChange.from : currentScale;
     const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(targetScale, fromScale);
 
-    // Текущий центр -> новая цель
+    // Смещение от текущей позиции
     const dx = newX - currentX;
     const dy = newY - currentY;
 
-    // Упругая коррекция
-    const dxElastic = rubber(dx, minDx, maxDx);
-    const dyElastic = rubber(dy, minDy, maxDy);
+    // Упругая коррекция - ограничиваем смещение
+    const clampedDx = Math.max(minDx, Math.min(maxDx, dx));
+    const clampedDy = Math.max(minDy, Math.min(maxDy, dy));
 
-    return { x: currentX + dxElastic, y: currentY + dyElastic };
+    return { x: currentX + clampedDx, y: currentY + clampedDy };
 }
 
 function snapToBounds() {
-    // Жёсткая фиксация внутрь допустимых пределов без упругости
+    // Получаем текущие границы
     const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(currentScale, currentScale);
-    const dx = clamp(0, minDx, maxDx); // хотим остаться здесь, проверяем выход
-    const dy = clamp(0, minDy, maxDy);
-    const targetX = currentX + dx;
-    const targetY = currentY + dy;
+    
+    // Вычисляем целевую позицию - смещение должно быть в пределах границ
+    const targetDx = Math.max(minDx, Math.min(maxDx, 0));
+    const targetDy = Math.max(minDy, Math.min(maxDy, 0));
+    
+    // Новые координаты
+    const targetX = currentX + targetDx;
+    const targetY = currentY + targetDy;
 
-    // Если уже внутри, ничего не делаем
-    if (Math.abs(targetX - currentX) < 0.5 && Math.abs(targetY - currentY) < 0.5) return;
+    // Если уже внутри границ, ничего не делаем
+    if (Math.abs(targetX - currentX) < 1 && Math.abs(targetY - currentY) < 1) return;
 
+    // Плавная анимация к целевой позиции
     const prevTransition = videoPreview.style.transition;
-    videoPreview.style.transition = 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+    videoPreview.style.transition = 'transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
     currentX = targetX;
     currentY = targetY;
     updateVideoTransform();
+    
     setTimeout(() => {
         videoPreview.style.transition = prevTransition || '';
     }, 200);
@@ -677,6 +739,11 @@ function setupCropButtonHandler() {
         console.log('Начинаем обработку видео');
         
         try {
+            // Меняем кнопку на "Ожидайте" и делаем её неактивной
+            cropButton.textContent = 'Ожидайте';
+            cropButton.style.background = '#666';
+            cropButton.disabled = true;
+            
             // Показываем статус-индикатор
             console.log('Сбрасываем статус и показываем индикатор');
             resetProcessingStatus();
@@ -726,7 +793,7 @@ function setupCropButtonHandler() {
         
         // Увеличиваем размер области кропа для отдаления итогового видео
         const aspectRatio = naturalWidth / naturalHeight;
-        const cropPaddingFactor = aspectRatio > 1 ? 2.0 : 1.4; // +100% для горизонтального, +40% для вертикального
+        const cropPaddingFactor = aspectRatio > 1 ? 2.5 : 1.6; // +150% для горизонтального, +70% для вертикального
         
         const width = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalWidth);
         const height = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalHeight);
@@ -794,6 +861,12 @@ function setupCropButtonHandler() {
     } catch (error) {
         console.error('Error:', error);
         hideProcessingStatus();
+        
+        // Возвращаем кнопку в исходное состояние
+        cropButton.textContent = 'Обрезать';
+        cropButton.style.background = 'var(--primary-color)';
+        cropButton.disabled = false;
+        
         // Сбрасываем состояние при ошибке
         resetAppState();
         if (typeof tg.showAlert === 'function') {

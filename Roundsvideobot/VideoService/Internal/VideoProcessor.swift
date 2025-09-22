@@ -185,40 +185,74 @@ struct VideoProcessor {
         let outputFileName = fileUrl.deletingPathExtension().lastPathComponent + ".processed.mp4"
         let outputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(outputFileName)
         let outputPath = outputUrl.path
-        
+
         // Получаем длительность видео
         let duration = try await getVideoDuration(inputPath: filePath)
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm:ss"
         req.logger.info("Длительность видео: \(duration) секунд [\(dateFormatter.string(from: Date()))]")
-        
+
         if duration > 60 {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
         }
-        
+
+        // Получаем размеры исходного видео в пикселях
+        var videoSize = try await getVideoSize(inputPath: filePath)
+
+        // Учитываем поворот (rotation) при расчёте координат
+        let rotation = try await getVideoRotationDegrees(inputPath: filePath)
+        req.logger.info("Rotation tag: \(rotation)°")
+        if abs(rotation) == 90 {
+            videoSize = (width: videoSize.height, height: videoSize.width)
+        }
+
+        // Преобразуем нормализованные координаты фронтенда (центр и размер области) в пиксели
+        // Фронт передает x,y как центр области в долях от [0,1], width/height — размер области в долях
+        let centerX = cropData.x * Double(videoSize.width)
+        let centerY = cropData.y * Double(videoSize.height)
+        let sizePxDouble = min(cropData.width * Double(videoSize.width), cropData.height * Double(videoSize.height))
+        // Немного отдаляем (расширяем область кропа), чтобы уменьшить зум
+        let zoomOutFactor = 1.45
+        var cropSize = Int(round(sizePxDouble * zoomOutFactor))
+
+        // Вычисляем левый верхний угол области
+        var x = Int(round(centerX - Double(cropSize) / 2.0))
+        var y = Int(round(centerY - Double(cropSize) / 2.0))
+        // Чуть поднимаем область (отрицательное направление Y)
+        let verticalBias = Int(round(Double(videoSize.height) * -0.02))
+        y += verticalBias
+
+        // Ограничиваем в пределах кадра
+        cropSize = max(2, min(cropSize, min(videoSize.width, videoSize.height)))
+        x = max(0, min(x, videoSize.width - cropSize))
+        y = max(0, min(y, videoSize.height - cropSize))
+
+        // Для совместимости с кодеками приводим к четным значениям
+        if cropSize % 2 != 0 { cropSize -= 1 }
+        if x % 2 != 0 { x -= 1 }
+        if y % 2 != 0 { y -= 1 }
+
+        // Формируем цепочку фильтров: сначала поворот (если требуется), затем кроп и скейл
+        var filters: [String] = []
+        if rotation == -90 || rotation == 270 {
+            filters.append("transpose=1")
+        } else if rotation == 90 || rotation == -270 {
+            filters.append("transpose=2")
+        } else if abs(rotation) == 180 {
+            filters.append("transpose=2,transpose=2")
+        }
+        let cropFilter = "crop=\(cropSize):\(cropSize):\(x):\(y)"
+        filters.append(cropFilter)
+        filters.append("scale=640:640,format=yuv420p")
+        let filterChain = filters.joined(separator: ",")
+
         // Обрабатываем видео с помощью FFmpeg
-        req.logger.info("Начинаем обработку видео через ffmpeg... [\(dateFormatter.string(from: Date()))]")
-        
+        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(x), y=\(y), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
-        
-        // Получаем размеры исходного видео
-        let videoSize = try await getVideoSize(inputPath: filePath)
-        
-        // Вычисляем размер и координаты для обрезки с учетом масштаба
-        let cropSize = min(videoSize.width, videoSize.height)
-        let scaledX = Int(Double(videoSize.width) * cropData.x * cropData.scale)
-        let scaledY = Int(Double(videoSize.height) * cropData.y * cropData.scale)
-        
-        // Проверяем и корректируем координаты, чтобы область не выходила за пределы видео
-        let safeX = max(0, min(scaledX, videoSize.width - cropSize))
-        let safeY = max(0, min(scaledY, videoSize.height - cropSize))
-        
-        let cropFilter = "crop=\(cropSize):\(cropSize):\(safeX):\(safeY)"
-        
         process.arguments = [
             "-i", filePath,
-            "-vf", "\(cropFilter),scale=640:640,format=yuv420p",
+            "-vf", filterChain,
             "-c:v", "libx264",
             "-preset", "fast",
             "-b:v", "2M",
@@ -231,8 +265,6 @@ struct VideoProcessor {
             "-movflags", "+faststart",
             "-y", outputPath
         ]
-        
-        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(safeX), y=\(safeY), size=\(cropSize), scale=\(cropData.scale) [\(dateFormatter.string(from: Date()))]")
         
         let stderr = Pipe()
         process.standardError = stderr
@@ -317,6 +349,36 @@ struct VideoProcessor {
         }
         
         return Int(duration)
+    }
+
+    // Определяем угол поворота видео из метаданных (если есть)
+    private func getVideoRotationDegrees(inputPath: String) async throws -> Int {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
+        process.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream_tags=rotate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            inputPath
+        ]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return 0
+        }
+        if let deg = Int(text) {
+            var d = deg % 360
+            if d > 180 { d -= 360 }
+            if d <= -180 { d += 360 }
+            return d
+        }
+        return 0
     }
 
     // Общая функция для обработки видео и отправки кружочка

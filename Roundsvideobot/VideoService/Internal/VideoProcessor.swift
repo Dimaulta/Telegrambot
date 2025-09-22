@@ -313,7 +313,7 @@ struct VideoProcessor {
         let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
         guard let durationString = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let duration = Double(durationString) else {
-            throw Abort(.internalServerError, reason: "Не удалось определить длительность видео")
+            throw Vapor.Abort(.internalServerError, reason: "Не удалось определить длительность видео")
         }
         
         return Int(duration)

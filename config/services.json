@@ -1,10 +1,10 @@
 {
   "services": {
     "video-processing": {
-      "url": "https://6a4e-185-200-107-218.ngrok-free.app",
+      "url": "http://localhost:8081"
       "routes": ["/webhook"],
       "enabled": true,
-      "webhook_url": "https://6a4e-185-200-107-218.ngrok-free.app/webhook",
+      "webhook_url": "https://db6e2646e62b.ngrok-free.app/webhook",
       "name": "Video Processing Service"
     },
     "second-service": {
@@ -14,4 +14,4 @@
       "webhook_url": "${SERVER_URL}/webhook"
     }
   }
-} 
+}

@@ -170,7 +170,7 @@ body {
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); /* Затемнение на 60% вокруг круга */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8); /* Затемнение на 80% вокруг круга - темнее */
 }
 
 #crop-overlay {
@@ -409,26 +409,35 @@ body {
 /* Статус-индикатор обработки */
 .processing-status {
     position: absolute;
-    bottom: 100px; /* 20px выше кнопки "Обрезать" (80px + 20px) */
-    left: 20px; /* Отступ слева 20px */
-    right: 20px; /* Отступ справа 20px */
-    background: rgba(0, 0, 0, 0.3); /* еще на 20% прозрачнее (0.5 * 0.6 = 0.3) */
-    border-radius: 8px;
-    padding: 14px;
+    top: 50%; /* Точно в центре экрана */
+    left: 50%; /* Точно в центре экрана */
+    transform: translate(-50%, -50%); /* Центрируем точно на оверлее */
+    background: rgba(0, 0, 0, 0.9); /* Темный фон для контраста */
+    border-radius: 50%; /* Делаем круглым как оверлей */
+    padding: 20px;
     z-index: 1000;
-    /* width убрано - используем только left/right для точного совпадения с кнопкой */
+    width: 252px; /* Точно такой же размер как оверлей кружочка */
+    height: 252px; /* Точно такой же размер как оверлей кружочка */
     box-sizing: border-box;
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--primary-color); /* розовая рамка */
+    backdrop-filter: blur(8px);
+    border: 2px solid var(--primary-color); /* розовая рамка как у оверлея */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start; /* Выравниваем по верху */
+    align-items: flex-start; /* Выравниваем по левому краю */
+    padding-top: 60px; /* Смещаем список вниз на 40px */
+    padding-left: 50px; /* Смещаем список вправо на 30px */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.2); /* Добавляем затемнение на 20% вокруг статус-блока */
 }
 
 .status-item {
     display: flex;
     align-items: center;
-    margin: 10px 0;
-    font-size: 14px;
+    margin: 3px 0; /* Еще меньше отступы для компактности */
+    font-size: 11px; /* Еще меньше размер шрифта */
     color: white;
     transition: all 0.3s ease;
+    justify-content: center; /* Центрируем каждый элемент */
 }
 
 .status-item.completed {
@@ -440,9 +449,9 @@ body {
 }
 
 .status-icon {
-    margin-right: 12px;
-    font-size: 18px;
-    width: 20px;
+    margin-right: 8px; /* Уменьшил отступ между иконкой и текстом */
+    font-size: 16px; /* Уменьшил размер иконки */
+    width: 16px; /* Уменьшил ширину иконки */
     text-align: center;
     transition: all 0.3s ease;
 }
@@ -465,7 +474,79 @@ body {
 }
 
 .status-item .status-icon::before {
+    font-size: 16px; /* Уменьшил размер эмодзи */
+}
+
+/* Алерт завершения */
+.completion-alert {
+    position: fixed;
+    top: -40px; /* Поднимаем алерт еще выше на 20px */
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8); /* Затемнение фона */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000; /* Поверх всего */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.completion-alert.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.completion-alert-content {
+    background: rgba(0, 0, 0, 0.9); /* Темный фон как у инфо блока */
+    border-radius: 50%; /* Делаем круглым */
+    padding: 40px 20px;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    transform: scale(0.8);
+    transition: transform 0.3s ease;
+    width: 280px; /* Фиксированная ширина для круга */
+    height: 280px; /* Фиксированная высота для круга */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(8px);
+    border: 2px solid var(--primary-color); /* розовая рамка как у инфо блока */
+}
+
+.completion-alert.show .completion-alert-content {
+    transform: scale(1);
+}
+
+.completion-alert-icon {
+    font-size: 50px;
+    margin-bottom: 15px;
+    animation: bounce 0.6s ease;
+}
+
+.completion-alert-title {
     font-size: 18px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 0;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.completion-alert-subtitle {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.4;
+}
+
+@keyframes bounce {
+    0% { transform: scale(0.3); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
 }
 
 /* Стили для десктопа */

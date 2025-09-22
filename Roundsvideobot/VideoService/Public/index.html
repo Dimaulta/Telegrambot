@@ -25,16 +25,6 @@
                     <video id="video-preview" playsinline muted></video>
                     <div class="crop-frame"></div>
                 </div>
-            </div>
-            <div class="controls">
-                <!-- <div class="video-controls">
-                    <button id="play-pause" class="control-button">
-                        <span class="play-icon">▶</span>
-                    </button>
-                    <input type="range" id="time-slider" min="0" max="100" value="0" class="slider">
-                </div> -->
-                <div class="status-message" id="status-message"></div>
-                <button id="crop-video" class="button">Обрезать</button>
                 
                 <!-- Статус-индикатор обработки -->
                 <div id="processing-status" class="processing-status" style="display: none;">
@@ -60,6 +50,25 @@
                     </div>
                 </div>
             </div>
+            <div class="controls">
+                <!-- <div class="video-controls">
+                    <button id="play-pause" class="control-button">
+                        <span class="play-icon">▶</span>
+                    </button>
+                    <input type="range" id="time-slider" min="0" max="100" value="0" class="slider">
+                </div> -->
+                <div class="status-message" id="status-message"></div>
+                <button id="crop-video" class="button">Обрезать</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Алерт завершения -->
+    <div id="completion-alert" class="completion-alert">
+        <div class="completion-alert-content">
+            <div class="completion-alert-icon">✅</div>
+            <div class="completion-alert-title">Ваш кружок уже в чате с этим ботом</div>
+         <!--     <div class="completion-alert-subtitle">Видео успешно обработано и отправлено!</div> -->
         </div>
     </div>
     

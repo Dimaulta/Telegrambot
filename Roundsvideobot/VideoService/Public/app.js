@@ -129,23 +129,23 @@ function setupSelectVideoHandler() {
         
         // НЕ сбрасываем состояние при выборе видео, чтобы не мешать загрузке
         
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'video/*';
-        input.style.display = 'none';
-        document.body.appendChild(input);
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/*';
+    input.style.display = 'none';
+    document.body.appendChild(input);
 
-        input.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
+    input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
                 console.log('Файл выбран:', file.name);
-                handleVideoSelect(file);
-            }
-            document.body.removeChild(input);
-        });
-
-        input.click();
+            handleVideoSelect(file);
+        }
+        document.body.removeChild(input);
     });
+
+    input.click();
+});
 }
 
 // Функция для показа статусного сообщения
@@ -193,6 +193,26 @@ function resetProcessingStatus() {
             step.classList.remove('completed');
         }
     });
+}
+
+// Функция для показа алерта завершения
+function showCompletionAlert() {
+    const alert = document.getElementById('completion-alert');
+    if (alert) {
+        alert.classList.add('show');
+        console.log('Показан алерт завершения');
+    } else {
+        console.error('completion-alert элемент не найден');
+    }
+}
+
+// Функция для скрытия алерта завершения
+function hideCompletionAlert() {
+    const alert = document.getElementById('completion-alert');
+    if (alert) {
+        alert.classList.remove('show');
+        console.log('Скрыт алерт завершения');
+    }
 }
 
 // Функция для полного сброса состояния приложения
@@ -487,7 +507,7 @@ function handleTouchMove(e) {
         // Кандидатное новое смещение
         let newX = touch.clientX - startX;
         let newY = touch.clientY - startY;
-
+        
         // Жестко ограничиваем движение - оверлей не может выйти за пределы видео
         const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(currentScale, currentScale);
         const dx = newX - currentX;
@@ -499,7 +519,7 @@ function handleTouchMove(e) {
         
         currentX = currentX + clampedDx;
         currentY = currentY + clampedDy;
-
+        
         updateVideoTransform();
         e.preventDefault();
     }
@@ -723,18 +743,18 @@ function setupCropButtonHandler() {
         return;
     }
     
-    cropButton.addEventListener('click', async () => {
+cropButton.addEventListener('click', async () => {
         console.log('Кнопка "Обрезать" нажата');
         
-        if (!videoFile) {
+    if (!videoFile) {
             console.log('Видео не выбрано');
-            if (typeof tg.showAlert === 'function') {
-                tg.showAlert('Пожалуйста, выберите видео');
-            } else {
-                alert('Пожалуйста, выберите видео');
-            }
-            return;
+        if (typeof tg.showAlert === 'function') {
+            tg.showAlert('Пожалуйста, выберите видео');
+        } else {
+            alert('Пожалуйста, выберите видео');
         }
+        return;
+    }
 
         console.log('Начинаем обработку видео');
         
@@ -843,10 +863,10 @@ function setupCropButtonHandler() {
         setTimeout(() => {
             updateStatusStep('status-sent');
             
-            // Показываем финальное сообщение и закрываем через 3 секунды
+            // Показываем алерт завершения и закрываем через 2 секунды
             setTimeout(() => {
                 hideProcessingStatus();
-                showStatusMessage('Видео готово ✅', 3000);
+                showCompletionAlert();
                 
                 setTimeout(() => {
                     // Принудительно сбрасываем состояние перед закрытием
@@ -854,7 +874,7 @@ function setupCropButtonHandler() {
                     if (typeof tg.close === 'function') {
                         tg.close();
                     }
-                }, 2000);
+                }, 3000);
             }, 1000);
         }, 1500);
 
@@ -879,5 +899,5 @@ function setupCropButtonHandler() {
             tg.hideProgress();
         }
     }
-    });
+}); 
 } 

@@ -403,13 +403,42 @@ struct VideoProcessor {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
         }
 
+        // Рассчитываем центрированный квадратный кроп с учётом поворота
+        var videoSize = try await getVideoSize(inputPath: inputPath)
+        let rotation = try await getVideoRotationDegrees(inputPath: inputPath)
+        req.logger.info("Rotation tag (direct bot): \(rotation)°")
+        if abs(rotation) == 90 {
+            videoSize = (width: videoSize.height, height: videoSize.width)
+        }
+
+        var cropSize = min(videoSize.width, videoSize.height)
+        var x = (videoSize.width - cropSize) / 2
+        var y = (videoSize.height - cropSize) / 2
+        // Приводим к чётным значениям
+        if cropSize % 2 != 0 { cropSize -= 1 }
+        if x % 2 != 0 { x -= 1 }
+        if y % 2 != 0 { y -= 1 }
+
+        // Цепочка фильтров: нормализуем ориентацию -> центр. кроп -> scale
+        var filters: [String] = []
+        if rotation == -90 || rotation == 270 {
+            filters.append("transpose=1")
+        } else if rotation == 90 || rotation == -270 {
+            filters.append("transpose=2")
+        } else if abs(rotation) == 180 {
+            filters.append("transpose=2,transpose=2")
+        }
+        filters.append("crop=\(cropSize):\(cropSize):\(x):\(y)")
+        filters.append("scale=640:640,format=yuv420p")
+        let filterChain = filters.joined(separator: ",")
+
         // Обрабатываем видео с помощью FFmpeg
-        req.logger.info("Начинаем обработку видео через ffmpeg...")
+        req.logger.info("Начинаем обработку видео через ffmpeg (direct bot)...")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
         process.arguments = [
             "-i", inputPath,
-            "-vf", "scale=640:640,format=yuv420p",
+            "-vf", filterChain,
             "-t", "59",
             "-b:v", "512k",
             "-r", "30",

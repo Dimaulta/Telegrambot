@@ -8,9 +8,18 @@ let currentX = 0;
 let currentY = 0;
 let currentScale = 1;
 let startDistance = 0;
+let pinchStartScale = 1;
+let minScaleGlobal = 1;
+const MAX_SCALE = 2.5;
+let anchorLocalX = 0;
+let anchorLocalY = 0;
 let videoFile = null;
 let lastTouchTime = 0;
 let lastScale = 1;
+let pinchStartX = 0;
+let pinchStartY = 0;
+let videoContainerElem = null;
+const ELASTICITY = 0.2; // коэффициент упругости при выходе за границы
 
 // Элементы интерфейса
 const selectScreen = document.getElementById('select-screen');
@@ -78,10 +87,10 @@ let scrollLeft = 0;
 let scrollTop = 0;
 
 function initializeDesktopScroll() {
-    const videoContainer = document.querySelector('.video-container');
-    
+    videoContainerElem = document.querySelector('.video-container');
+    if (!videoContainerElem) return;
     if (window.innerWidth >= 768) {
-        videoContainer.addEventListener('mousedown', startScroll);
+        videoContainerElem.addEventListener('mousedown', startScroll);
         window.addEventListener('mousemove', handleScroll);
         window.addEventListener('mouseup', stopScroll);
         window.addEventListener('mouseleave', stopScroll);
@@ -90,23 +99,23 @@ function initializeDesktopScroll() {
 
 function startScroll(e) {
     isScrolling = true;
-    startScrollX = e.pageX - videoContainer.offsetLeft;
-    startScrollY = e.pageY - videoContainer.offsetTop;
-    scrollLeft = videoContainer.scrollLeft;
-    scrollTop = videoContainer.scrollTop;
+    if (!videoContainerElem) return;
+    startScrollX = e.pageX - videoContainerElem.offsetLeft;
+    startScrollY = e.pageY - videoContainerElem.offsetTop;
+    scrollLeft = videoContainerElem.scrollLeft;
+    scrollTop = videoContainerElem.scrollTop;
 }
 
 function handleScroll(e) {
     if (!isScrolling) return;
     e.preventDefault();
-    
-    const x = e.pageX - videoContainer.offsetLeft;
-    const y = e.pageY - videoContainer.offsetTop;
+    if (!videoContainerElem) return;
+    const x = e.pageX - videoContainerElem.offsetLeft;
+    const y = e.pageY - videoContainerElem.offsetTop;
     const walkX = (x - startScrollX) * 2;
     const walkY = (y - startScrollY) * 2;
-    
-    videoContainer.scrollLeft = scrollLeft - walkX;
-    videoContainer.scrollTop = scrollTop - walkY;
+    videoContainerElem.scrollLeft = scrollLeft - walkX;
+    videoContainerElem.scrollTop = scrollTop - walkY;
 }
 
 function stopScroll() {
@@ -155,16 +164,19 @@ function handleVideoSelect(file) {
         currentScale = 1;
         updateVideoTransform();
 
-        // Устанавливаем начальный размер и позицию кроп-фрейма
-        const videoRect = videoPreview.getBoundingClientRect();
+        // Устанавливаем начальный размер кроп-фрейма и минимальный масштаб так,
+        // чтобы круг гарантированно помещался внутри видео
         cropFrame.style.width = '300px';
         cropFrame.style.height = '300px';
-        
-        // Центрируем кроп-фрейм
+        const videoRect = videoPreview.getBoundingClientRect();
         const cropRect = cropFrame.getBoundingClientRect();
-        currentX = (videoRect.width - cropRect.width) / 2;
-        currentY = (videoRect.height - cropRect.height) / 2;
+        minScaleGlobal = cropRect.width / Math.min(videoRect.width, videoRect.height);
+        currentScale = Math.max(minScaleGlobal, minScaleGlobal * 1.10);
+        // Оверлей центрирован через CSS, начальное смещение = 0
+        currentX = 0;
+        currentY = 0;
 
+        updateVideoTransform();
         initializeVideoControls();
         initializeDesktopScroll();
     };
@@ -225,22 +237,15 @@ function handleTouchStart(e) {
 function handleTouchMove(e) {
     if (isDragging && e.touches.length === 1) {
         const touch = e.touches[0];
-        const videoRect = videoPreview.getBoundingClientRect();
-        const cropFrame = document.querySelector('.crop-frame');
-        const cropRect = cropFrame.getBoundingClientRect();
-        
-        // Вычисляем новые координаты
+        // Кандидатное новое смещение
         let newX = touch.clientX - startX;
         let newY = touch.clientY - startY;
-        
-        // Ограничиваем перемещение рамки кропа границами видео
-        const maxX = videoRect.width - cropRect.width;
-        const maxY = videoRect.height - cropRect.height;
-        
-        // Применяем ограничения
-        currentX = Math.max(-maxX/2, Math.min(maxX/2, newX));
-        currentY = Math.max(-maxY/2, Math.min(maxY/2, newY));
-        
+
+        // Применяем упругие границы относительно текущего масштаба
+        const { x: elasticX, y: elasticY } = applyElasticBounds(newX, newY, currentScale);
+        currentX = elasticX;
+        currentY = elasticY;
+
         updateVideoTransform();
         e.preventDefault();
     }
@@ -258,6 +263,10 @@ function handlePinchStart(e) {
             touch1.clientX - touch2.clientX,
             touch1.clientY - touch2.clientY
         );
+        pinchStartScale = currentScale;
+        // Сохраняем текущее смещение для формулы зума вокруг центра между пальцами
+        pinchStartX = currentX;
+        pinchStartY = currentY;
         e.preventDefault();
     }
 }
@@ -272,15 +281,26 @@ function handlePinchMove(e) {
         );
         
         if (startDistance > 0) {
-            const videoRect = videoPreview.getBoundingClientRect();
-            const scale = currentDistance / startDistance;
-            
-            // Ограничиваем масштаб, чтобы видео всегда было больше области кропа
-            const minScale = 300 / Math.min(videoRect.width, videoRect.height);
-            const maxScale = 2;
-            currentScale = Math.min(Math.max(currentScale * scale, minScale), maxScale);
-            
-            startDistance = currentDistance;
+            const scaleFactor = currentDistance / startDistance;
+            const targetScale = pinchStartScale * scaleFactor;
+            const clampedScale = Math.min(Math.max(targetScale, minScaleGlobal), MAX_SCALE);
+
+            // Центр между пальцами (динамический якорь)
+            const anchorX = (touch1.clientX + touch2.clientX) / 2;
+            const anchorY = (touch1.clientY + touch2.clientY) / 2;
+            const ratio = clampedScale / pinchStartScale;
+
+            // Новое смещение без учёта границ: T1 = T0 + (1 - r) * (a1 - T0)
+            const rawNewX = pinchStartX + (1 - ratio) * (anchorX - pinchStartX);
+            const rawNewY = pinchStartY + (1 - ratio) * (anchorY - pinchStartY);
+
+            // Применяем упругие границы для нового масштаба
+            const elastic = applyElasticBounds(rawNewX, rawNewY, clampedScale, {
+                useScaleChange: { from: pinchStartScale, to: clampedScale }
+            });
+            currentX = elastic.x;
+            currentY = elastic.y;
+            currentScale = clampedScale;
             updateVideoTransform();
         }
         e.preventDefault();
@@ -289,10 +309,96 @@ function handlePinchMove(e) {
 
 function handlePinchEnd() {
     startDistance = 0;
+    // Быстрый возврат внутрь строгих границ после упругого выхода
+    snapToBounds();
 }
 
 function updateVideoTransform() {
     videoPreview.style.transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
+}
+
+// --------- Упругие границы и авто-возврат ---------
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function rubber(value, min, max, elasticity = ELASTICITY) {
+    if (value < min) return min - (min - value) * elasticity;
+    if (value > max) return max + (value - max) * elasticity;
+    return value;
+}
+
+function getCurrentRects() {
+    const vRect = videoPreview.getBoundingClientRect();
+    const cRect = cropFrame.getBoundingClientRect();
+    return { vRect, cRect };
+}
+
+// Вычисляет допустимый диапазон дельт (dx, dy) для смещения,
+// чтобы круг оставался внутри видео при целевом масштабе
+function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
+    const { vRect, cRect } = getCurrentRects();
+    const overlayCenterX = cRect.left + cRect.width / 2;
+    const overlayCenterY = cRect.top + cRect.height / 2;
+    const halfCropW = cRect.width / 2;
+    const halfCropH = cRect.height / 2;
+
+    // размеры видео после масштабирования targetScale
+    const ratio = targetScale / scaleFrom;
+    const halfVideoWNew = (vRect.width * ratio) / 2;
+    const halfVideoHNew = (vRect.height * ratio) / 2;
+    const videoCenterXNow = vRect.left + vRect.width / 2;
+    const videoCenterYNow = vRect.top + vRect.height / 2;
+
+    // Требуемые границы для будущего центра видео
+    const minCenterX = overlayCenterX - (halfVideoWNew - halfCropW);
+    const maxCenterX = overlayCenterX + (halfVideoWNew - halfCropW);
+    const minCenterY = overlayCenterY - (halfVideoHNew - halfCropH);
+    const maxCenterY = overlayCenterY + (halfVideoHNew - halfCropH);
+
+    // dx = newCenterX - currentCenterX; dy аналогично
+    const minDx = minCenterX - videoCenterXNow;
+    const maxDx = maxCenterX - videoCenterXNow;
+    const minDy = minCenterY - videoCenterYNow;
+    const maxDy = maxCenterY - videoCenterYNow;
+    return { minDx, maxDx, minDy, maxDy };
+}
+
+function applyElasticBounds(newX, newY, targetScale, options = {}) {
+    const { useScaleChange } = options;
+    const fromScale = useScaleChange ? useScaleChange.from : currentScale;
+    const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(targetScale, fromScale);
+
+    // Текущий центр -> новая цель
+    const dx = newX - currentX;
+    const dy = newY - currentY;
+
+    // Упругая коррекция
+    const dxElastic = rubber(dx, minDx, maxDx);
+    const dyElastic = rubber(dy, minDy, maxDy);
+
+    return { x: currentX + dxElastic, y: currentY + dyElastic };
+}
+
+function snapToBounds() {
+    // Жёсткая фиксация внутрь допустимых пределов без упругости
+    const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(currentScale, currentScale);
+    const dx = clamp(0, minDx, maxDx); // хотим остаться здесь, проверяем выход
+    const dy = clamp(0, minDy, maxDy);
+    const targetX = currentX + dx;
+    const targetY = currentY + dy;
+
+    // Если уже внутри, ничего не делаем
+    if (Math.abs(targetX - currentX) < 0.5 && Math.abs(targetY - currentY) < 0.5) return;
+
+    const prevTransition = videoPreview.style.transition;
+    videoPreview.style.transition = 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+    currentX = targetX;
+    currentY = targetY;
+    updateVideoTransform();
+    setTimeout(() => {
+        videoPreview.style.transition = prevTransition || '';
+    }, 200);
 }
 
 // Обработка кнопки "Обрезать"

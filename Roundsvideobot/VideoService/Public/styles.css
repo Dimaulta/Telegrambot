@@ -125,6 +125,7 @@ body {
     overflow: hidden;
     background: transparent !important;
     -webkit-overflow-scrolling: touch;
+    padding: 16px; /* лёгкие отступы вокруг видео */
 }
 
 .video-wrapper {
@@ -150,9 +151,10 @@ body {
     max-width: none;
     max-height: none;
     object-fit: contain;
-    transform-origin: center;
+    transform-origin: 0 0; /* важно для якорного зума */
     will-change: transform;
     background: transparent !important;
+    transition: transform 120ms ease; /* сгладим первые шаги зума */
 }
 
 .crop-frame {
@@ -163,6 +165,9 @@ body {
     border: 2px solid rgba(255, 255, 255, 0.8);
     pointer-events: none;
     z-index: 2;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
 }
 
 #crop-overlay {

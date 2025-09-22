@@ -7,6 +7,11 @@
     --tg-theme-button-text-color: #ffffff;
     --crop-area-size: 80vw;
     --crop-border-color: #ffffff;
+    
+    /* Единый стиль для кнопок и элементов */
+    --primary-color: #ff69b4; /* светло-розовый */
+    --primary-text-color: #ffffff;
+    --primary-border-color: #ff69b4;
 }
 
 * {
@@ -20,8 +25,7 @@ body {
     margin: 0;
     padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    background: linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.9)), url('img/back01.jpg') no-repeat center center fixed;
-    background-size: cover;
+    background: #2c2c2c;
     color: white;
     min-height: 100vh;
     display: flex;
@@ -50,8 +54,8 @@ body {
 }
 
 .button {
-    background: linear-gradient(45deg, #2196F3, #E91E63);
-    color: white;
+    background: var(--primary-color);
+    color: var(--primary-text-color);
     border: none;
     padding: 12px 20px;
     border-radius: 8px;
@@ -122,10 +126,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    overflow: visible; /* Убираем ограничения - видео может выходить за границы */
     background: transparent !important;
     -webkit-overflow-scrolling: touch;
-    padding: 16px; /* лёгкие отступы вокруг видео */
+    padding: 0;
 }
 
 .video-wrapper {
@@ -140,34 +144,33 @@ body {
 }
 
 .video-preview {
-    width: 100%;
-    max-width: 640px;
-    margin: 20px auto;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    /* Полностью убираем стили - контейнер будет невидимым */
+    display: none;
 }
 
 #video-preview {
-    max-width: none;
-    max-height: none;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
     transform-origin: 0 0; /* важно для якорного зума */
     will-change: transform;
     background: transparent !important;
     transition: transform 120ms ease; /* сгладим первые шаги зума */
+    border-radius: 12px; /* Добавляем скругление к самому видео */
 }
 
 .crop-frame {
     position: absolute;
-    width: 300px;
-    height: 300px;
+    width: 210px; /* 300px - 30% = 210px */
+    height: 210px; /* 300px - 30% = 210px */
     border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.8);
+    border: 2px solid var(--primary-color);
     pointer-events: none;
-    z-index: 2;
+    z-index: 5; /* Увеличиваем z-index чтобы оверлей был поверх видео */
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.2); /* Затемнение на 20% вокруг круга */
 }
 
 #crop-overlay {
@@ -199,17 +202,16 @@ body {
     flex-direction: column;
     gap: 15px;
     position: relative;
-    z-index: 3;
+    z-index: 10; /* Увеличиваем z-index чтобы контролы были поверх видео */
 }
 
 .video-controls {
     display: flex;
     align-items: center;
     margin-bottom: 15px;
-    background: rgba(0, 0, 0, 0.3);
+    background: transparent; /* Убираем лишний фон */
     padding: 10px;
     border-radius: 8px;
-    backdrop-filter: blur(8px);
 }
 
 .control-button {
@@ -225,6 +227,7 @@ body {
     flex: 1;
     margin: 0 10px;
     height: 4px;
+    appearance: none;
     -webkit-appearance: none;
     background: #666;
     border-radius: 2px;
@@ -343,14 +346,16 @@ body {
 
 #crop-video {
     width: 100%;
-    background: linear-gradient(45deg, #2196F3, #E91E63);
-    color: white;
+    background: var(--primary-color); /* Используем тот же цвет что и у кнопки "Выбрать видео" */
+    color: var(--primary-text-color);
     border: none;
     padding: 15px;
     border-radius: 8px;
     font-size: 16px;
     font-weight: 500;
     backdrop-filter: blur(8px);
+    z-index: 10; /* Убеждаемся что кнопка поверх всего */
+    position: relative;
 }
 
 .status-message {
@@ -378,6 +383,67 @@ body {
 .status-message.show {
     opacity: 1;
     visibility: visible;
+}
+
+/* Статус-индикатор обработки */
+.processing-status {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.5); /* было 0.7, стало 0.5 (на 20% прозрачнее) */
+    border-radius: 8px; /* было 10px, стало 8px (на 20% меньше) */
+    padding: 14px; /* было 18px, стало 14px (на 20% меньше) */
+    z-index: 1000;
+    min-width: 176px; /* было 220px, стало 176px (на 20% меньше) */
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--primary-color); /* розовая рамка */
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    margin: 10px 0;
+    font-size: 14px;
+    color: white;
+    transition: all 0.3s ease;
+}
+
+.status-item.completed {
+    color: var(--primary-color);
+}
+
+.status-item.completed .status-icon {
+    color: var(--primary-color);
+}
+
+.status-icon {
+    margin-right: 12px;
+    font-size: 18px;
+    width: 20px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.status-text {
+    flex: 1;
+}
+
+.status-item.completed .status-icon::before {
+    content: "💗";
+}
+
+.status-item:not(.completed) .status-icon::before {
+    content: "⏳";
+}
+
+/* Убираем дублирование эмодзи в HTML */
+.status-item .status-icon {
+    font-size: 0;
+}
+
+.status-item .status-icon::before {
+    font-size: 18px;
 }
 
 /* Стили для десктопа */

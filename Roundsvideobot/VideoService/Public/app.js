@@ -10,7 +10,7 @@ let currentScale = 1;
 let startDistance = 0;
 let pinchStartScale = 1;
 let minScaleGlobal = 1;
-const MAX_SCALE = 2.5;
+const MAX_SCALE = 4.0; // Увеличен для горизонтального видео
 let anchorLocalX = 0;
 let anchorLocalY = 0;
 let videoFile = null;
@@ -21,15 +21,30 @@ let pinchStartY = 0;
 let videoContainerElem = null;
 const ELASTICITY = 0.2; // коэффициент упругости при выходе за границы
 
-// Элементы интерфейса
-const selectScreen = document.getElementById('select-screen');
-const cropScreen = document.getElementById('crop-screen');
-const selectButton = document.getElementById('select-video');
-const videoPreview = document.getElementById('video-preview');
-const cropFrame = document.querySelector('.crop-frame');
-const playPauseButton = document.getElementById('play-pause');
-const timeSlider = document.getElementById('time-slider');
-const cropButton = document.getElementById('crop-video');
+// Элементы интерфейса (инициализируем после загрузки DOM)
+let selectScreen, cropScreen, selectButton, videoPreview, cropFrame, playPauseButton, timeSlider, cropButton;
+
+function initializeElements() {
+    selectScreen = document.getElementById('select-screen');
+    cropScreen = document.getElementById('crop-screen');
+    selectButton = document.getElementById('select-video');
+    videoPreview = document.getElementById('video-preview');
+    cropFrame = document.querySelector('.crop-frame');
+    playPauseButton = document.getElementById('play-pause');
+    timeSlider = document.getElementById('time-slider');
+    cropButton = document.getElementById('crop-video');
+    
+    console.log('Элементы интерфейса инициализированы:', {
+        selectScreen: !!selectScreen,
+        cropScreen: !!cropScreen,
+        selectButton: !!selectButton,
+        videoPreview: !!videoPreview,
+        cropFrame: !!cropFrame,
+        playPauseButton: !!playPauseButton,
+        timeSlider: !!timeSlider,
+        cropButton: !!cropButton
+    });
+}
 
 // Инициализация Telegram Web App
 if (window.Telegram.WebApp.initData === '') {
@@ -40,7 +55,57 @@ if (window.Telegram.WebApp.initData === '') {
     console.log('InitData:', window.Telegram.WebApp.initData);
     tg.expand();
     tg.enableClosingConfirmation();
+    
+    // Обработчики событий Telegram Web App
+    tg.onEvent('viewportChanged', () => {
+        console.log('Viewport изменен');
+        resetAppState(); // Сбрасываем состояние при изменении viewport
+    });
+    
+    tg.onEvent('themeChanged', () => {
+        console.log('Тема изменена');
+        resetAppState(); // Сбрасываем состояние при изменении темы
+    });
 }
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM загружен, инициализируем элементы');
+    
+    // Принудительно очищаем кэш для корректной работы
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for(let registration of registrations) {
+                registration.unregister();
+            }
+        });
+    }
+    
+    initializeElements();
+    setupSelectVideoHandler();
+    setupCropButtonHandler();
+    
+    // Принудительно сбрасываем состояние при каждом запуске
+    resetAppState();
+    
+    console.log('Инициализация завершена');
+});
+
+// Дополнительная инициализация при полной загрузке страницы
+window.addEventListener('load', () => {
+    console.log('Страница полностью загружена');
+    // НЕ сбрасываем состояние при каждом load, только инициализируем если нужно
+});
+
+// Сброс при выгрузке страницы (когда miniapp закрывается)
+window.addEventListener('beforeunload', () => {
+    console.log('Страница выгружается, сбрасываем состояние');
+    resetAppState();
+});
+
+// Убираем автоматический сброс при blur/focus, так как это мешает выбору видео
+// window.addEventListener('blur', ...) - убрано
+// window.addEventListener('focus', ...) - убрано
 
 // Обработка нажатий на кнопки
 document.querySelectorAll('.button').forEach(button => {
@@ -49,24 +114,39 @@ document.querySelectorAll('.button').forEach(button => {
     });
 });
 
-// Обработка выбора видео
-selectButton.addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'video/*';
-    input.style.display = 'none';
-    document.body.appendChild(input);
+// Обработка выбора видео (добавляем после инициализации элементов)
+function setupSelectVideoHandler() {
+    if (!selectButton) {
+        console.error('selectButton не найден');
+        return;
+    }
+    
+    selectButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        console.log('Кнопка "Выбрать видео" нажата');
+        
+        // НЕ сбрасываем состояние при выборе видео, чтобы не мешать загрузке
+        
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'video/*';
+        input.style.display = 'none';
+        document.body.appendChild(input);
 
-    input.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            handleVideoSelect(file);
-        }
-        document.body.removeChild(input);
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                console.log('Файл выбран:', file.name);
+                handleVideoSelect(file);
+            }
+            document.body.removeChild(input);
+        });
+
+        input.click();
     });
-
-    input.click();
-});
+}
 
 // Функция для показа статусного сообщения
 function showStatusMessage(message, duration = 4000) {
@@ -77,6 +157,92 @@ function showStatusMessage(message, duration = 4000) {
     setTimeout(() => {
         statusMessage.classList.remove('show');
     }, duration);
+}
+
+// Функции для управления статус-индикатором
+function showProcessingStatus() {
+    const processingStatus = document.getElementById('processing-status');
+    if (processingStatus) {
+        processingStatus.style.display = 'block';
+        console.log('Статус-индикатор показан');
+    } else {
+        console.error('processing-status элемент не найден');
+    }
+}
+
+function hideProcessingStatus() {
+    const processingStatus = document.getElementById('processing-status');
+    if (processingStatus) {
+        processingStatus.style.display = 'none';
+        console.log('Статус-индикатор скрыт');
+    }
+}
+
+function updateStatusStep(stepId) {
+    const step = document.getElementById(stepId);
+    if (step) {
+        step.classList.add('completed');
+    }
+}
+
+function resetProcessingStatus() {
+    const steps = ['status-uploading', 'status-uploaded', 'status-processing', 'status-creating', 'status-sent'];
+    steps.forEach(stepId => {
+        const step = document.getElementById(stepId);
+        if (step) {
+            step.classList.remove('completed');
+        }
+    });
+}
+
+// Функция для полного сброса состояния приложения
+function resetAppState() {
+    console.log('Начинаем сброс состояния приложения');
+    
+    // Предотвращаем множественные сбросы если уже есть видео
+    if (videoFile && appStateReset) {
+        console.log('Пропускаем сброс - видео уже загружено');
+        return;
+    }
+    
+    // Сбрасываем состояние видео
+    videoFile = null;
+    currentX = 0;
+    currentY = 0;
+    currentScale = 1;
+    minScaleGlobal = 1;
+    
+    // Проверяем существование элементов перед их использованием
+    if (videoPreview) {
+        videoPreview.src = '';
+        videoPreview.classList.remove('video-preview');
+        // Сбрасываем трансформацию видео
+        updateVideoTransform();
+    }
+    
+    if (cropScreen) {
+        cropScreen.classList.remove('active');
+    }
+    
+    if (selectScreen) {
+        selectScreen.classList.add('active');
+    }
+    
+    // Скрываем статус-индикатор
+    hideProcessingStatus();
+    
+    // Сбрасываем флаг инициализации контролов
+    controlsInitialized = false;
+    
+    // Сбрасываем состояние скроллинга
+    isScrolling = false;
+    isDragging = false;
+    startDistance = 0;
+    
+    // Устанавливаем флаг сброса
+    appStateReset = true;
+    
+    console.log('Состояние приложения сброшено');
 }
 
 // Обработка скроллинга для десктопа
@@ -137,6 +303,9 @@ function handleVideoSelect(file) {
     const videoUrl = URL.createObjectURL(file);
     videoPreview.src = videoUrl;
     videoPreview.classList.add('video-preview');
+    
+    // Сбрасываем флаг сброса при загрузке нового видео
+    appStateReset = false;
 
     videoPreview.onloadedmetadata = () => {
         if (videoPreview.duration > 60) {
@@ -146,6 +315,25 @@ function handleVideoSelect(file) {
                 alert('Видео должно быть не длиннее 60 секунд');
             }
             return;
+        }
+
+        // Адаптируем размер видео напрямую под его ориентацию
+        const videoNaturalWidth = videoPreview.videoWidth;
+        const videoNaturalHeight = videoPreview.videoHeight;
+        const videoAspectRatio = videoNaturalWidth / videoNaturalHeight;
+        
+        // Убираем класс video-preview чтобы контейнер был невидимым
+        videoPreview.classList.remove('video-preview');
+        
+        // Устанавливаем размеры видео напрямую
+        if (videoAspectRatio > 1) {
+            // Горизонтальное видео - делаем шире
+            videoPreview.style.maxWidth = '80vw';
+            videoPreview.style.maxHeight = '50vh';
+        } else {
+            // Вертикальное видео - делаем уже
+            videoPreview.style.maxWidth = '60vw';
+            videoPreview.style.maxHeight = '70vh';
         }
 
         selectScreen.classList.remove('active');
@@ -164,17 +352,52 @@ function handleVideoSelect(file) {
         currentScale = 1;
         updateVideoTransform();
 
-        // Устанавливаем начальный размер кроп-фрейма и минимальный масштаб так,
-        // чтобы круг гарантированно помещался внутри видео
-        cropFrame.style.width = '300px';
-        cropFrame.style.height = '300px';
+        // Устанавливаем начальный размер кроп-фрейма (уменьшен на 30%)
+        cropFrame.style.width = '210px';
+        cropFrame.style.height = '210px';
+        
+        // Получаем реальные размеры видео и размеры на экране
         const videoRect = videoPreview.getBoundingClientRect();
         const cropRect = cropFrame.getBoundingClientRect();
-        minScaleGlobal = cropRect.width / Math.min(videoRect.width, videoRect.height);
-        currentScale = Math.max(minScaleGlobal, minScaleGlobal * 1.10);
-        // Оверлей центрирован через CSS, начальное смещение = 0
-        currentX = 0;
-        currentY = 0;
+        const naturalWidth = videoPreview.videoWidth;
+        const naturalHeight = videoPreview.videoHeight;
+        
+        // Вычисляем минимальный масштаб так, чтобы круг помещался внутри видео
+        // Учитываем реальные пропорции видео, а не только размеры на экране
+        const aspectRatio = naturalWidth / naturalHeight;
+        const screenAspectRatio = videoRect.width / videoRect.height;
+        
+        // Для горизонтального видео (ширина > высоты) минимальный масштаб должен быть больше
+        if (aspectRatio > 1) {
+            // Горизонтальное видео: минимальный масштаб ограничен высотой экрана
+            // Но учитываем, что видео может быть меньше по высоте чем контейнер
+            minScaleGlobal = Math.max(
+                cropRect.height / videoRect.height,
+                cropRect.width / (videoRect.width * 0.8) // Дополнительный запас для горизонтального
+            );
+        } else {
+            // Вертикальное видео: минимальный масштаб ограничен шириной экрана  
+            minScaleGlobal = cropRect.width / videoRect.width;
+        }
+        
+        // Увеличиваем диапазон зума для горизонтального видео
+        const maxScaleHorizontal = aspectRatio > 1 ? 4.0 : 2.5;
+        currentScale = Math.max(minScaleGlobal, minScaleGlobal * 1.05);
+        
+        // Для горизонтального видео вычисляем начальное смещение,
+        // чтобы оверлей был по центру видео, а не контейнера
+        if (aspectRatio > 1) {
+            // Горизонтальное видео: видео меньше по высоте контейнера
+            // Нужно сдвинуть видео так, чтобы оверлей был по центру видео
+            const videoActualHeight = videoRect.width / aspectRatio; // Реальная высота видео
+            const verticalOffset = (videoRect.height - videoActualHeight) / 2;
+            currentX = 0;
+            currentY = verticalOffset; // Сдвигаем видео вверх, чтобы оверлей попал в центр видео
+        } else {
+            // Вертикальное видео: стандартное центрирование
+            currentX = 0;
+            currentY = 0;
+        }
 
         updateVideoTransform();
         initializeVideoControls();
@@ -182,8 +405,14 @@ function handleVideoSelect(file) {
     };
 }
 
+// Флаги для предотвращения дублирования обработчиков
+let controlsInitialized = false;
+let appStateReset = false; // Флаг для предотвращения множественных сбросов
+
 // Инициализация контролов видео
 function initializeVideoControls() {
+    if (controlsInitialized) return; // Предотвращаем дублирование обработчиков
+    
     const videoWrapper = document.querySelector('.video-wrapper');
 
     // Воспроизведение/пауза
@@ -222,6 +451,8 @@ function initializeVideoControls() {
     videoWrapper.addEventListener('touchstart', handlePinchStart, { passive: false });
     videoWrapper.addEventListener('touchmove', handlePinchMove, { passive: false });
     videoWrapper.addEventListener('touchend', handlePinchEnd);
+    
+    controlsInitialized = true;
 }
 
 function handleTouchStart(e) {
@@ -241,10 +472,9 @@ function handleTouchMove(e) {
         let newX = touch.clientX - startX;
         let newY = touch.clientY - startY;
 
-        // Применяем упругие границы относительно текущего масштаба
-        const { x: elasticX, y: elasticY } = applyElasticBounds(newX, newY, currentScale);
-        currentX = elasticX;
-        currentY = elasticY;
+        // Убираем ограничения - видео может свободно перемещаться
+        currentX = newX;
+        currentY = newY;
 
         updateVideoTransform();
         e.preventDefault();
@@ -264,7 +494,7 @@ function handlePinchStart(e) {
             touch1.clientY - touch2.clientY
         );
         pinchStartScale = currentScale;
-        // Сохраняем текущее смещение для формулы зума вокруг центра между пальцами
+        // Сохраняем текущее смещение для формулы зума
         pinchStartX = currentX;
         pinchStartY = currentY;
         e.preventDefault();
@@ -285,21 +515,28 @@ function handlePinchMove(e) {
             const targetScale = pinchStartScale * scaleFactor;
             const clampedScale = Math.min(Math.max(targetScale, minScaleGlobal), MAX_SCALE);
 
-            // Центр между пальцами (динамический якорь)
-            const anchorX = (touch1.clientX + touch2.clientX) / 2;
-            const anchorY = (touch1.clientY + touch2.clientY) / 2;
+            // Центр между пальцами в координатах экрана
+            const anchorScreenX = (touch1.clientX + touch2.clientX) / 2;
+            const anchorScreenY = (touch1.clientY + touch2.clientY) / 2;
+            
+            // Получаем текущие размеры и позицию видео
+            const videoRect = videoPreview.getBoundingClientRect();
+            
+            // Якорь в координатах экрана относительно центра видео
+            const videoCenterX = videoRect.left + videoRect.width / 2;
+            const videoCenterY = videoRect.top + videoRect.height / 2;
+            const anchorX = anchorScreenX - videoCenterX;
+            const anchorY = anchorScreenY - videoCenterY;
+            
             const ratio = clampedScale / pinchStartScale;
 
-            // Новое смещение без учёта границ: T1 = T0 + (1 - r) * (a1 - T0)
-            const rawNewX = pinchStartX + (1 - ratio) * (anchorX - pinchStartX);
-            const rawNewY = pinchStartY + (1 - ratio) * (anchorY - pinchStartY);
+            // Простая и правильная формула: новый центр = старый центр + (1 - ratio) * якорь
+            const rawNewX = pinchStartX + (1 - ratio) * anchorX;
+            const rawNewY = pinchStartY + (1 - ratio) * anchorY;
 
-            // Применяем упругие границы для нового масштаба
-            const elastic = applyElasticBounds(rawNewX, rawNewY, clampedScale, {
-                useScaleChange: { from: pinchStartScale, to: clampedScale }
-            });
-            currentX = elastic.x;
-            currentY = elastic.y;
+            // Убираем ограничения - видео может свободно перемещаться
+            currentX = rawNewX;
+            currentY = rawNewY;
             currentScale = clampedScale;
             updateVideoTransform();
         }
@@ -309,8 +546,7 @@ function handlePinchMove(e) {
 
 function handlePinchEnd() {
     startDistance = 0;
-    // Быстрый возврат внутрь строгих границ после упругого выхода
-    snapToBounds();
+    // Убираем snapToBounds - видео остается в любом положении
 }
 
 function updateVideoTransform() {
@@ -343,18 +579,35 @@ function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     const halfCropW = cRect.width / 2;
     const halfCropH = cRect.height / 2;
 
-    // размеры видео после масштабирования targetScale
+    // Получаем реальные пропорции видео
+    const naturalWidth = videoPreview.videoWidth;
+    const naturalHeight = videoPreview.videoHeight;
+    const aspectRatio = naturalWidth / naturalHeight;
+
+    // Размеры видео после масштабирования targetScale
     const ratio = targetScale / scaleFrom;
     const halfVideoWNew = (vRect.width * ratio) / 2;
     const halfVideoHNew = (vRect.height * ratio) / 2;
     const videoCenterXNow = vRect.left + vRect.width / 2;
     const videoCenterYNow = vRect.top + vRect.height / 2;
 
-    // Требуемые границы для будущего центра видео
-    const minCenterX = overlayCenterX - (halfVideoWNew - halfCropW);
-    const maxCenterX = overlayCenterX + (halfVideoWNew - halfCropW);
-    const minCenterY = overlayCenterY - (halfVideoHNew - halfCropH);
-    const maxCenterY = overlayCenterY + (halfVideoHNew - halfCropH);
+    // Для горизонтального видео корректируем границы
+    let minCenterX, maxCenterX, minCenterY, maxCenterY;
+    
+    if (aspectRatio > 1) {
+        // Горизонтальное видео: видео может двигаться влево-вправо и вверх-вниз
+        // Ограничения должны позволять оверлею оставаться над видео
+        minCenterX = overlayCenterX - Math.max(0, halfVideoWNew - halfCropW);
+        maxCenterX = overlayCenterX + Math.max(0, halfVideoWNew - halfCropW);
+        minCenterY = overlayCenterY - Math.max(0, halfVideoHNew - halfCropH);
+        maxCenterY = overlayCenterY + Math.max(0, halfVideoHNew - halfCropH);
+    } else {
+        // Вертикальное видео: стандартные ограничения
+        minCenterX = overlayCenterX - (halfVideoWNew - halfCropW);
+        maxCenterX = overlayCenterX + (halfVideoWNew - halfCropW);
+        minCenterY = overlayCenterY - (halfVideoHNew - halfCropH);
+        maxCenterY = overlayCenterY + (halfVideoHNew - halfCropH);
+    }
 
     // dx = newCenterX - currentCenterX; dy аналогично
     const minDx = minCenterX - videoCenterXNow;
@@ -401,47 +654,82 @@ function snapToBounds() {
     }, 200);
 }
 
-// Обработка кнопки "Обрезать"
-cropButton.addEventListener('click', async () => {
-    if (!videoFile) {
-        if (typeof tg.showAlert === 'function') {
-            tg.showAlert('Пожалуйста, выберите видео');
-        } else {
-            alert('Пожалуйста, выберите видео');
-        }
+// Обработка кнопки "Обрезать" (добавляем после инициализации элементов)
+function setupCropButtonHandler() {
+    if (!cropButton) {
+        console.error('cropButton не найден');
         return;
     }
+    
+    cropButton.addEventListener('click', async () => {
+        console.log('Кнопка "Обрезать" нажата');
+        
+        if (!videoFile) {
+            console.log('Видео не выбрано');
+            if (typeof tg.showAlert === 'function') {
+                tg.showAlert('Пожалуйста, выберите видео');
+            } else {
+                alert('Пожалуйста, выберите видео');
+            }
+            return;
+        }
 
-    try {
-        showStatusMessage('Видео обрабатывается, оно появится в чате с этим ботом', 3000);
+        console.log('Начинаем обработку видео');
+        
+        try {
+            // Показываем статус-индикатор
+            console.log('Сбрасываем статус и показываем индикатор');
+            resetProcessingStatus();
+            showProcessingStatus();
+            updateStatusStep('status-uploading');
 
         const video = document.getElementById('video-preview');
         const videoRect = video.getBoundingClientRect();
         const cropRect = cropFrame.getBoundingClientRect();
         
-        // Вычисляем относительные координаты (0-1) с учетом масштаба и позиции
-        const videoWidth = videoRect.width / currentScale;
-        const videoHeight = videoRect.height / currentScale;
+        // Получаем реальные размеры видео без учета масштаба
+        const videoElement = videoPreview;
+        const naturalWidth = videoElement.videoWidth;
+        const naturalHeight = videoElement.videoHeight;
         
-        // Центр видео с учетом смещения
+        // Размеры видео на экране (с учетом масштаба)
+        const scaledVideoWidth = videoRect.width;
+        const scaledVideoHeight = videoRect.height;
+        
+        // Центр видео на экране
         const videoCenterX = videoRect.left + videoRect.width / 2;
         const videoCenterY = videoRect.top + videoRect.height / 2;
         
-        // Центр области кропа
+        // Центр области кропа на экране
         const cropCenterX = cropRect.left + cropRect.width / 2;
         const cropCenterY = cropRect.top + cropRect.height / 2;
         
-        // Относительное смещение центра кропа от центра видео
-        const offsetX = (cropCenterX - videoCenterX) / videoRect.width;
-        const offsetY = (cropCenterY - videoCenterY) / videoRect.height;
+        // Смещение центра кропа относительно центра видео (в экранных пикселях)
+        const screenOffsetX = cropCenterX - videoCenterX;
+        const screenOffsetY = cropCenterY - videoCenterY;
         
-        // Вычисляем координаты с учетом масштаба и смещения
-        const x = Math.max(0, Math.min(1, 0.5 + offsetX / currentScale));
-        const y = Math.max(0, Math.min(1, 0.5 + offsetY / currentScale));
+        // Переводим экранные координаты в координаты исходного видео
+        // Учитываем, что видео может быть масштабировано и смещено
+        const videoOffsetX = screenOffsetX / currentScale;
+        const videoOffsetY = screenOffsetY / currentScale;
         
-        // Размер области кропа с учетом масштаба
-        const width = Math.min(1, cropRect.width / (videoRect.width * currentScale));
-        const height = Math.min(1, cropRect.height / (videoRect.height * currentScale));
+        // Центр кропа в координатах исходного видео (относительно центра)
+        const cropCenterInVideoX = videoOffsetX;
+        const cropCenterInVideoY = videoOffsetY;
+        
+        // Переводим в нормализованные координаты (0-1)
+        const x = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoX / naturalWidth));
+        const y = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoY / naturalHeight));
+        
+        // Размер области кропа в координатах исходного видео
+        const cropSizeInVideo = cropRect.width / currentScale;
+        
+        // Увеличиваем размер области кропа для отдаления итогового видео
+        const aspectRatio = naturalWidth / naturalHeight;
+        const cropPaddingFactor = aspectRatio > 1 ? 2.0 : 1.4; // +100% для горизонтального, +40% для вертикального
+        
+        const width = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalWidth);
+        const height = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalHeight);
 
         const formData = new FormData();
         formData.append('video', videoFile);
@@ -459,30 +747,55 @@ cropButton.addEventListener('click', async () => {
         }
         formData.append('chatId', initData.user.id.toString());
 
+        // Обновляем статус: видео загружено
+        updateStatusStep('status-uploaded');
+        
+        // Обновляем статус: обработка видео
+        setTimeout(() => updateStatusStep('status-processing'), 500);
+
         if (typeof tg.showProgress === 'function') {
             tg.showProgress();
         }
 
+        console.log('Отправляем запрос на сервер...');
         const response = await fetch('/api/upload', {
             method: 'POST',
             body: formData
         });
+        console.log('Получен ответ от сервера:', response.status);
 
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(errorText);
         }
 
-        showStatusMessage('Видео готово ✅', 3000);
+        // Обновляем статус: создание кружка
+        updateStatusStep('status-creating');
         
+        // Имитируем время обработки
         setTimeout(() => {
-            if (typeof tg.close === 'function') {
-                tg.close();
-            }
-        }, 2000);
+            updateStatusStep('status-sent');
+            
+            // Показываем финальное сообщение и закрываем через 3 секунды
+            setTimeout(() => {
+                hideProcessingStatus();
+                showStatusMessage('Видео готово ✅', 3000);
+                
+                setTimeout(() => {
+                    // Принудительно сбрасываем состояние перед закрытием
+                    resetAppState();
+                    if (typeof tg.close === 'function') {
+                        tg.close();
+                    }
+                }, 2000);
+            }, 1000);
+        }, 1500);
 
     } catch (error) {
         console.error('Error:', error);
+        hideProcessingStatus();
+        // Сбрасываем состояние при ошибке
+        resetAppState();
         if (typeof tg.showAlert === 'function') {
             tg.showAlert(error.message);
         } else {
@@ -493,4 +806,5 @@ cropButton.addEventListener('click', async () => {
             tg.hideProgress();
         }
     }
-}); 
+    });
+} 

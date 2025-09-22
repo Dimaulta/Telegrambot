@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="ngrok-skip-browser-warning" content="true">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Видеокружок</title>
     <script src="https://telegram.org/js/telegram-web-app.js" onerror="alert('Ошибка загрузки Telegram Web App')"></script>
     <link rel="stylesheet" href="styles.css">
@@ -32,6 +35,30 @@
                 </div>
                 <div class="status-message" id="status-message"></div>
                 <button id="crop-video" class="button">Обрезать</button>
+                
+                <!-- Статус-индикатор обработки -->
+                <div id="processing-status" class="processing-status" style="display: none;">
+                    <div class="status-item" id="status-uploading">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Видео загружается</span>
+                    </div>
+                    <div class="status-item" id="status-uploaded">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Видео загружено</span>
+                    </div>
+                    <div class="status-item" id="status-processing">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Обработка видео</span>
+                    </div>
+                    <div class="status-item" id="status-creating">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Создание кружка</span>
+                    </div>
+                    <div class="status-item" id="status-sent">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Кружок в чате</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

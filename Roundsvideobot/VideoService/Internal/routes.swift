@@ -107,6 +107,27 @@ func routes(_ app: Application) async throws {
                     
                     try videoData.write(to: inputUrl)
                     
+                    // Отправляем сообщение "Видео получено, ожидайте..."
+                    let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+                    let statusMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                    let statusBoundary = UUID().uuidString
+                    var statusBody = ByteBufferAllocator().buffer(capacity: 0)
+                    
+                    statusBody.writeString("--\(statusBoundary)\r\n")
+                    statusBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                    statusBody.writeString("\(message.chat.id)\r\n")
+                    statusBody.writeString("--\(statusBoundary)\r\n")
+                    statusBody.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+                    statusBody.writeString("🎬 Видео получено, ожидайте...\r\n")
+                    statusBody.writeString("--\(statusBoundary)--\r\n")
+                    
+                    var statusHeaders = HTTPHeaders()
+                    statusHeaders.add(name: "Content-Type", value: "multipart/form-data; boundary=\(statusBoundary)")
+                    
+                    _ = try await req.client.post(statusMessageUrl, headers: statusHeaders) { post in
+                        post.body = statusBody
+                    }.get()
+                    
                     // Обрабатываем видео и отправляем кружочек
                     let processor = VideoProcessor(req: req)
                     try await processor.processAndSendCircleVideo(inputPath: inputUrl.path, chatId: String(message.chat.id))

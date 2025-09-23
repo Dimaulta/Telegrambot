@@ -381,6 +381,30 @@ struct VideoProcessor {
         return 0
     }
 
+    // Функция для отправки текстового сообщения в чат
+    private func sendMessage(_ text: String, to chatId: String) async throws {
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+        let boundary = UUID().uuidString
+        var body = ByteBufferAllocator().buffer(capacity: 0)
+        
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        body.writeString("\(chatId)\r\n")
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+        body.writeString("\(text)\r\n")
+        body.writeString("--\(boundary)--\r\n")
+        
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+        
+        let response = try await req.client.post(sendMessageUrl, headers: headers) { post in
+            post.body = body
+        }.get()
+        
+        req.logger.info("Сообщение отправлено в чат \(chatId): \(text), статус: \(response.status)")
+    }
+
     // Общая функция для обработки видео и отправки кружочка
     func processAndSendCircleVideo(inputPath: String, chatId: String) async throws {
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -472,6 +496,9 @@ struct VideoProcessor {
         }
 
         req.logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
+
+        // Отправляем сообщение "Готово!" перед отправкой кружка
+        try await sendMessage("✅ Готово!", to: chatId)
 
         // Отправляем обработанное видео как видеокружок
         let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")

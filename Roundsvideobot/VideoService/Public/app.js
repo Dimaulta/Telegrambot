@@ -19,6 +19,7 @@ let lastScale = 1;
 let pinchStartX = 0;
 let pinchStartY = 0;
 let videoContainerElem = null;
+let persistentFileInput = null; // Постоянный скрытый input для выбора видео
 const ELASTICITY = 0.4; // коэффициент упругости при выходе за границы (увеличен для более заметного эффекта)
 
 // Элементы интерфейса (инициализируем после загрузки DOM)
@@ -44,6 +45,45 @@ function initializeElements() {
         timeSlider: !!timeSlider,
         cropButton: !!cropButton
     });
+
+    // Кнопка выбора должна быть контейнером для input
+    if (selectButton) {
+        selectButton.style.position = 'relative';
+        selectButton.style.overflow = 'hidden';
+    }
+}
+
+// Гарантированно создаём один скрытый input[type=file] и переиспользуем.
+// Если есть кнопка выбора, встраиваем input внутрь кнопки, чтобы тап шёл прямо по input.
+function ensureFileInput() {
+    if (persistentFileInput && document.body.contains(persistentFileInput)) return persistentFileInput;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/*';
+    input.style.position = 'absolute';
+    input.style.inset = '0';
+    input.style.width = '100%';
+    input.style.height = '100%';
+    input.style.opacity = '0';
+    input.style.cursor = 'pointer';
+    input.setAttribute('tabindex', '0');
+    if (selectButton) {
+        selectButton.appendChild(input);
+    } else {
+        document.body.appendChild(input);
+    }
+
+    input.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        console.log('persistentFileInput change fired, file:', file?.name);
+        if (file) {
+            handleVideoSelect(file);
+        }
+        // НЕ удаляем input, просто очищаем значение, чтобы можно было выбрать тот же файл ещё раз
+        input.value = '';
+    });
+    persistentFileInput = input;
+    return input;
 }
 
 // Инициализация Telegram Web App
@@ -121,29 +161,19 @@ function setupSelectVideoHandler() {
         return;
     }
     
-    selectButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    selectButton.addEventListener('click', () => {
         
         console.log('Кнопка "Выбрать видео" нажата');
         
-        // НЕ сбрасываем состояние при выборе видео, чтобы не мешать загрузке
-        
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'video/*';
-    input.style.display = 'none';
-    document.body.appendChild(input);
+        // На всякий случай скрываем любые оверлеи перед кликом
+        hideProcessingStatus();
+        hideCompletionAlert();
 
-    input.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-                console.log('Файл выбран:', file.name);
-            handleVideoSelect(file);
-        }
-        document.body.removeChild(input);
-    });
-
+        // Используем постоянный input — это надёжнее в iOS/WKWebView/Telegram
+        const input = ensureFileInput();
+        // Сбрасываем значение, чтобы повторный выбор того же файла тоже срабатывал
+        input.value = '';
+        // В некоторых окружениях требуется прямой клик в том же обработчике user gesture
     input.click();
 });
 }
@@ -250,6 +280,8 @@ function resetAppState() {
     
     // Скрываем статус-индикатор
     hideProcessingStatus();
+    // Скрываем финальный алерт (мог оставаться видимым и блокировать клики)
+    hideCompletionAlert();
     
     // Сбрасываем флаг инициализации контролов
     controlsInitialized = false;
@@ -651,26 +683,66 @@ function getCurrentRects() {
     return { vRect, cRect };
 }
 
+// Возвращает реальный прямоугольник отображаемого видео внутри элемента
+// с учётом object-fit: contain и текущего transform (scale/translate)
+function getDisplayedVideoRect() {
+    const vRect = videoPreview.getBoundingClientRect();
+    const naturalWidth = videoPreview.videoWidth;
+    const naturalHeight = videoPreview.videoHeight;
+    if (!naturalWidth || !naturalHeight) {
+        return {
+            left: vRect.left,
+            top: vRect.top,
+            width: vRect.width,
+            height: vRect.height,
+            centerX: vRect.left + vRect.width / 2,
+            centerY: vRect.top + vRect.height / 2
+        };
+    }
+    const elementRatio = vRect.width / vRect.height;
+    const videoRatio = naturalWidth / naturalHeight;
+
+    let displayWidth, displayHeight, left, top;
+    if (elementRatio > videoRatio) {
+        // ограничено высотой, по бокам есть «пустые» поля
+        displayHeight = vRect.height;
+        displayWidth = displayHeight * videoRatio;
+        left = vRect.left + (vRect.width - displayWidth) / 2;
+        top = vRect.top;
+    } else {
+        // ограничено шириной, сверху/снизу есть поля
+        displayWidth = vRect.width;
+        displayHeight = displayWidth / videoRatio;
+        left = vRect.left;
+        top = vRect.top + (vRect.height - displayHeight) / 2;
+    }
+
+    return {
+        left,
+        top,
+        width: displayWidth,
+        height: displayHeight,
+        centerX: left + displayWidth / 2,
+        centerY: top + displayHeight / 2
+    };
+}
+
 // Вычисляет допустимый диапазон дельт (dx, dy) для смещения,
 // чтобы круг оставался внутри видео при целевом масштабе
 function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     const { vRect, cRect } = getCurrentRects();
+    const displayed = getDisplayedVideoRect();
     const overlayCenterX = cRect.left + cRect.width / 2;
     const overlayCenterY = cRect.top + cRect.height / 2;
     const halfCropW = cRect.width / 2;
     const halfCropH = cRect.height / 2;
 
-    // Получаем реальные пропорции видео
-    const naturalWidth = videoPreview.videoWidth;
-    const naturalHeight = videoPreview.videoHeight;
-    const aspectRatio = naturalWidth / naturalHeight;
-
     // Размеры видео после масштабирования targetScale
     const ratio = targetScale / scaleFrom;
-    const halfVideoWNew = (vRect.width * ratio) / 2;
-    const halfVideoHNew = (vRect.height * ratio) / 2;
-    const videoCenterXNow = vRect.left + vRect.width / 2;
-    const videoCenterYNow = vRect.top + vRect.height / 2;
+    const halfVideoWNew = (displayed.width * ratio) / 2;
+    const halfVideoHNew = (displayed.height * ratio) / 2;
+    const videoCenterXNow = displayed.centerX;
+    const videoCenterYNow = displayed.centerY;
 
     // Вычисляем границы для всех типов видео
     let minCenterX, maxCenterX, minCenterY, maxCenterY;
@@ -870,10 +942,11 @@ cropButton.addEventListener('click', async () => {
                 
                 setTimeout(() => {
                     // Принудительно сбрасываем состояние перед закрытием
+                    hideCompletionAlert();
                     resetAppState();
-                    if (typeof tg.close === 'function') {
-                        tg.close();
-                    }
+            if (typeof tg.close === 'function') {
+                tg.close();
+            }
                 }, 3000);
             }, 1000);
         }, 1500);

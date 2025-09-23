@@ -1,5 +1,6 @@
 import Foundation
 import Vapor
+import Darwin
 
 struct Service: Codable {
     let url: String
@@ -53,3 +54,10 @@ func loadEnv() -> [String: String] {
     }
     return dict
 } 
+
+/// Применяет пары ключ-значение в текущем процессе как переменные окружения
+func applyEnv(_ vars: [String: String]) {
+    for (key, value) in vars {
+        setenv(key, value, 1)
+    }
+}

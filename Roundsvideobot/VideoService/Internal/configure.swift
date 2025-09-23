@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import Darwin
 
 func getPortFromConfig(serviceName: String) async throws -> Int {
     let configPath = "config/services.json"
@@ -16,6 +17,21 @@ func getPortFromConfig(serviceName: String) async throws -> Int {
 }
 
 public func configure(_ app: Application) async throws {
+    // Загружаем config/.env и применяем в окружение процесса (для VIDEO_BOT_TOKEN)
+    let envPath = "config/.env"
+    if let content = try? String(contentsOfFile: envPath) {
+        var vars: [String: String] = [:]
+        for line in content.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 {
+                vars[String(parts[0])] = String(parts[1])
+            }
+        }
+        for (k, v) in vars { setenv(k, v, 1) }
+        app.logger.info("Loaded config/.env with \(vars.count) keys for VideoService")
+    }
     // Получаем порт из конфига
     let port = try await getPortFromConfig(serviceName: "video-processing")
     app.http.server.configuration.port = port

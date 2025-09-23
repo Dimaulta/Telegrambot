@@ -18,6 +18,10 @@ struct TemporaryPathKey: StorageKey {
 
 // configures your application
 public func configure(_ app: Application) async throws {
+    // Загружаем и применяем config/.env в окружение процесса
+    let envVars = loadEnv()
+    applyEnv(envVars)
+
     // Configure CORS
     let corsConfiguration = CORSMiddleware.Configuration(
         allowedOrigin: .all,

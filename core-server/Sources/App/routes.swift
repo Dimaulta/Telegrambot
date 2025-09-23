@@ -1,7 +1,7 @@
 import Fluent
 import Vapor
 
-let botToken = "7901916114:AAEAXDcoWhYqq5Wx4TAw1RUaxWxGaXWgf-k"
+let botToken: String = Environment.get("CORE_BOT_TOKEN") ?? ""
 
 func routes(_ app: Application) throws {
     // Стартовая проверка
@@ -15,6 +15,30 @@ func routes(_ app: Application) throws {
 
     // Обработка запросов от Telegram по пути /webhook
     app.post("webhook") { req async throws -> HTTPStatus in
+        // Встроенное проксирование на video-processing по умолчанию
+        if (Environment.get("PROXY_WEBHOOK") ?? "1") == "1" {
+            do {
+                let services = try loadServicesConfig()
+                guard let vp = services.services["video-processing"] else {
+                    req.logger.error("Proxy: service 'video-processing' not found in services.json")
+                    return .internalServerError
+                }
+                let target = URI(string: vp.url + "/webhook")
+                let response = try await req.client.post(target, headers: HTTPHeaders()) { out in
+                    if let ct = req.headers.first(name: "Content-Type") {
+                        out.headers.replaceOrAdd(name: "Content-Type", value: ct)
+                    }
+                    if let body = req.body.data {
+                        out.body = body
+                    }
+                }.get()
+                req.logger.info("Proxy: forwarded /webhook to \(target), status=\(response.status)")
+                return response.status
+            } catch {
+                req.logger.error("Proxy error: \(error)")
+                return .internalServerError
+            }
+        }
         // Логируем сырой запрос для проверки
         let body = req.body.string ?? "Нет тела запроса"
         req.logger.info("Сырой JSON от Telegram: \(body)")

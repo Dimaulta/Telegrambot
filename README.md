@@ -1,6 +1,10 @@
 # Vapor
 Vapor server for backend telegram bots services (Swift)
 
+# Что это такое
+Готовый сервер на фреймворке Vapor для создания и развёртывания телеграм ботов написанных на Swift
+В качестве примера написан бот по обработки пользовательских видео в стандартный видеокружок
+
 # Конфигурация серверов и сервисов
 
 ## ⚠️ ВАЖНО: Настройка токенов
@@ -54,3 +58,37 @@ TELEGRAMBOT04_TOKEN=YOUR_BOT04_TOKEN
 - [ ] `services.json` → `webhook_url` указывает на `https://твой-домен/<route>`
 - [ ] Прокси (nginx/caddy) пробрасывает к нужному сервису
 - [ ] Настроены webhook'и для всех ботов
+
+# Для локаотной отладки и разработки понадобится Ngrock, необходимо зарегистрироваться в сервисе и установить его локально
+он выдаёт вам рабочий URL который надо прописывать в Botfather для miniapp и по короткому гайду ниже:
+(учтите что приведённые ниже токены и URL уже заменены и вам надо подстввить свои)
+
+Полный гайд по запуску и отладке моего пет проекта на Vapor
+Первый проект это телеграм бот по обрезанию всех входящих в него видео до стандартного телеграм кружка
+Все примеры делаются на временном Ngrock домене (у вас он будет другой) https://db6e2646e62b.ngrok-free.app:
+
+1. В терминале запустить 
+ngrok http 8081 --log=stdout
+
+2. Скопировать туннель в буфер обмена, он будет выглядеть примерно так:
+https://db6e2646e62b.ngrok-free.app
+
+3. Вставить в файл config/server.json на строчку 6 свой url (ниже пример), должно получиться:
+    "base_url": "https://db6e2646e62b.ngrok-free.app"
+
+4. В терминале в новой вкладке Cmd + T запустить крманду с учётом адреса до папки с проектом (у вас другой адрес):
+cd /Users/a1111/Desktop/projects/telegrambot01 && LOG_LEVEL=debug swift run VideoServiceRunner
+
+5.1 Сброс вебхука (у вас будет другой токен бота, этот уже не актуален)
+curl -s -X POST "https://api.telegram.org/bot7901916114:AAHi5csiMOi7fgL0c1TzRRc_V1eibq_9d-E/deleteWebhook?drop_pending_updates=true"
+
+5.2 Установить вебхук (у вас будет другой токен бота, этот уже не актуален)
+curl -X POST "https://api.telegram.org/bot7901916114:AAHi5csiMOi7fgL0c1TzRRc_V1eibq_9d-E/setWebhook" -H "Content-Type: application/json" -d '{"url": "https://db6e2646e62b.ngrok-free.app/webhook"}'
+
+5.3 Проверить установлен ли вебхук (у вас будет другой токен бота, этот уже не актуален)
+curl -s "https://api.telegram.org/bot7901916114:AAHi5csiMOi7fgL0c1TzRRc_V1eibq_9d-E/getWebhookInfo"
+
+
+6. В @botfather выбрать @roundvideobot и далее в "Menu button" нажать "Configure menu button" и вставить URL из Ngrock или купленного домена
+
+Это всё!

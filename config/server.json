@@ -1,0 +1,8 @@
+{
+  "server": {
+    "ip": "123.45.67.89",
+    "port": 8080,
+    "protocol": "https",
+    "base_url": "https://db6e2646e62b.ngrok-free.app"
+  }
+} 

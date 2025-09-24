@@ -1,0 +1,569 @@
+:root {
+    --tg-theme-bg-color: #000000;
+    --tg-theme-text-color: #ffffff;
+    --tg-theme-hint-color: #999999;
+    --tg-theme-link-color: #2481cc;
+    --tg-theme-button-color: #2481cc;
+    --tg-theme-button-text-color: #ffffff;
+    --crop-area-size: 80vw;
+    --crop-border-color: #ffffff;
+    
+    /* Единый стиль для кнопок и элементов */
+    --primary-color: #ff69b4; /* светло-розовый */
+    --primary-text-color: #ffffff;
+    --primary-border-color: #ff69b4;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background: #2c2c2c;
+    color: white;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.screen {
+    display: none;
+    height: 100vh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.screen.active {
+    display: flex;
+}
+
+.button {
+    background: var(--primary-color);
+    color: var(--primary-text-color);
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+    margin: 5px;
+    transition: all 0.3s ease;
+    /* animation: buttonPulse 3s infinite; */ /* Закомментировано для тестирования */
+    position: relative;
+}
+
+.button:disabled {
+    background: #666;
+    cursor: not-allowed;
+    animation: none;
+}
+
+.button:active:not(:disabled) {
+    background: #1a6098;
+}
+
+.button:active::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    border: 3px solid #4CAF50;
+    border-radius: 10px;
+    animation: buttonPress 0.5s ease-out;
+    pointer-events: none;
+}
+
+@keyframes buttonPulse {
+    0% {
+        transform: scale(1) translateY(0);
+    }
+    25% {
+        transform: scale(1.02) translateY(-2px);
+    }
+    50% {
+        transform: scale(1) translateY(0);
+    }
+    75% {
+        transform: scale(0.98) translateY(2px);
+    }
+    100% {
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes buttonPress {
+    0% {
+        opacity: 1;
+        transform: scale(0.95);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.1);
+    }
+}
+
+.video-container {
+    width: 100%;
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible; /* Убираем ограничения - видео может выходить за границы */
+    background: transparent !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 0;
+}
+
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    background: transparent !important;
+}
+
+.video-preview {
+    /* Полностью убираем стили - контейнер будет невидимым */
+    display: none;
+}
+
+#video-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transform-origin: 0 0; /* важно для якорного зума */
+    will-change: transform;
+    background: transparent !important;
+    transition: transform 120ms ease; /* сгладим первые шаги зума */
+    border-radius: 12px; /* Добавляем скругление к самому видео */
+}
+
+.crop-frame {
+    position: absolute;
+    width: 252px; /* 168px + 50% = 252px */
+    height: 252px; /* 168px + 50% = 252px */
+    border-radius: 50%;
+    border: 2px solid var(--primary-color);
+    pointer-events: none;
+    z-index: 5; /* Увеличиваем z-index чтобы оверлей был поверх видео */
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8); /* Затемнение на 80% вокруг круга - темнее */
+}
+
+#crop-overlay {
+    display: none;
+}
+
+.crop-area {
+    background: transparent !important;
+}
+
+.crop-handle {
+    width: 40px;
+    height: 40px;
+    position: absolute;
+    bottom: -20px;
+    right: -20px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    touch-action: none;
+}
+
+/* Контролы */
+.controls {
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    position: relative;
+    z-index: 10; /* Увеличиваем z-index чтобы контролы были поверх видео */
+}
+
+.video-controls {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    background: rgba(255, 105, 180, 0.1); /* Легкий розовый фон */
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 105, 180, 0.2); /* Тонкая розовая рамка */
+    backdrop-filter: blur(8px);
+}
+
+.control-button {
+    background: rgba(255, 105, 180, 0.2);
+    border: 1px solid rgba(255, 105, 180, 0.4);
+    color: var(--primary-color);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.control-button:hover {
+    background: rgba(255, 105, 180, 0.3);
+    transform: scale(1.05);
+}
+
+#time-slider {
+    flex: 1;
+    margin: 0 15px;
+    height: 6px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    outline: none;
+}
+
+#time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+#time-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(255, 105, 180, 0.4);
+}
+
+.action-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.upload-section {
+    width: 100%;
+    max-width: 500px;
+    text-align: center;
+    padding: 32px;
+    border-radius: 16px;
+    background: rgba(var(--tg-theme-button-color-rgb, 36, 129, 204), 0.1);
+    border: 2px dashed var(--tg-theme-button-color);
+    margin-bottom: 20px;
+    transition: all 0.3s ease;
+}
+
+.upload-section:hover {
+    background: rgba(var(--tg-theme-button-color-rgb, 36, 129, 204), 0.15);
+    transform: translateY(-2px);
+}
+
+.tg-button {
+    background-color: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+    border: none;
+    padding: 12px 24px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    width: 100%;
+    max-width: 300px;
+    margin: 10px auto;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.tg-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(var(--tg-theme-button-color-rgb, 36, 129, 204), 0.2);
+}
+
+.tg-button:active {
+    transform: translateY(0);
+}
+
+#crop-area {
+    position: absolute;
+    width: 80%;
+    height: 80%;
+    top: 10%;
+    left: 10%;
+    border: 2px solid #fff;
+    border-radius: 16px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    cursor: move;
+}
+
+.upload-icon {
+    font-size: 48px;
+    color: var(--tg-theme-button-color);
+    margin-bottom: 16px;
+}
+
+.upload-text {
+    color: var(--tg-theme-hint-color);
+    margin-bottom: 24px;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(var(--tg-theme-button-color-rgb, 36, 129, 204), 0.2);
+    border-radius: 2px;
+    margin: 20px 0;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--tg-theme-button-color);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+#crop-video {
+    width: calc(100% - 40px); /* Динамическая ширина с отступами по 20px с каждой стороны */
+    margin: 0 20px; /* Отступы по 20px слева и справа */
+    background: var(--primary-color); /* Используем тот же цвет что и у кнопки "Выбрать видео" */
+    color: var(--primary-text-color);
+    border: none;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    backdrop-filter: blur(8px);
+    z-index: 10; /* Убеждаемся что кнопка поверх всего */
+    position: relative;
+    transition: all 0.3s ease; /* Плавная анимация изменения */
+}
+
+.status-message {
+    position: absolute;
+    bottom: 180px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    z-index: 1000;
+    text-align: center;
+    max-width: 90%;
+    white-space: normal;
+    word-wrap: break-word;
+    box-sizing: border-box;
+    margin: 0 10px;
+}
+
+.status-message.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Статус-индикатор обработки */
+.processing-status {
+    position: absolute;
+    top: 50%; /* Точно в центре экрана */
+    left: 50%; /* Точно в центре экрана */
+    transform: translate(-50%, -50%); /* Центрируем точно на оверлее */
+    background: rgba(0, 0, 0, 0.9); /* Темный фон для контраста */
+    border-radius: 50%; /* Делаем круглым как оверлей */
+    padding: 20px;
+    z-index: 1000;
+    width: 252px; /* Точно такой же размер как оверлей кружочка */
+    height: 252px; /* Точно такой же размер как оверлей кружочка */
+    box-sizing: border-box;
+    backdrop-filter: blur(8px);
+    border: 2px solid var(--primary-color); /* розовая рамка как у оверлея */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start; /* Выравниваем по верху */
+    align-items: flex-start; /* Выравниваем по левому краю */
+    padding-top: 60px; /* Смещаем список вниз на 40px */
+    padding-left: 50px; /* Смещаем список вправо на 30px */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.2); /* Добавляем затемнение на 20% вокруг статус-блока */
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    margin: 3px 0; /* Еще меньше отступы для компактности */
+    font-size: 11px; /* Еще меньше размер шрифта */
+    color: white;
+    transition: all 0.3s ease;
+    justify-content: center; /* Центрируем каждый элемент */
+}
+
+.status-item.completed {
+    color: var(--primary-color);
+}
+
+.status-item.completed .status-icon {
+    color: var(--primary-color);
+}
+
+.status-icon {
+    margin-right: 8px; /* Уменьшил отступ между иконкой и текстом */
+    font-size: 16px; /* Уменьшил размер иконки */
+    width: 16px; /* Уменьшил ширину иконки */
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.status-text {
+    flex: 1;
+}
+
+.status-item.completed .status-icon::before {
+    content: "💗";
+}
+
+.status-item:not(.completed) .status-icon::before {
+    content: "⏳";
+}
+
+/* Убираем дублирование эмодзи в HTML */
+.status-item .status-icon {
+    font-size: 0;
+}
+
+.status-item .status-icon::before {
+    font-size: 16px; /* Уменьшил размер эмодзи */
+}
+
+/* Алерт завершения */
+.completion-alert {
+    position: fixed;
+    top: -40px; /* Поднимаем алерт еще выше на 20px */
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8); /* Затемнение фона */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000; /* Поверх всего */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.completion-alert.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.completion-alert-content {
+    background: rgba(0, 0, 0, 0.9); /* Темный фон как у инфо блока */
+    border-radius: 50%; /* Делаем круглым */
+    padding: 40px 20px;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    transform: scale(0.8);
+    transition: transform 0.3s ease;
+    width: 280px; /* Фиксированная ширина для круга */
+    height: 280px; /* Фиксированная высота для круга */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(8px);
+    border: 2px solid var(--primary-color); /* розовая рамка как у инфо блока */
+}
+
+.completion-alert.show .completion-alert-content {
+    transform: scale(1);
+}
+
+.completion-alert-icon {
+    font-size: 50px;
+    margin-bottom: 15px;
+    animation: bounce 0.6s ease;
+}
+
+.completion-alert-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 0;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.completion-alert-subtitle {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.4;
+}
+
+@keyframes bounce {
+    0% { transform: scale(0.3); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+/* Стили для десктопа */
+@media (min-width: 768px) {
+    .video-container {
+        cursor: grab;
+    }
+    
+    .video-container:active {
+        cursor: grabbing;
+    }
+    
+    #video-preview {
+        cursor: grab;
+    }
+    
+    #video-preview:active {
+        cursor: grabbing;
+    }
+} 

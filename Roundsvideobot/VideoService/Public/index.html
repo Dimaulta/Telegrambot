@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="ngrok-skip-browser-warning" content="true">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Видеокружок</title>
+    <script src="https://telegram.org/js/telegram-web-app.js" onerror="alert('Ошибка загрузки Telegram Web App')"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Экран выбора видео -->
+        <div id="select-screen" class="screen active">
+            <button id="select-video" class="button">Выбрать видео</button>
+        </div>
+
+        <!-- Экран обрезки -->
+        <div id="crop-screen" class="screen">
+            <div class="video-container">
+                <div class="video-wrapper">
+                    <video id="video-preview" playsinline muted></video>
+                    <div class="crop-frame"></div>
+                </div>
+                
+                <!-- Статус-индикатор обработки -->
+                <div id="processing-status" class="processing-status" style="display: none;">
+                    <div class="status-item" id="status-uploading">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Видео загружается</span>
+                    </div>
+                    <div class="status-item" id="status-uploaded">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Видео загружено</span>
+                    </div>
+                    <div class="status-item" id="status-processing">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Обработка видео</span>
+                    </div>
+                    <div class="status-item" id="status-creating">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Создание кружка</span>
+                    </div>
+                    <div class="status-item" id="status-sent">
+                        <span class="status-icon"></span>
+                        <span class="status-text">Кружок в чате</span>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <!-- <div class="video-controls">
+                    <button id="play-pause" class="control-button">
+                        <span class="play-icon">▶</span>
+                    </button>
+                    <input type="range" id="time-slider" min="0" max="100" value="0" class="slider">
+                </div> -->
+                <div class="status-message" id="status-message"></div>
+                <button id="crop-video" class="button">Обрезать</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Алерт завершения -->
+    <div id="completion-alert" class="completion-alert">
+        <div class="completion-alert-content">
+            <div class="completion-alert-icon">✅</div>
+            <div class="completion-alert-title">Ваш кружок уже в чате с этим ботом</div>
+         <!--     <div class="completion-alert-subtitle">Видео успешно обработано и отправлено!</div> -->
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html> 

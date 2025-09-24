@@ -1,0 +1,31 @@
+{
+  "services": {
+    "video-processing": {
+      "url": "http://localhost:8081",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/webhook",
+      "name": "Video Processing Service"
+    },
+    "second-service": {
+      "url": "http://localhost:8082",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/webhook"
+    },
+    "telegrambot03": {
+      "url": "http://localhost:8083",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/webhook",
+      "name": "Telegram Bot 03"
+    },
+    "telegrambot04": {
+      "url": "http://localhost:8084",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/webhook",
+      "name": "Telegram Bot 04"
+    }
+  }
+}

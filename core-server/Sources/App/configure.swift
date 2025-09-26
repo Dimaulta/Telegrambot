@@ -3,7 +3,7 @@ import Fluent
 import FluentSQLiteDriver
 import Vapor
 
-// Определяем ключи для хранения
+// Определяем ключи для хранения //
 struct IsProcessingKey: StorageKey {
     typealias Value = Bool
 }

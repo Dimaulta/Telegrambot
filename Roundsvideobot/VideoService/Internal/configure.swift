@@ -47,4 +47,11 @@ public func configure(_ app: Application) async throws {
 
     // Увеличиваем лимит на размер загружаемого файла
     app.routes.defaultMaxBodySize = "100mb"
+    
+    // Создаем папку для временных файлов если её нет
+    let tempDir = "Roundsvideobot/Resources/temporaryvideoFiles"
+    if !FileManager.default.fileExists(atPath: tempDir) {
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        app.logger.info("Создана папка для временных файлов: \(tempDir)")
+    }
 } 

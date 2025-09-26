@@ -25,3 +25,4 @@ config/.env.*
 # Логи и временные файлы
 *.log
 *.tmp
+Roundsvideobot/Resources/temporaryvideoFiles/

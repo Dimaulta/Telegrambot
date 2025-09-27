@@ -1,28 +1,23 @@
-Packages
+# Build artifacts
 .build
-xcuserdata
-*.xcodeproj
-DerivedData/
-.DS_Store
-db.sqlite
 .swiftpm
+Package.resolved
+*.d
+*.o
+*.swiftdeps
+*.swiftdeps~
+
+# Environment files
 .env
 .env.*
 !.env.example
-setup_cursor_rules.py
-.cursor/rules/assistant.mdc
-.vscode/launch.json
-.vscode/settings.json
-
-# Swift Package Manager
-Package.resolved
-
-# Конфигурация и секреты
 config/.env
 config/.env.*
-*.env
 
-# Логи и временные файлы
+# OS files
+.DS_Store
+
+# Temporary files
 *.log
 *.tmp
 Roundsvideobot/Resources/temporaryvideoFiles/

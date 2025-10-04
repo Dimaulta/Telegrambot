@@ -7,11 +7,12 @@
       "webhook_url": "${BASE_URL}/webhook",
       "name": "Video Processing Service"
     },
-    "second-service": {
+    "Neurfotobot": {
       "url": "http://localhost:8082",
       "routes": ["/webhook"],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/webhook"
+      "webhook_url": "${BASE_URL}/webhook",
+      "name": "Neurfotobot - AI Photo Generation"
     },
     "telegrambot03": {
       "url": "http://localhost:8083",

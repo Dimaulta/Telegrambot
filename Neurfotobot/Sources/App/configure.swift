@@ -17,7 +17,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 
 public func configure(_ app: Application) async throws {
     // Получаем порт из конфига
-    let port = getPortFromConfig(serviceName: "second-service")
+    let port = getPortFromConfig(serviceName: "Neurfotobot")
     app.http.server.configuration.port = port
 
     // ... остальная конфигурация ...

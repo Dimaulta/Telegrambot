@@ -11,7 +11,7 @@
 ```bash
 # Клонирование репозитория
 git clone <repository-url>
-cd telegrambot01
+cd Telegrambot
 
 # Создание конфигурации
 cp config/env.example config/.env
@@ -61,8 +61,8 @@ sudo apt install nginx
 ### 2. Развертывание приложения
 ```bash
 # Клонирование и сборка
-git clone <repository-url> /opt/telegrambot01
-cd /opt/telegrambot01
+git clone <repository-url> /opt/Telegrambot
+cd /opt/Telegrambot
 
 # Создание конфигурации
 sudo cp config/env.example config/.env
@@ -87,8 +87,8 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/telegrambot01
-ExecStart=/opt/telegrambot01/.build/release/App
+WorkingDirectory=/opt/Telegrambot
+ExecStart=/opt/Telegrambot/.build/release/App
 Restart=always
 Environment=PORT=8080
 
@@ -105,8 +105,8 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/telegrambot01
-ExecStart=/opt/telegrambot01/.build/release/VideoServiceRunner
+WorkingDirectory=/opt/Telegrambot
+ExecStart=/opt/Telegrambot/.build/release/VideoServiceRunner
 Restart=always
 Environment=PORT=8081
 
@@ -240,7 +240,7 @@ curl -X POST https://your-domain.com/webhook \
 
 ### Обновление кода
 ```bash
-cd /opt/telegrambot01
+cd /opt/Telegrambot
 git pull origin main
 swift build -c release
 sudo systemctl restart telegrambot-core
@@ -271,6 +271,6 @@ sudo systemctl restart telegrambot-video
 # backup.sh
 DATE=$(date +%Y%m%d_%H%M%S)
 tar -czf "/backup/telegrambot_${DATE}.tar.gz" \
-  /opt/telegrambot01/config/ \
-  /opt/telegrambot01/db.sqlite
+  /opt/Telegrambot/config/ \
+  /opt/Telegrambot/db.sqlite
 ```

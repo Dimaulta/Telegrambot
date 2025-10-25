@@ -10,13 +10,13 @@ func getPortFromConfig(serviceName: String) -> Int {
           let urlString = service["url"] as? String,
           let url = URL(string: urlString),
           let port = url.port else {
-        return 8083 // fallback
+        return 8084 // fallback
     }
     return port
 }
 
 public func configure(_ app: Application) async throws {
-    let port = getPortFromConfig(serviceName: "telegrambot03")
+    let port = getPortFromConfig(serviceName: "soranowbot")
     app.http.server.configuration.port = port
     try routes(app)
 }

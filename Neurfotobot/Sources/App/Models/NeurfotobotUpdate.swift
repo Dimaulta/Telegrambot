@@ -1,5 +1,5 @@
 import Foundation
 
-struct TelegramBot03Update: Codable {
+struct NeurfotobotUpdate: Codable {
     let update_id: Int
-}
+} 

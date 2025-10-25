@@ -13,8 +13,8 @@
 1. **Создайте файл `config/.env`** с вашими токенами:
    ```env
    VIDEO_BOT_TOKEN=ваш_новый_токен
-   TELEGRAMBOT03_TOKEN=ваш_токен_бота_03
-   TELEGRAMBOT04_TOKEN=ваш_токен_бота_04
+   GSFORTEXTBOT_TOKEN=ваш_токен_gsfortextbot
+   SORANOWBOT_TOKEN=ваш_токен_soranow
    ```
 
 2. **Замените токены в BotFather:**

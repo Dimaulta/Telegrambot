@@ -28,8 +28,9 @@ BASE_URL=https://your-domain.com
 
 # ТОКЕНЫ БОТОВ
 VIDEO_BOT_TOKEN=YOUR_BOT_TOKEN
-TELEGRAMBOT03_TOKEN=YOUR_BOT03_TOKEN
-TELEGRAMBOT04_TOKEN=YOUR_BOT04_TOKEN
+NEURFOTOBOT_TOKEN=YOUR_NEURFOTOBOT_TOKEN
+GSFORTEXTBOT_TOKEN=YOUR_GSFT_TOKEN
+SORANOWBOT_TOKEN=YOUR_SORANOW_TOKEN
 
 # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (опционально)
 TEMP_DIR=Roundsvideobot/Resources/temporaryvideoFiles
@@ -50,8 +51,8 @@ swift run App
 swift run VideoServiceRunner
 
 # Запуск дополнительных ботов (опционально)
-swift run telegrambot03
-swift run telegrambot04
+swift run gsfortextbot
+swift run soranowbot
 ```
 
 **Примечание:** Папка `Roundsvideobot/Resources/temporaryvideoFiles` создается автоматически при запуске видео-сервиса. Если папка отсутствует, сервис создаст её сам.
@@ -73,15 +74,16 @@ curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
 
 - **core-server** (порт 8080) — основной сервер с проксированием
 - **video-processing** (порт 8081) — обработка видео и miniapp
-- **telegrambot03** (порт 8083) — шаблон для дополнительного бота
-- **telegrambot04** (порт 8084) — шаблон для дополнительного бота
+- **neurfotobot** (порт 8082) — бот для нейрофотографий (AI)
+- **gsfortextbot** (порт 8083) — расшифровка голосовых в текст
+- **soranowbot** (порт 8084) — удаление ватермарки Sora
 
 ### Схема взаимодействия
 
 ```
 Telegram → core-server → video-processing (прокси)
                 ↓
-        telegrambot03/04 (независимые сервисы)
+        gsfortextbot/soranowbot (независимые сервисы)
 ```
 
 ## 📁 Структура проекта
@@ -95,8 +97,9 @@ Telegrambot/
 │   └── README.md               # Детальная настройка конфигов
 ├── core-server/                # Основной сервер
 ├── Roundsvideobot/             # Видео-сервис с miniapp
-├── telegrambot03/              # Шаблон бота #3
-├── telegrambot04/              # Шаблон бота #4
+├── neurfotobot/                # Бот для нейрофотографий (AI)
+├── gsfortextbot/               # Бот для расшифровки голосовых в текст
+├── soranowbot/                 # Бот для удаления ватермарки Sora
 └── docs/                       # Документация
 ```
 

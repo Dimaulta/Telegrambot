@@ -33,8 +33,8 @@
 - `Roundsvideobot/VideoService/Public/` — фронтенд miniapp
 - `Roundsvideobot/VideoService/Internal/routes.swift` — API endpoints
 
-### 3. Template Bot Services (Порты 8083, 8084)
-**Назначение:** Шаблоны для дополнительных ботов
+### 3. Bot Services (Порты 8082–8084)
+**Назначение:** Дополнительные боты
 
 **Функции:**
 - Независимые сервисы для новых ботов
@@ -43,7 +43,16 @@
 
 **Структура:**
 ```
-telegrambot03/
+neurfotobot/
+├── Sources/App/
+│   ├── Controllers/
+│   ├── Models/
+│   ├── routes.swift
+│   └── configure.swift
+```
+
+```
+gsfortextbot/
 ├── Sources/App/
 │   ├── Controllers/
 │   ├── Models/
@@ -72,8 +81,9 @@ Telegram → core-server/webhook → video-processing/webhook
 
 ### Переменные окружения
 - `VIDEO_BOT_TOKEN` — токен видео-бота
-- `TELEGRAMBOT03_TOKEN` — токен бота #3
-- `TELEGRAMBOT04_TOKEN` — токен бота #4
+- `NEURFOTOBOT_TOKEN` — токен бота для нейрофотографий
+- `GSFORTEXTBOT_TOKEN` — токен бота для распознавания голоса
+- `SORANOWBOT_TOKEN` — токен бота для удаления ватермарки Sora
 - `BASE_URL` — базовый URL для webhook'ов
 
 ### Файлы конфигурации

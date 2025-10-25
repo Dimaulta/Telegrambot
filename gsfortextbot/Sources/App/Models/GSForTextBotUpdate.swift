@@ -1,5 +1,5 @@
 import Foundation
 
-struct TelegramBot04Update: Codable {
+struct GSForTextBotUpdate: Codable {
     let update_id: Int
 }

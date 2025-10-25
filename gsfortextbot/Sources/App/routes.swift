@@ -1,6 +1,6 @@
 import Vapor
 
 func routes(_ app: Application) throws {
-    let controller = TelegramBot03Controller()
+    let controller = GSForTextBotController()
     app.post("webhook", use: controller.handleWebhook)
 }

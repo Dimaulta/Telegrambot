@@ -14,19 +14,19 @@
       "webhook_url": "${BASE_URL}/webhook",
       "name": "Neurfotobot - AI Photo Generation"
     },
-    "telegrambot03": {
+    "gsfortextbot": {
       "url": "http://localhost:8083",
       "routes": ["/webhook"],
       "enabled": true,
       "webhook_url": "${BASE_URL}/webhook",
-      "name": "Telegram Bot 03"
+      "name": "GS For Text Bot"
     },
-    "telegrambot04": {
+    "soranowbot": {
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
       "enabled": true,
       "webhook_url": "${BASE_URL}/webhook",
-      "name": "Telegram Bot 04"
+      "name": "Sora Watermark Removal Bot"
     }
   }
 }

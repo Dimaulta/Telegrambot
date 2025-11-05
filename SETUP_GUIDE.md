@@ -12,7 +12,7 @@
 
 
 
-2. Установить Docker Desktop:
+2. Установить Docker Desktop: 
 
 2.1. Скачать Docker Desktop для Mac:
 - Открыть https://www.docker.com/products/docker-desktop/

@@ -35,6 +35,9 @@ public func configure(_ app: Application) async throws {
 
     let port = getPortFromConfig(serviceName: "soranowbot")
     app.http.server.configuration.port = port
+    
+    // Middleware для логирования всех входящих запросов (для диагностики webhook)
+    app.middleware.use(LoggingMiddleware())
 
     // Опциональная поддержка HTTP-прокси для исходящих запросов (чтобы обойти геоблок)
     // Задай переменную окружения SORA_HTTP_PROXY в формате: http://host:port

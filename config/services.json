@@ -25,7 +25,7 @@
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/webhook",
+      "webhook_url": "${BASE_URL}/sora/webhook",
       "name": "Sora Watermark Removal Bot"
     }
   }

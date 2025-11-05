@@ -1,0 +1,6 @@
+node_modules
+browser-profile
+.git
+.env
+*.log
+

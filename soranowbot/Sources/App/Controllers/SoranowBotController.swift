@@ -3,7 +3,10 @@ import Foundation
 
 final class SoranowBotController {
     func handleWebhook(_ req: Request) async throws -> Response {
-        req.logger.info("SoranowBot webhook hit")
+        req.logger.info("═══════════════════════════════════════════════")
+        req.logger.info("🔔 SoranowBot webhook hit!")
+        req.logger.info("Method: \(req.method), Path: \(req.url.path)")
+        
         let token = Environment.get("SORANOWBOT_TOKEN")
         guard let token = token, token.isEmpty == false else {
             req.logger.error("SORANOWBOT_TOKEN is missing")
@@ -11,20 +14,32 @@ final class SoranowBotController {
         }
 
         let rawBody = req.body.string ?? ""
-        req.logger.debug("Raw body: \(rawBody)")
+        req.logger.info("📦 Raw body length: \(rawBody.count) characters")
+        if rawBody.count > 0 && rawBody.count < 500 {
+            req.logger.debug("Raw body: \(rawBody)")
+        }
 
+        req.logger.info("🔍 Decoding SoranowBotUpdate...")
         let update = try? req.content.decode(SoranowBotUpdate.self)
-        if update == nil { req.logger.warning("Failed to decode SoranowBotUpdate") }
+        if update == nil { 
+            req.logger.error("❌ Failed to decode SoranowBotUpdate - check raw body above")
+        return Response(status: .ok)
+    }
+        req.logger.info("✅ SoranowBotUpdate decoded successfully")
 
         guard let message = update?.message else {
-            req.logger.debug("No message in update")
+            req.logger.warning("⚠️ No message in update (update_id: \(update?.update_id ?? -1))")
             return Response(status: .ok)
         }
         let text = message.text ?? ""
-        req.logger.info("Incoming chatId=\(message.chat.id) text=\(text)")
+        req.logger.info("📨 Incoming message - chatId=\(message.chat.id), text length=\(text.count)")
+        if !text.isEmpty {
+            req.logger.info("📝 Message text: \(text.prefix(200))")
+        }
 
+        req.logger.info("🔍 Checking for Sora URL in message...")
         guard let shareUrl = extractSoraShareURL(from: text) else {
-            req.logger.debug("No Sora URL found in message")
+            req.logger.info("ℹ️ No Sora URL found in message (text: \(text.prefix(100)))")
             return Response(status: .ok)
         }
         req.logger.info("Detected Sora share URL: \(shareUrl)")
@@ -37,15 +52,20 @@ final class SoranowBotController {
         let logger = req.logger
         
         Task { [token, shareUrl, chatId] in
+            logger.info("🚀 Background task started for URL: \(shareUrl)")
             do {
                 // Отправляем уведомление о начале обработки
+                logger.info("📤 Sending 'processing' message to user...")
                 _ = try? await sendTelegramMessage(token: token, chatId: chatId, text: "⏳ Обрабатываю ссылку, подожди немного...", client: client)
+                logger.info("✅ 'Processing' message sent")
                 
                 // Создаём новый Request для фоновой обработки (используем eventLoop из оригинального req)
+                logger.info("🔧 Creating background request...")
                 let backgroundReq = Request(application: req.application, method: .GET, url: URI(string: "/"), on: req.eventLoop)
+                logger.info("✅ Background request created, calling fetchDirectSoraVideoUrl...")
                 
                 let directUrl = try await fetchDirectSoraVideoUrl(from: shareUrl, req: backgroundReq)
-                logger.info("Extracted direct URL length=\(directUrl.count), URL: \(directUrl)")
+                logger.info("✅ fetchDirectSoraVideoUrl completed, extracted URL length=\(directUrl.count), URL: \(directUrl.prefix(200))...")
                 
                 // Проверяем, что это действительно ссылка на видео, а не исходная ссылка на Sora
                 guard directUrl.contains("videos.openai.com") else {
@@ -83,6 +103,8 @@ final class SoranowBotController {
         }
 
         // Возвращаем ответ сразу, обработка продолжается в фоне
+        req.logger.info("✅ Webhook processed, returning OK response (background task started)")
+        req.logger.info("═══════════════════════════════════════════════")
         return Response(status: .ok)
     }
 }
@@ -166,6 +188,77 @@ private func fetchViaScrapingBee(url: String, apiKey: String, req: Request) asyn
     } catch {
         req.logger.error("ScrapingBee request failed: \(error)")
         throw Abort(.badRequest, reason: "ScrapingBee request failed: \(error.localizedDescription)")
+    }
+}
+
+/// Получает HTML через Playwright-сервис (локальный Docker-контейнер)
+private func fetchViaPlaywright(url: String, serviceUrl: String, req: Request) async throws -> String {
+    // Playwright-сервис работает на localhost:3000 (или задан через переменную окружения)
+    let apiUrl = "\(serviceUrl)/fetch"
+    
+    req.logger.info("🎭 Calling Playwright service at \(apiUrl)...")
+    
+    let client = req.client
+    
+    var headers = HTTPHeaders()
+    headers.contentType = .json
+    
+    let uri = URI(string: apiUrl)
+    
+    do {
+        req.logger.info("📤 Sending POST request to Playwright service with URL: \(url.prefix(100))...")
+        req.logger.info("⏱️ This may take up to 60 seconds (waiting for page load and __NEXT_DATA__)...")
+        
+        let response = try await client.post(uri, headers: headers) { req in
+            try req.content.encode(["url": url] as [String: String])
+        }.get()
+        
+        guard response.status == HTTPStatus.ok else {
+            let bodyStr = response.body?.getString(at: 0, length: response.body?.readableBytes ?? 0, encoding: .utf8) ?? ""
+            req.logger.error("Playwright service returned status \(response.status.code): \(bodyStr.prefix(200))")
+            throw Abort(.badRequest, reason: "Playwright service returned status \(response.status.code)")
+        }
+        
+        guard let body = response.body else {
+            throw Abort(.badRequest, reason: "Playwright service returned empty body")
+        }
+        
+        guard let bodyString = body.getString(at: 0, length: body.readableBytes, encoding: .utf8), !bodyString.isEmpty else {
+            throw Abort(.badRequest, reason: "Playwright service returned empty response")
+        }
+        
+        // Парсим JSON ответ
+        struct PlaywrightResponse: Codable {
+            let success: Bool
+            let html: String?
+            let hasNextData: Bool?
+            let length: Int?
+            let error: String?
+        }
+        
+        guard let data = bodyString.data(using: .utf8),
+              let responseObj = try? JSONDecoder().decode(PlaywrightResponse.self, from: data) else {
+            throw Abort(.badRequest, reason: "Failed to parse Playwright service response")
+        }
+        
+        guard responseObj.success, let html = responseObj.html, !html.isEmpty else {
+            let errorMsg = responseObj.error ?? "Unknown error"
+            req.logger.error("Playwright service returned error: \(errorMsg)")
+            throw Abort(.badRequest, reason: "Playwright service error: \(errorMsg)")
+        }
+        
+        req.logger.info("✅ Playwright service returned HTML (length: \(html.count))")
+        if let hasNextData = responseObj.hasNextData {
+            req.logger.info("✅ Playwright service HTML contains __NEXT_DATA__: \(hasNextData)")
+            if hasNextData {
+                req.logger.info("🎉 Playwright service successfully found __NEXT_DATA__! This should give us the correct UUID!")
+            }
+        }
+        
+        return html
+    } catch {
+        req.logger.error("Playwright service request failed: \(error)")
+        throw Abort(.badRequest, reason: "Playwright service request failed: \(error.localizedDescription)")
     }
 }
 
@@ -618,10 +711,53 @@ private func parseSoraHtml(_ html: String, req: Request) throws -> String {
 }
 
 private func fetchDirectSoraVideoUrl(from shareUrl: String, req: Request) async throws -> String {
+    req.logger.info("🔍 Starting fetchDirectSoraVideoUrl for URL: \(shareUrl)")
     // Пробуем разные сервисы для рендеринга JS в порядке приоритета
     // ВАЖНО: Добавляем retry логику - иногда нужно несколько попыток для получения __NEXT_DATA__
     
-    // 1. Browserless.io API - ОТКЛЮЧЕН: всегда блокируется Cloudflare, даже с куками
+    // 1. Playwright-сервис (локальный Docker-контейнер) - ПРИОРИТЕТ #1!
+    // Использует реальный браузер, должен надёжно получать __NEXT_DATA__
+    let playwrightServiceUrl = Environment.get("PLAYWRIGHT_SERVICE_URL") ?? "http://localhost:3000"
+    req.logger.info("🎭 Trying Playwright service first (real browser, should get __NEXT_DATA__ reliably)...")
+    
+    do {
+        let html = try await fetchViaPlaywright(url: shareUrl, serviceUrl: playwrightServiceUrl, req: req)
+        var hasNextData = html.contains("__NEXT_DATA__") || 
+                         html.contains("__next_data__") || 
+                         html.contains("__NEXT_DATA") ||
+                         html.contains("NEXT_DATA")
+        
+        // Также пробуем глубокое извлечение
+        if !hasNextData {
+            if let _ = extractNextDataJSON(from: html) {
+                hasNextData = true
+                req.logger.info("✅ Playwright found __NEXT_DATA__ via deep extraction!")
+            }
+        }
+        
+        if !html.contains("Just a moment") && !html.contains("cf-browser-verification") {
+            req.logger.info("Playwright success, parsing HTML...")
+            do {
+                let result = try parseSoraHtml(html, req: req)
+                if hasNextData {
+                    req.logger.info("✅ Playwright found URL with __NEXT_DATA__ (should be original without watermark): \(result.prefix(150))...")
+                } else {
+                    req.logger.warning("⚠️ Playwright found URL but WITHOUT __NEXT_DATA__: \(result.prefix(150))...")
+                }
+                return result
+            } catch {
+                req.logger.warning("Playwright parsing failed: \(error)")
+                // Продолжаем к fallback методам
+            }
+        } else {
+            req.logger.warning("Playwright returned Cloudflare challenge, trying alternatives...")
+        }
+    } catch {
+        req.logger.warning("⚠️ Playwright service failed: \(error.localizedDescription) - trying alternatives...")
+        // Продолжаем к fallback методам
+    }
+    
+    // 2. Browserless.io API - ОТКЛЮЧЕН: всегда блокируется Cloudflare, даже с куками
     // Оставляем код закомментированным на случай, если ситуация изменится
     /*
     if let apiKey = Environment.get("BROWSERLESS_API_KEY"), !apiKey.isEmpty {

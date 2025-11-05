@@ -45,3 +45,39 @@ services:
     command: ["migrate", "--revert", "--yes"]
     deploy:
       replicas: 0
+
+  # Playwright сервис для SoranowBot (получение __NEXT_DATA__ из Sora)
+  playwright-service:
+    build:
+      context: ./playwright-service
+    container_name: playwright-service
+    ports:
+      - '3000:3000'
+    volumes:
+      # Persistent профиль браузера (куки, кэш сохраняются)
+      - ./playwright-service/browser-profile:/app/browser-profile
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    restart: unless-stopped
+    # Ограничения ресурсов (браузеры могут потреблять много памяти)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Localtunnel для проброса внешних запросов на nginx (порт 8080)
+  # ⚠️ ВАЖНО: Для стабильного URL рекомендуется использовать ngrok с VPN в терминале!
+  # Localtunnel оставлен как резервный вариант, но URL может меняться при переподключении
+  # localtunnel:
+  #   build:
+  #     context: ./playwright-service
+  #   container_name: localtunnel
+  #   command: sh -c "while true; do npx localtunnel --port 8080 --local-host host.docker.internal || sleep 5; done"
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - playwright-service

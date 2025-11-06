@@ -38,10 +38,22 @@ final class NowmttBotController {
             req.logger.info("📝 Message text: \(text.prefix(200))")
         }
 
+        // Обработка команды /start
+        if text == "/start" {
+            req.logger.info("✅ Command /start received")
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: message.chat.id,
+                text: "Привет! 👋\n\nЯ бот для скачивания TikTok видео без водяного знака! 🎬\n\nПросто отправь мне ссылку на TikTok видео, и я верну его тебе без ватермарки.\n\nПоддерживаются ссылки:\n• https://www.tiktok.com/...\n• https://vm.tiktok.com/...\n• https://vt.tiktok.com/...",
+                client: req.client
+            )
+            return Response(status: .ok)
+        }
+
         // Проверяем наличие TikTok URL в сообщении
         guard let tiktokUrl = extractTikTokURL(from: text) else {
             req.logger.info("ℹ️ No TikTok URL found in message (text: \(text.prefix(100)))")
-            // Отправляем сообщение с инструкцией, если это не ссылка
+            // Отправляем сообщение с инструкцией, если это не ссылка и не команда
             if !text.isEmpty && !text.hasPrefix("/") {
                 _ = try? await sendTelegramMessage(
                     token: token,

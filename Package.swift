@@ -53,6 +53,15 @@ let package = Package(
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
             path: "soranowbot/Sources/App"
+        ),
+        .executableTarget(
+            name: "NowmttBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "nowmttbot/Sources/App"
         )
     ]
 )

@@ -93,6 +93,16 @@ cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run Sorano
 ```
 
 
+9.1. Создать дополнительную вкладку терминала Cmd + T и запустить NowmttBot:
+(Эта вкладка должна оставаться открытой — сервис работает постоянно)
+
+```bash
+cd /Users/a1111/Desktop/projects/Telegrambot
+swift build
+swift run NowmttBot
+```
+
+
 
 10. Создать пятую вкладку терминала Cmd + T и проверить проксирование через nginx:
 

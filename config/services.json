@@ -27,6 +27,13 @@
       "enabled": true,
       "webhook_url": "${BASE_URL}/sora/webhook",
       "name": "Sora Watermark Removal Bot"
+    },
+    "nowmttbot": {
+      "url": "http://localhost:8085",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/nowmtt/webhook",
+      "name": "TikTok Video Downloader Bot"
     }
   }
 }

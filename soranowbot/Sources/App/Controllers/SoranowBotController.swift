@@ -74,12 +74,57 @@ final class SoranowBotController {
                     return
                 }
                 
-                // ВАЖНО: /az/files/{uuid}/raw ссылки - это эталонные ссылки от nosorawm.app!
-                // Они могут возвращать 403 при прямой проверке (SAS токены специфичны для пути),
-                // но для Telegram API могут работать. Поэтому НЕ проверяем их, а сразу отправляем!
-                if directUrl.contains("/az/files/") && directUrl.contains("/raw") && !directUrl.contains("/drvs/") {
-                    logger.info("✅ Found /az/files/{uuid}/raw URL (like nosorawm.app format) - sending directly without test (may work for Telegram API even if direct test fails)")
-                    // Пропускаем проверку и fallback - отправляем напрямую!
+                // Проверяем URL перед отправкой (GET запрос с ограничением размера для быстрой проверки)
+                logger.info("🔍 Checking if video URL is accessible...")
+                var urlIsValid = false
+                var shouldDownload = false
+                do {
+                    let checkUri = URI(string: directUrl)
+                    var request = ClientRequest(method: .GET, url: checkUri)
+                    request.headers.add(name: "Range", value: "bytes=0-1023") // Проверяем только первые 1KB
+                    let response = try await client.send(request)
+                    
+                    // Проверяем статус
+                    urlIsValid = response.status == .ok || response.status == .partialContent || response.status == .rangeNotSatisfiable
+                    
+                    // Проверяем тело ответа на ошибки Azure Storage
+                    if let body = response.body, body.readableBytes > 0 {
+                        if let bodyString = body.getString(at: 0, length: min(body.readableBytes, 500), encoding: .utf8) {
+                            // Проверяем на ошибки Azure Storage
+                            if bodyString.contains("Bad or missing") || 
+                               bodyString.contains("AuthenticationFailed") ||
+                               bodyString.contains("Signature fields not well formed") ||
+                               bodyString.contains("<Error>") {
+                                logger.warning("⚠️ URL returned Azure Storage error: \(bodyString.prefix(200))")
+                                urlIsValid = false
+                                shouldDownload = false // Не скачиваем, если URL точно не работает
+                            }
+                        }
+                    }
+                    
+                    logger.info("🔍 URL check result: status=\(response.status.code), valid=\(urlIsValid)")
+                } catch {
+                    logger.warning("⚠️ URL check failed: \(error.localizedDescription)")
+                    // Если проверка не удалась, пробуем скачать видео (может быть временная проблема)
+                    shouldDownload = true
+                }
+                
+                // Если URL не работает или проверка не удалась, пробуем скачать видео и отправить файл
+                if !urlIsValid || shouldDownload {
+                    logger.warning("⚠️ URL is not accessible or check failed, trying to download video and send as file...")
+                    do {
+                        let videoData = try await downloadVideo(from: directUrl, client: client, logger: logger)
+                        let sent = try await sendTelegramVideo(token: token, chatId: chatId, videoData: videoData, client: client, logger: logger)
+                        if sent {
+                            logger.info("✅ Successfully sent video file to Telegram")
+                            return
+                        }
+                    } catch {
+                        logger.error("❌ Failed to download/send video file: \(error.localizedDescription)")
+                        // Если скачивание не удалось, отправляем сообщение об ошибке
+                        _ = try? await sendTelegramMessage(token: token, chatId: chatId, text: "❌ Не удалось получить видео. Возможно, ссылка недействительна или истёк токен доступа. Попробуй ещё раз, мой хороший 💕", client: client)
+                        return
+                    }
                 }
                 
                 logger.info("📤 Sending final URL to Telegram: \(directUrl.prefix(200))...")
@@ -234,6 +279,7 @@ private func fetchViaPlaywright(url: String, serviceUrl: String, req: Request) a
             let hasNextData: Bool?
             let length: Int?
             let error: String?
+            let videoUrls: [String]? // Ссылки на видео из network requests
         }
         
         guard let data = bodyString.data(using: .utf8),
@@ -255,7 +301,35 @@ private func fetchViaPlaywright(url: String, serviceUrl: String, req: Request) a
             }
         }
         
-        return html
+        // Если найдены ссылки на видео в network requests, добавляем их в HTML для обработки
+        var enrichedHtml = html
+        if let videoUrls = responseObj.videoUrls, !videoUrls.isEmpty {
+            req.logger.info("🎬 Playwright found \(videoUrls.count) video URLs!")
+
+            // Фильтруем только ссылки на /az/files/.../raw (оригинальное видео)
+            let rawVideoUrls = videoUrls.filter { $0.contains("/az/files/") && $0.contains("/raw") }
+
+            if !rawVideoUrls.isEmpty {
+                req.logger.info("🎉 Found \(rawVideoUrls.count) /az/files/.../raw URLs!")
+
+                // Добавляем ссылки в начало HTML как JSON для парсера
+                let videoUrlsJson = rawVideoUrls.map { url in
+                    let escaped = url.replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "\"", with: "\\\"")
+                    return "\"\(escaped)\""
+                }.joined(separator: ",")
+                let injectedData = "<script id=\"__PLAYWRIGHT_VIDEO_URLS__\" type=\"application/json\">[\(videoUrlsJson)]</script>"
+                enrichedHtml = injectedData + enrichedHtml
+
+                for (index, videoUrl) in rawVideoUrls.enumerated() {
+                    req.logger.info("🎬 Raw video URL #\(index + 1): \(videoUrl.prefix(200))...")
+                }
+            } else {
+                req.logger.warning("⚠️ No /az/files/.../raw URLs found in Playwright response")
+            }
+        }
+        
+        return enrichedHtml
     } catch {
         req.logger.error("Playwright service request failed: \(error)")
         throw Abort(.badRequest, reason: "Playwright service request failed: \(error.localizedDescription)")
@@ -722,6 +796,25 @@ private func fetchDirectSoraVideoUrl(from shareUrl: String, req: Request) async 
     
     do {
         let html = try await fetchViaPlaywright(url: shareUrl, serviceUrl: playwrightServiceUrl, req: req)
+        
+        // ПРИОРИТЕТ: сначала проверяем, есть ли ссылки на видео из network requests
+        // Это самые надёжные ссылки, так как они были перехвачены из реальных запросов браузера
+        if let playwrightVideoUrls = extractPlaywrightVideoUrls(from: html) {
+            req.logger.info("🔍 Found \(playwrightVideoUrls.count) Playwright URLs to check")
+            for (index, videoUrl) in playwrightVideoUrls.enumerated() {
+                req.logger.info("🔍 Checking URL #\(index + 1): \(videoUrl.prefix(150))...")
+                // Playwright сервис уже вернул только подходящие ссылки, берем первую
+                if videoUrl.contains("/az/files/") && videoUrl.contains("/raw") {
+                    req.logger.info("🎉 Using video URL from Playwright network requests (original without watermark): \(videoUrl.prefix(200))...")
+                    return videoUrl
+                } else {
+                    req.logger.warning("⚠️ URL #\(index + 1) doesn't match criteria: /az/files/=\(videoUrl.contains("/az/files/")), /raw/=\(videoUrl.contains("/raw"))")
+                }
+            }
+        } else {
+            req.logger.warning("⚠️ No Playwright video URLs found in HTML")
+        }
+        
         var hasNextData = html.contains("__NEXT_DATA__") || 
                          html.contains("__next_data__") || 
                          html.contains("__NEXT_DATA") ||
@@ -1450,6 +1543,31 @@ private func extractDirectUrl(from html: String, logger: Logger? = nil) -> Strin
 }
 
 // Вытаскивает JSON из Next.js data (улучшенный поиск в разных форматах)
+// Извлекает ссылки на видео, добавленные Playwright из network requests
+private func extractPlaywrightVideoUrls(from html: String) -> [String]? {
+    // Ищем скрипт с id="__PLAYWRIGHT_VIDEO_URLS__"
+    let pattern = #"<script id="__PLAYWRIGHT_VIDEO_URLS__"[^>]*>\[(.*?)\]</script>"#
+    
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+          let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+          match.numberOfRanges > 1,
+          let range = Range(match.range(at: 1), in: html) else {
+        return nil
+    }
+    
+    let jsonArray = String(html[range])
+    // Парсим JSON массив строк
+    let urls = jsonArray
+        .split(separator: ",")
+        .compactMap { urlStr -> String? in
+            let cleaned = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return cleaned.isEmpty ? nil : cleaned
+        }
+    
+    return urls.isEmpty ? nil : urls
+}
+
 private func extractNextDataJSON(from html: String) -> String? {
     // Стратегия 1: Стандартный формат <script id="__NEXT_DATA__">...</script>
     // Разные варианты атрибутов и кавычек, многострочный JSON
@@ -2152,5 +2270,76 @@ private func sendTelegramMessage(token: String, chatId: Int64, text: String, cli
         try req.content.encode(payload, as: .json)
     }
     return res.status == .ok
+}
+
+private func downloadVideo(from url: String, client: Client, logger: Logger) async throws -> Data {
+    logger.info("📥 Downloading video from: \(url.prefix(200))...")
+    let uri = URI(string: url)
+    let response = try await client.get(uri)
+    
+    guard response.status == .ok || response.status == .partialContent else {
+        throw Abort(.badRequest, reason: "Failed to download video: status \(response.status.code)")
+    }
+    
+    guard let body = response.body else {
+        throw Abort(.badRequest, reason: "Empty response body")
+    }
+    
+    var videoData = Data()
+    var buffer = body
+    while buffer.readableBytes > 0 {
+        if let chunk = buffer.readData(length: buffer.readableBytes) {
+            videoData.append(chunk)
+        } else {
+            break
+        }
+    }
+    
+    logger.info("✅ Downloaded video: \(videoData.count) bytes")
+    return videoData
+}
+
+private func sendTelegramVideo(token: String, chatId: Int64, videoData: Data, client: Client, logger: Logger) async throws -> Bool {
+    logger.info("📤 Sending video file to Telegram (\(videoData.count) bytes)...")
+    
+    // Telegram API для отправки видео: sendVideo
+    // Используем multipart/form-data
+    let url = "https://api.telegram.org/bot\(token)/sendVideo"
+    
+    // Создаём multipart запрос
+    let boundary = UUID().uuidString
+    var body = Data()
+    
+    // chat_id
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n".data(using: .utf8)!)
+    body.append("\(chatId)\r\n".data(using: .utf8)!)
+    
+    // video
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"video\"; filename=\"video.mp4\"\r\n".data(using: .utf8)!)
+    body.append("Content-Type: video/mp4\r\n\r\n".data(using: .utf8)!)
+    body.append(videoData)
+    body.append("\r\n".data(using: .utf8)!)
+    
+    // closing boundary
+    body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+    
+    let uri = URI(string: url)
+    var request = ClientRequest(method: .POST, url: uri)
+    request.headers.contentType = HTTPMediaType(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+    request.body = .init(data: body)
+    
+    let response = try await client.send(request)
+    
+    guard response.status == .ok else {
+        if let body = response.body, let bodyString = body.getString(at: 0, length: body.readableBytes, encoding: .utf8) {
+            logger.error("❌ Telegram API error: \(bodyString)")
+        }
+        return false
+    }
+    
+    logger.info("✅ Successfully sent video file to Telegram")
+    return true
 }
 

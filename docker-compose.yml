@@ -56,9 +56,12 @@ services:
     volumes:
       # Persistent профиль браузера (куки, кэш сохраняются)
       - ./playwright-service/browser-profile:/app/browser-profile
+    env_file:
+      - ./config/.env
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - SORA_COOKIES=${SORA_COOKIES:-}
     restart: unless-stopped
     # Ограничения ресурсов (браузеры могут потреблять много памяти)
     deploy:

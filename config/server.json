@@ -1,8 +1,8 @@
 {
   "server": {
-    "ip": "123.45.67.89",
+    "ip": "127.0.0.1",
     "port": 8080,
     "protocol": "https",
-    "base_url": "https://63ef61ea1f8f.ngrok-free.app"
+    "base_url": "https://lemon-coats-joke.loca.lt"
   }
 } 

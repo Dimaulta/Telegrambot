@@ -14,19 +14,26 @@
       "webhook_url": "${BASE_URL}/webhook",
       "name": "Neurfotobot - AI Photo Generation"
     },
-    "telegrambot03": {
+    "gsfortextbot": {
       "url": "http://localhost:8083",
       "routes": ["/webhook"],
       "enabled": true,
       "webhook_url": "${BASE_URL}/webhook",
-      "name": "Telegram Bot 03"
+      "name": "GS For Text Bot"
     },
-    "telegrambot04": {
+    "soranowbot": {
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/webhook",
-      "name": "Telegram Bot 04"
+      "webhook_url": "${BASE_URL}/sora/webhook",
+      "name": "Sora Watermark Removal Bot"
+    },
+    "nowmttbot": {
+      "url": "http://localhost:8085",
+      "routes": ["/webhook"],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/nowmtt/webhook",
+      "name": "TikTok Video Downloader Bot"
     }
   }
 }

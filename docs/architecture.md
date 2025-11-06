@@ -4,6 +4,19 @@
 
 Проект представляет собой микросервисную архитектуру для Telegram ботов с возможностью обработки видео и веб-интерфейсом.
 
+### Статус разработки
+
+- ✅ **MVP (2 бота):**
+  - `Roundsvideobot` — обработка видео в видеокружки с miniapp интерфейсом
+  - `nowmttbot` — скачивание TikTok видео без водяного знака
+
+- ❄️ **Заморожен (1 бот):**
+  - `soranowbot` — удаление ватермарки с видео Sora (документация по разморозке в `soranowbot/docs/`)
+
+- ⏸️ **Не начаты (2 бота):**
+  - `gsfortextbot` — расшифровка голосовых сообщений в текст
+  - `Neurfotobot` — обработка изображений через AI
+
 ## Компоненты системы
 
 ### 1. Core Server (Порт 8080)
@@ -33,17 +46,104 @@
 - `Roundsvideobot/VideoService/Public/` — фронтенд miniapp
 - `Roundsvideobot/VideoService/Internal/routes.swift` — API endpoints
 
-### 3. Template Bot Services (Порты 8083, 8084)
-**Назначение:** Шаблоны для дополнительных ботов
+### 3. Playwright Service (Порт 3000) ❄️
+**Назначение:** Микросервис на Node.js для получения HTML страниц с JavaScript-рендерингом
+
+**Статус:** Используется замороженным проектом `soranowbot`
 
 **Функции:**
-- Независимые сервисы для новых ботов
-- Готовые контроллеры и модели
-- Настраиваемые webhook'и
+- Запуск реального браузера (Chromium) в headless режиме
+- Получение HTML страниц с выполненным JavaScript
+- Извлечение данных из `__NEXT_DATA__` для Sora страниц
+- Использование persistent профиля браузера (сохранение куков)
+
+**Технологии:**
+- Node.js
+- Playwright
+- Docker
+
+**Файлы:**
+- `playwright-service/index.js` — основной сервер
+- `playwright-service/Dockerfile` — конфигурация Docker
+- `playwright-service/browser-profile/` — профиль браузера с куками
+
+### 4. Bot Services
+
+#### 4.1. NowmttBot (Порт 8082) ✅ **MVP**
+**Статус:** Доведен до MVP, работает в продакшене
+
+**Назначение:** Бот для скачивания TikTok видео без водяного знака
+
+**Функции:**
+- Извлечение прямых ссылок на TikTok видео
+- Отправка видео пользователю через Telegram API
+- Обработка различных форматов TikTok URL (vm.tiktok.com, tiktok.com, vt.tiktok.com)
+
+**Файлы:**
+- `nowmttbot/Sources/App/Controllers/NowmttBotController.swift` — основной контроллер
+- `nowmttbot/Sources/App/Internal/TikTokResolver.swift` — резолвер TikTok ссылок
+- `nowmttbot/Sources/App/Middleware/LoggingMiddleware.swift` — логирование
+
+#### 4.2. SoranowBot (Порт 8084) ❄️ **Заморожен**
+**Статус:** Проект временно заморожен, документация по разморозке в `soranowbot/docs/`
+
+**Назначение:** Бот для удаления ватермарки с видео Sora
+
+**Функции:**
+- Получение HTML страниц Sora через Playwright сервис
+- Извлечение данных из `__NEXT_DATA__`
+- Обработка видео для удаления ватермарки
 
 **Структура:**
 ```
-telegrambot03/
+soranowbot/
+├── Sources/App/
+│   ├── Controllers/
+│   ├── Models/
+│   ├── Middleware/
+│   └── routes.swift
+└── docs/                    # Документация по разморозке проекта
+    ├── PLAN_NEXT.md
+    ├── ALTERNATIVE_METHODS.md
+    └── ALTERNATIVE_SOLUTIONS.md
+```
+
+**Зависимости:**
+- `playwright-service` — микросервис на Node.js для получения HTML с JavaScript-рендерингом
+
+#### 4.3. GSForTextBot (Порт 8083) ⏸️ **Не начат**
+**Статус:** Только базовая структура, разработка не начата
+
+**Планируемое назначение:** Расшифровка голосовых сообщений в текст
+
+**Текущее состояние:**
+- Базовая структура проекта создана
+- Контроллер содержит только заглушку
+- Функциональность не реализована
+
+**Структура:**
+```
+gsfortextbot/
+├── Sources/App/
+│   ├── Controllers/
+│   ├── Models/
+│   ├── routes.swift
+│   └── configure.swift
+```
+
+#### 4.4. Neurfotobot (Порт 8082) ⏸️ **Не начат**
+**Статус:** Только базовая структура, разработка не начата
+
+**Планируемое назначение:** Бот для нейрофотографий (AI обработка изображений)
+
+**Текущее состояние:**
+- Базовая структура проекта создана
+- Контроллер содержит только заглушку
+- Функциональность не реализована
+
+**Структура:**
+```
+Neurfotobot/
 ├── Sources/App/
 │   ├── Controllers/
 │   ├── Models/
@@ -53,28 +153,45 @@ telegrambot03/
 
 ## Потоки данных
 
-### Обработка видео через miniapp
+### Обработка видео через miniapp (Roundsvideobot)
 ```
 Пользователь → miniapp → /api/upload → VideoProcessor → Telegram API
 ```
 
-### Прямая обработка видео
+### Прямая обработка видео (Roundsvideobot)
 ```
 Пользователь → Telegram → /webhook → VideoProcessor → Telegram API
 ```
 
-### Проксирование через core-server
+### Проксирование через core-server (Roundsvideobot)
 ```
 Telegram → core-server/webhook → video-processing/webhook
 ```
 
+### Обработка TikTok видео (nowmttbot)
+```
+Пользователь → Telegram → /webhook → NowmttBotController → TikTokResolver → Telegram API
+```
+
+**Процесс:**
+1. Пользователь отправляет TikTok ссылку боту
+2. Контроллер извлекает URL из сообщения
+3. TikTokResolver получает прямую ссылку на видео
+4. Видео отправляется пользователю через Telegram API
+
 ## Конфигурация
 
 ### Переменные окружения
-- `VIDEO_BOT_TOKEN` — токен видео-бота
-- `TELEGRAMBOT03_TOKEN` — токен бота #3
-- `TELEGRAMBOT04_TOKEN` — токен бота #4
+
+**Обязательные (для работающих ботов):**
+- `VIDEO_BOT_TOKEN` — токен видео-бота (Roundsvideobot) ✅
+- `NOWMTTBOT_TOKEN` — токен бота для TikTok видео ✅
 - `BASE_URL` — базовый URL для webhook'ов
+
+**Опциональные (для замороженных/не начатых ботов):**
+- `SORANOWBOT_TOKEN` — токен бота для удаления ватермарки Sora ❄️
+- `GSFORTEXTBOT_TOKEN` — токен бота для распознавания голоса ⏸️
+- `NEURFOTOBOT_TOKEN` — токен бота для нейрофотографий ⏸️
 
 ### Файлы конфигурации
 - `config/server.json` — настройки сервера
@@ -88,6 +205,8 @@ Telegram → core-server/webhook → video-processing/webhook
 - **Обработка видео:** FFmpeg
 - **База данных:** SQLite
 - **Протокол:** HTTP/HTTPS
+- **Браузерная автоматизация (soranowbot):** Node.js + Playwright
+- **Контейнеризация:** Docker, Docker Compose
 
 ## Масштабирование
 

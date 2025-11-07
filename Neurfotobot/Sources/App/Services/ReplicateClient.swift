@@ -1,0 +1,173 @@
+import Vapor
+import Foundation
+
+struct ReplicateClient {
+    struct TrainingResponse: Decodable {
+        let id: String
+        let status: String
+        let urls: URLs
+        let output: TrainingOutput?
+
+        struct URLs: Decodable {
+            let get: String
+        }
+    }
+
+    struct TrainingOutput: Decodable {
+        let version: String?
+    }
+
+    struct PredictionResponse: Decodable {
+        let id: String
+        let status: String
+        let output: [String]?
+    }
+
+    private let token: String
+    private let trainingVersion: String
+    private let predictionModel: String
+    private let modelOwner: String
+    private let httpClient: Client
+    private let logger: Logger
+
+    init(application: Application, logger: Logger) throws {
+        guard let token = Environment.get("REPLICATE_API_TOKEN"), !token.isEmpty else {
+            throw Abort(.internalServerError, reason: "REPLICATE_API_TOKEN is not set")
+        }
+        guard let trainingVersion = Environment.get("REPLICATE_TRAINING_VERSION"), !trainingVersion.isEmpty else {
+            throw Abort(.internalServerError, reason: "REPLICATE_TRAINING_VERSION is not set")
+        }
+        guard let predictionModel = Environment.get("REPLICATE_MODEL_VERSION"), !predictionModel.isEmpty else {
+            throw Abort(.internalServerError, reason: "REPLICATE_MODEL_VERSION is not set")
+        }
+        guard let owner = Environment.get("REPLICATE_MODEL_OWNER"), !owner.isEmpty else {
+            throw Abort(.internalServerError, reason: "REPLICATE_MODEL_OWNER is not set")
+        }
+
+        self.token = token
+        self.trainingVersion = trainingVersion
+        self.predictionModel = predictionModel
+        self.modelOwner = owner
+        self.httpClient = application.client
+        self.logger = logger
+    }
+
+    func startTraining(destinationModel: String, datasetURL: String, conceptName: String) async throws -> TrainingResponse {
+        struct Payload: Encodable {
+            let version: String
+            let input: Input
+            let destination: String
+
+            struct Input: Encodable {
+                let input_images: String
+                let trigger_word: String
+                let steps: Int
+            }
+        }
+
+        let payload = Payload(
+            version: trainingVersion,
+            input: .init(input_images: datasetURL, trigger_word: conceptName, steps: 800),
+            destination: destinationModel
+        )
+
+        let response = try await request(
+            method: .POST,
+            path: "/v1/trainings",
+            body: try JSONEncoder().encode(payload)
+        )
+
+        return try decode(TrainingResponse.self, from: response)
+    }
+
+    func fetchTraining(id: String) async throws -> TrainingResponse {
+        let response = try await request(method: .GET, path: "/v1/trainings/\(id)")
+        return try decode(TrainingResponse.self, from: response)
+    }
+
+    func generateImages(modelVersion: String, prompt: String, negativePrompt: String? = nil, numOutputs: Int = 4) async throws -> PredictionResponse {
+        struct Payload: Encodable {
+            let version: String
+            let input: Input
+
+            struct Input: Encodable {
+                let prompt: String
+                let negative_prompt: String?
+                let num_outputs: Int
+                let guidance_scale: Double
+            }
+        }
+
+        let payload = Payload(
+            version: modelVersion,
+            input: .init(
+                prompt: prompt,
+                negative_prompt: negativePrompt,
+                num_outputs: numOutputs,
+                guidance_scale: 3.5
+            )
+        )
+
+        let response = try await request(
+            method: .POST,
+            path: "/v1/predictions",
+            body: try JSONEncoder().encode(payload)
+        )
+
+        return try decode(PredictionResponse.self, from: response)
+    }
+
+    func waitForPrediction(id: String) async throws -> PredictionResponse {
+        while true {
+            let response = try await request(method: .GET, path: "/v1/predictions/\(id)")
+            let decoded = try decode(PredictionResponse.self, from: response)
+            switch decoded.status.lowercased() {
+            case "succeeded", "failed", "canceled":
+                return decoded
+            default:
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    func deleteModel(destinationModel: String) async throws {
+        _ = try await request(method: .DELETE, path: "/v1/models/\(destinationModel)")
+    }
+
+    private func request(method: HTTPMethod, path: String, body: Data? = nil) async throws -> ClientResponse {
+        let url = URI(string: "https://api.replicate.com\(path)")
+        var request = ClientRequest(method: method, url: url)
+        request.headers.add(name: .authorization, value: "Bearer \(token)")
+        request.headers.add(name: .accept, value: "application/json")
+        if let body {
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = .init(data: body)
+        }
+
+        let response = try await httpClient.send(request)
+        if !(200..<300).contains(response.status.code) {
+            let errorBody = response.body?.string ?? ""
+            logger.error("Replicate API error \(response.status): \(errorBody)")
+            throw Abort(response.status, reason: errorBody)
+        }
+        return response
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from response: ClientResponse) throws -> T {
+        guard let body = response.body else {
+            throw Abort(.badRequest, reason: "Empty response body from Replicate")
+        }
+        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    func destinationModelName(for chatId: Int64) -> String {
+        let sanitizedOwner = modelOwner.lowercased()
+        return "\(sanitizedOwner)/neurfoto-\(chatId)"
+    }
+
+    var defaultPredictionVersion: String {
+        predictionModel
+    }
+}
+

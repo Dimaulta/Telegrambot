@@ -1,4 +1,5 @@
 import Vapor
+import Foundation
 
 struct SupabaseStorageConfig {
     let url: URI
@@ -108,6 +109,19 @@ struct SupabaseStorageClient {
             let errorBody = response.body?.string ?? "unknown error"
             throw Abort(.badRequest, reason: "Supabase delete failed: \(response.status) - \(errorBody)")
         }
+    }
+
+    func download(path: String) async throws -> Data {
+        let signedURL = try await createSignedURL(path: path, expiresIn: 300)
+        guard let url = URL(string: signedURL) else {
+            throw Abort(.badRequest, reason: "Signed URL is invalid")
+        }
+        let response = try await client.get(URI(string: url.absoluteString))
+        guard response.status == .ok, let body = response.body else {
+            let errorBody = response.body?.string ?? ""
+            throw Abort(.badRequest, reason: "Supabase download failed: \(response.status) - \(errorBody)")
+        }
+        return body.getData(at: 0, length: body.readableBytes) ?? Data()
     }
 }
 

@@ -9,7 +9,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
         .package(url: "https://github.com/vapor/fluent.git", from: "4.8.0"),
-        .package(url: "https://github.com/vapor/fluent-sqlite-driver.git", from: "4.0.0")
+        .package(url: "https://github.com/vapor/fluent-sqlite-driver.git", from: "4.0.0"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.0")
     ],
     targets: [
         .executableTarget(

@@ -65,11 +65,11 @@ if [ -z "$NEURFOTOBOT_TOKEN" ]; then
     echo "⚠️ NEURFOTOBOT_TOKEN не установлен, пропускаем..."
 else
     echo "🔧 Настройка webhook для Neurfotobot..."
-    echo "📡 URL: ${BASE_URL}/webhook"
+    echo "📡 URL: ${BASE_URL}/neurfoto/webhook"
     
     curl -X POST "https://api.telegram.org/bot${NEURFOTOBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/neurfoto/webhook\"}"
     
     echo ""
     echo "✅ Webhook для Neurfotobot настроен!"

@@ -9,9 +9,12 @@
     },
     "Neurfotobot": {
       "url": "http://localhost:8082",
-      "routes": ["/webhook"],
+      "routes": [
+        "/webhook",
+        "/neurfoto/webhook"
+      ],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/webhook",
+      "webhook_url": "${BASE_URL}/neurfoto/webhook",
       "name": "Neurfotobot - AI Photo Generation"
     },
     "gsfortextbot": {

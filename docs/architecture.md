@@ -131,6 +131,8 @@ gsfortextbot/
 │   └── configure.swift
 ```
 
+**Документация:** подробный план интеграции SaluteSpeech — `gsfortextbot/docs/SETUP_PLAN.md`.
+
 #### 4.4. Neurfotobot (Порт 8082) ⏸️ **Не начат**
 **Статус:** Только базовая структура, разработка не начата
 

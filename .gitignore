@@ -22,3 +22,4 @@ config/.env.*
 *.tmp
 Roundsvideobot/Resources/temporaryvideoFiles/
 logs/
+config/certs/

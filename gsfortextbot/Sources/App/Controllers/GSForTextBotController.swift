@@ -1,8 +1,243 @@
 import Vapor
+import Foundation
 
 final class GSForTextBotController {
+    private let app: Application
+    private let botToken: String
+    
+    init(app: Application) {
+        self.app = app
+        self.botToken = Environment.get("GSFORTEXTBOT_TOKEN") ?? ""
+    }
+    
     func handleWebhook(_ req: Request) async throws -> Response {
-        _ = Environment.get("GSFORTEXTBOT_TOKEN")
+        guard botToken.isEmpty == false else {
+            req.logger.error("GSForTextBotController: GSFORTEXTBOT_TOKEN is not configured")
+            return Response(status: .ok)
+        }
+        
+        let update: GSForTextBotUpdate
+        do {
+            update = try req.content.decode(GSForTextBotUpdate.self)
+        } catch {
+            req.logger.error("GSForTextBotController: failed to decode update: \(error)")
+            return Response(status: .ok)
+        }
+        
+        guard let message = update.message ?? update.edited_message else {
+            return Response(status: .ok)
+        }
+        
+        if let text = message.text, text.trimmingCharacters(in: .whitespacesAndNewlines) == "/start" {
+            try await sendWelcomeMessage(on: req, chatId: message.chat.id)
+            return Response(status: .ok)
+        }
+        
+        if let voice = message.voice {
+            try await processVoiceMessage(on: req, voice: voice, chatId: message.chat.id)
+            return Response(status: .ok)
+        }
+        
+        if let audio = message.audio {
+            try await processAudioMessage(on: req, audio: audio, chatId: message.chat.id)
+            return Response(status: .ok)
+        }
+        
+        if let text = message.text, text.isEmpty == false {
+            try await sendMessage(on: req, chatId: message.chat.id, text: "Отправь мне голосовое сообщение или аудио, и я пришлю текстовую расшифровку 💕")
+        }
+        
         return Response(status: .ok)
     }
+    
+    private func processVoiceMessage(on req: Request, voice: TelegramVoice, chatId: Int64) async throws {
+        let description = "voice file \(voice.file_id)"
+        try await sendChatAction(on: req, chatId: chatId, action: "typing")
+        do {
+            let file = try await fetchTelegramFile(on: req, fileId: voice.file_id, description: description)
+            let contentType = resolvedContentType(primary: voice.mime_type, filePath: file.file_path)
+            try await transcribeAndReply(
+                on: req,
+                chatId: chatId,
+                filePath: file.file_path,
+                contentType: contentType,
+                description: description
+            )
+        } catch let abort as AbortError {
+            req.logger.error("GSForTextBotController: voice processing aborted: \(abort.reason)")
+            try await sendMessage(on: req, chatId: chatId, text: "Не смогла обработать голосовое 😔 Попробуй ещё раз.")
+        } catch {
+            req.logger.error("GSForTextBotController: voice processing error: \(error)")
+            try await sendMessage(on: req, chatId: chatId, text: "Произошла ошибка при расшифровке голосового, мой хороший. Попробуй ещё раз чуть позже 💕")
+        }
+    }
+    
+    private func processAudioMessage(on req: Request, audio: TelegramAudio, chatId: Int64) async throws {
+        let description = "audio file \(audio.file_id)"
+        try await sendChatAction(on: req, chatId: chatId, action: "typing")
+        do {
+            let file = try await fetchTelegramFile(on: req, fileId: audio.file_id, description: description)
+            let contentType = resolvedContentType(primary: audio.mime_type, filePath: file.file_path)
+            try await transcribeAndReply(
+                on: req,
+                chatId: chatId,
+                filePath: file.file_path,
+                contentType: contentType,
+                description: description
+            )
+        } catch let abort as AbortError {
+            req.logger.error("GSForTextBotController: audio processing aborted: \(abort.reason)")
+            try await sendMessage(on: req, chatId: chatId, text: "Не получилось обработать аудио 😔 Попробуем ещё раз?")
+        } catch {
+            req.logger.error("GSForTextBotController: audio processing error: \(error)")
+            try await sendMessage(on: req, chatId: chatId, text: "Что-то пошло не так при расшифровке аудио. Попробуй ещё раз, мой милый 💕")
+        }
+    }
+    
+    private func transcribeAndReply(
+        on req: Request,
+        chatId: Int64,
+        filePath: String?,
+        contentType: String,
+        description: String
+    ) async throws {
+        guard let filePath else {
+            throw Abort(.badRequest, reason: "Telegram file path is missing for \(description)")
+        }
+        
+        let tempURL = try await downloadTelegramFile(on: req, filePath: filePath, description: description)
+        defer {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+        
+        let audioData = try Data(contentsOf: tempURL)
+        let recognitionService = req.application.saluteSpeechRecognitionService
+        let transcript = try await recognitionService.recognize(audioData: audioData, mimeType: contentType, logger: req.logger)
+        let answer = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if answer.isEmpty {
+            try await sendMessage(on: req, chatId: chatId, text: "Я получила пустой результат. Попробуй записать голосовое ещё раз, пожалуйста 💕")
+        } else {
+            try await sendMessage(on: req, chatId: chatId, text: answer)
+        }
+    }
+    
+    private func fetchTelegramFile(on req: Request, fileId: String, description: String) async throws -> TelegramFile {
+        let url = URI(string: "https://api.telegram.org/bot\(botToken)/getFile?file_id=\(fileId)")
+        let response = try await req.client.get(url)
+        guard response.status == .ok else {
+            req.logger.error("GSForTextBotController: failed to get file info for \(description), status=\(response.status)")
+            throw Abort(.internalServerError, reason: "Telegram вернул ошибку при получении файла")
+        }
+        guard var body = response.body,
+              let data = body.readData(length: body.readableBytes) else {
+            throw Abort(.internalServerError, reason: "Не удалось прочитать ответ Telegram при получении файла")
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .useDefaultKeys
+        let fileResponse: TelegramFileResponse
+        do {
+            fileResponse = try decoder.decode(TelegramFileResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            req.logger.error("GSForTextBotController: не удалось декодировать ответ getFile (\(raw)) error: \(error)")
+            throw Abort(.internalServerError, reason: "Telegram не прислал информацию о файле")
+        }
+        guard fileResponse.ok, let file = fileResponse.result else {
+            let reason = fileResponse.description ?? "Telegram вернул пустой объект файла"
+            req.logger.error("GSForTextBotController: getFile ответил ok=\(fileResponse.ok), описание: \(reason)")
+            throw Abort(.internalServerError, reason: "Telegram не вернул путь к файлу: \(reason)")
+        }
+        return file
+    }
+    
+    private func downloadTelegramFile(on req: Request, filePath: String, description: String) async throws -> URL {
+        let downloadURL = URI(string: "https://api.telegram.org/file/bot\(botToken)/\(filePath)")
+        let response = try await req.client.get(downloadURL)
+        guard response.status == .ok else {
+            req.logger.error("GSForTextBotController: failed to download \(description), status=\(response.status)")
+            throw Abort(.internalServerError, reason: "Telegram вернул ошибку при скачивании файла")
+        }
+        guard var body = response.body,
+              let data = body.readData(length: body.readableBytes) else {
+            throw Abort(.internalServerError, reason: "Не удалось прочитать тело ответа при скачивании файла")
+        }
+        let tempDirectory = FileManager.default.temporaryDirectory
+        let filename = "gs-voice-\(UUID().uuidString).\(URL(fileURLWithPath: filePath).pathExtension)"
+        let tempURL = tempDirectory.appendingPathComponent(filename)
+        try data.write(to: tempURL)
+        return tempURL
+    }
+    
+    private func sendWelcomeMessage(on req: Request, chatId: Int64) async throws {
+        let hello = """
+        Привет, мой хороший! 💕
+        
+        Я превращаю голосовые и аудио в текст. Просто перешли мне голосовое из любого чата или отправь своё — и через пару секунд я пришлю расшифровку.
+        """
+        try await sendMessage(on: req, chatId: chatId, text: hello)
+    }
+    
+    private func sendMessage(on req: Request, chatId: Int64, text: String) async throws {
+        let payload = TelegramSendMessageRequest(chat_id: chatId, text: text)
+        let url = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+        let encoder = JSONEncoder()
+        var headers = HTTPHeaders()
+        headers.add(name: .contentType, value: "application/json")
+        let response = try await req.client.post(url, headers: headers) { request in
+            let data = try encoder.encode(payload)
+            var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+            buffer.writeBytes(data)
+            request.body = .init(buffer: buffer)
+        }
+        if response.status != .ok {
+            req.logger.warning("GSForTextBotController: sendMessage returned status \(response.status)")
+        }
+    }
+    
+    private func sendChatAction(on req: Request, chatId: Int64, action: String) async throws {
+        let payload = TelegramChatActionRequest(chat_id: chatId, action: action)
+        let url = URI(string: "https://api.telegram.org/bot\(botToken)/sendChatAction")
+        let encoder = JSONEncoder()
+        var headers = HTTPHeaders()
+        headers.add(name: .contentType, value: "application/json")
+        _ = try await req.client.post(url, headers: headers) { request in
+            let data = try encoder.encode(payload)
+            var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+            buffer.writeBytes(data)
+            request.body = .init(buffer: buffer)
+        }
+    }
+    
+    private func resolvedContentType(primary: String?, filePath: String?) -> String {
+        if let primary, primary.isEmpty == false {
+            if primary.contains("ogg"), primary.contains("codecs") == false {
+                return primary + ";codecs=opus"
+            }
+            return primary
+        }
+        guard let filePath else {
+            return "audio/ogg;codecs=opus"
+        }
+        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        switch ext {
+        case "ogg", "oga":
+            return "audio/ogg;codecs=opus"
+        case "mp3":
+            return "audio/mpeg"
+        case "wav":
+            return "audio/x-pcm;bit=16;rate=16000"
+        default:
+            return "audio/ogg;codecs=opus"
+        }
+    }
+}
+
+private struct TelegramSendMessageRequest: Content {
+    let chat_id: Int64
+    let text: String
+}
+
+private struct TelegramChatActionRequest: Content {
+    let chat_id: Int64
+    let action: String
 }

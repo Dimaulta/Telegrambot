@@ -1,7 +1,34 @@
 import Vapor
 import Foundation
 
+actor VoiceMessageRateLimiter {
+    private var requests: [Int64: [Date]] = [:]
+    private let maxRequests: Int
+    private let timeWindow: TimeInterval
+    
+    init(maxRequests: Int, timeWindow: TimeInterval) {
+        self.maxRequests = maxRequests
+        self.timeWindow = timeWindow
+    }
+    
+    func consume(for userId: Int64) -> Bool {
+        let now = Date()
+        let start = now.addingTimeInterval(-timeWindow)
+        var userRequests = requests[userId] ?? []
+        userRequests.removeAll { $0 < start }
+        guard userRequests.count < maxRequests else {
+            requests[userId] = userRequests
+            return false
+        }
+        userRequests.append(now)
+        requests[userId] = userRequests
+        return true
+    }
+}
+
 final class GSForTextBotController {
+    private static let maxVoiceDurationSeconds = 120
+    private static let voiceRateLimiter = VoiceMessageRateLimiter(maxRequests: 1, timeWindow: 60)
     private let app: Application
     private let botToken: String
     
@@ -44,13 +71,26 @@ final class GSForTextBotController {
         }
         
         if let text = message.text, text.isEmpty == false {
-            try await sendMessage(on: req, chatId: message.chat.id, text: "Отправь мне голосовое сообщение или аудио, и я пришлю текстовую расшифровку 💕")
+            try await sendMessage(on: req, chatId: message.chat.id, text: "Отправь мне голосовое сообщение или аудио, и я пришлю текстовую расшифровку")
         }
         
         return Response(status: .ok)
     }
     
     private func processVoiceMessage(on req: Request, voice: TelegramVoice, chatId: Int64) async throws {
+        if let duration = voice.duration, duration > Self.maxVoiceDurationSeconds {
+            try await sendMessage(on: req,
+                                  chatId: chatId,
+                                  text: "Голосовое длиннее 2 минут. Пожалуйста, отправь запись до двух минут")
+            return
+        }
+        let allowed = await Self.voiceRateLimiter.consume(for: chatId)
+        if allowed == false {
+            try await sendMessage(on: req,
+                                  chatId: chatId,
+                                  text: "Я могу обрабатывать по одному голосовому в минуту. Подожди чуть-чуть и попробуй снова")
+            return
+        }
         let description = "voice file \(voice.file_id)"
         try await sendChatAction(on: req, chatId: chatId, action: "typing")
         do {
@@ -73,6 +113,19 @@ final class GSForTextBotController {
     }
     
     private func processAudioMessage(on req: Request, audio: TelegramAudio, chatId: Int64) async throws {
+        if let duration = audio.duration, duration > Self.maxVoiceDurationSeconds {
+            try await sendMessage(on: req,
+                                  chatId: chatId,
+                                  text: "Аудиофайл длиннее 2 минут. Присылай записи до двух минут, пожалуйста 💕")
+            return
+        }
+        let allowed = await Self.voiceRateLimiter.consume(for: chatId)
+        if allowed == false {
+            try await sendMessage(on: req,
+                                  chatId: chatId,
+                                  text: "У меня лимит — одно голосовое в минуту. Давай чуть позже 💕")
+            return
+        }
         let description = "audio file \(audio.file_id)"
         try await sendChatAction(on: req, chatId: chatId, action: "typing")
         do {

@@ -1,4 +1,3 @@
-```markdown
 
 
 
@@ -124,7 +123,9 @@ swift run NowmttBot
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
-export $(grep -v '^#' config/.env | xargs)
+set -a
+source config/.env
+set +a
 swift run GSForTextBot serve
 ```
 

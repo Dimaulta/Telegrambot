@@ -69,6 +69,7 @@ Telegrambot/
 - [architecture.md](docs/architecture.md) — архитектура и статусы сервисов.
 - [SECURITY.md](docs/SECURITY.md) — политика безопасности и работа с токенами.
 - [gsfortextbot/docs/SETUP_PLAN.md](gsfortextbot/docs/SETUP_PLAN.md) — новое руководство: получение SaluteSpeech ключей, сертификатов и запуск бота.
+- Ограничения для gsfortextbot: максимум одно голосовое в минуту и длительность до двух минут.
 
 ## Лицензия
 

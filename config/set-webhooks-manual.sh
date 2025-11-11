@@ -39,6 +39,27 @@ curl -sS -X POST "https://api.telegram.org/bot${NEURFOTOBOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{\"url\":\"${BASE_URL}/neurfoto/webhook\"}"
 
+# SoranowBot
+curl -sS -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"${BASE_URL}/soranow/webhook\"}"
+
+# VeoNowBot
+if [ -n "$VEONOWBOT_WEBHOOK_SECRET" ]; then
+  VEONOW_PAYLOAD="{\"url\":\"${BASE_URL}/veonow/webhook\",\"secret_token\":\"${VEONOWBOT_WEBHOOK_SECRET}\"}"
+else
+  VEONOW_PAYLOAD="{\"url\":\"${BASE_URL}/veonow/webhook\"}"
+fi
+
+curl -sS -X POST "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d "${VEONOW_PAYLOAD}"
+
+# BananaNowBot
+curl -sS -X POST "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"${BASE_URL}/banananow/webhook\"}"
+
 echo ""
 echo "✅ Все webhook'и настроены!"
 

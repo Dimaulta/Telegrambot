@@ -37,6 +37,36 @@
       "enabled": true,
       "webhook_url": "${BASE_URL}/nowmtt/webhook",
       "name": "TikTok Video Downloader Bot"
+    },
+    "soranowbot": {
+      "url": "http://localhost:8086",
+      "routes": [
+        "/webhook",
+        "/soranow/webhook"
+      ],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/soranow/webhook",
+      "name": "Sora Now Video Bot"
+    },
+    "veonowbot": {
+      "url": "http://localhost:8087",
+      "routes": [
+        "/webhook",
+        "/veonow/webhook"
+      ],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/veonow/webhook",
+      "name": "Veo Now Video Bot"
+    },
+    "banananowbot": {
+      "url": "http://localhost:8088",
+      "routes": [
+        "/webhook",
+        "/banananow/webhook"
+      ],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/banananow/webhook",
+      "name": "BananaNowBot - Nano Banana Media"
     }
   }
 }

@@ -70,7 +70,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN'
+env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN'
 ./config/set-webhooks-manual.sh
 ```
 
@@ -130,6 +130,21 @@ swift run GSForTextBot serve
 
 Подробный план настройки внешних ключей и сертификатов см. в `gsfortextbot/docs/SETUP_PLAN.md`.
 
+9.3. Создать седьмую вкладку терминала Cmd + T и запустить BananaNowBot:
+(Эта вкладка должна оставаться открытой — сервис работает постоянно и слушает порт 8088)
+
+```bash
+cd /Users/a1111/Desktop/projects/Telegrambot
+export $(grep -v '^#' config/.env | xargs)
+swift run BananaNowBot
+```
+
+**BananaNowBot — прототип генерации медиа через Nano Banana:**
+
+- Принимает текстовые промпты и определяет режим (новое изображение, редактирование по вложению, видео)
+- Возвращает текст-план до подключения Nano Banana API (заглушка)
+- Готов к расширению: добавь `BANANANOWBOT_NANO_API_KEY` и реализацию в `BananaNowMediaService`
+
 ### Дополнение: быстрая настройка GSForTextBot
 
 Если поднимаешь gsfortextbot впервые, выполните один раз:
@@ -156,12 +171,36 @@ curl -i http://127.0.0.1:8080/sora/webhook \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://sora.chatgpt.com/p/TEST"}}'
 ```
 
-10.1. В этой же вкладке проверить, что NowmttBot доступен через nginx (должен вернуть `HTTP/1.1 200 OK`):
+10.1. В этой же вкладке проверить, что SoranowBot доступен через nginx (ожидается `HTTP/1.1 200 OK`):
+
+```bash
+curl -i http://127.0.0.1:8080/soranow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй видео с мигающим неоном"}}'
+```
+
+10.2. В этой же вкладке проверить, что NowmttBot доступен через nginx (должен вернуть `HTTP/1.1 200 OK`):
 
 ```bash
 curl -i http://127.0.0.1:8080/nowmtt/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
+```
+
+10.3. Проверить VeoNowBot через nginx (ожидается `HTTP/1.1 200 OK`):
+
+```bash
+curl -i http://127.0.0.1:8080/veonow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй короткое видео с футуристическим городом"}}'
+```
+
+10.4. Проверить BananaNowBot через nginx (ожидается `HTTP/1.1 200 OK` и текстовый ответ-заглушка):
+
+```bash
+curl -i http://127.0.0.1:8080/banananow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй яркий постер с бананом и неоновыми огнями"}}'
 ```
 
 
@@ -179,12 +218,36 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/sora/webhook \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://sora.chatgpt.com/p/TEST"}}'
 ```
 
-11.1. Проверить доступность NowmttBot через ngrok (ожидается `HTTP/2 200`):
+11.1. Проверить доступность SoranowBot через ngrok (ожидается `HTTP/2 200`):
+
+```bash
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/soranow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй видео с мигающим неоном"}}'
+```
+
+11.2. Проверить доступность NowmttBot через ngrok (ожидается `HTTP/2 200`):
 
 ```bash
 curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
+```
+
+11.3. Проверить доступность VeoNowBot через ngrok (ожидается `HTTP/2 200`):
+
+```bash
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/veonow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй короткое видео с футуристическим городом"}}'
+```
+
+11.4. Проверить доступность BananaNowBot через ngrok (ожидается `HTTP/2 200`):
+
+```bash
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/banananow/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Создай атмосферную сцену с бананами и лунным светом"}}'
 ```
 
 
@@ -201,8 +264,10 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
 - Вкладка 9 (шаг 9): WmmoveBot ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** (можно пропустить)
 - Вкладка 9.1 (шаг 9.1): NowmttBot (работает постоянно)
 - Вкладка 9.2 (шаг 9.2): GSForTextBot (работает постоянно)
+- Вкладка 9.3 (шаг 9.3): VeoNowBot (работает постоянно, порт 8087)
+- Вкладка 9.4 (шаг 9.4): BananaNowBot (работает постоянно, порт 8088)
 
 
 
-Итого: 3-4 вкладки терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, и опционально WmmoveBot если не заморожен).
+Итого: 4-5 вкладок терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, BananaNowBot и опционально WmmoveBot если не заморожен).
 ```

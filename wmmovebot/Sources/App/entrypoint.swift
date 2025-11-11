@@ -4,7 +4,7 @@ import NIOCore
 import NIOPosix
 
 @main
-enum SoranowEntrypoint {
+enum WmmoveEntrypoint {
     static func main() async throws {
         var env = try Environment.detect()
         try LoggingSystem.bootstrap(from: &env)

@@ -70,7 +70,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|SORANOWBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN'
+env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN'
 ./config/set-webhooks-manual.sh
 ```
 
@@ -85,12 +85,12 @@ cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run VideoS
 
 
 
-9. ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** Создать четвертую вкладку терминала Cmd + T и запустить Soranowbot:
+9. ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** Создать четвертую вкладку терминала Cmd + T и запустить Wmmovebot:
 (⚠️ **ПРОЕКТ ВРЕМЕННО ЗАМОРОЖЕН** — этот шаг можно пропустить)
 (Эта вкладка должна оставаться открытой — сервис работает постоянно)
 
 ```bash
-cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run SoranowBot
+cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run WmmoveBot
 ```
 
 
@@ -188,7 +188,7 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
 ```
 
 
-12. В @botfather выбрать @roundvideobot / Soranowbot / NowmttBot и далее "Bot settings" потом в "Menu button" нажать "Configure menu button" и вставить URL из ngrok
+12. В @botfather выбрать @roundvideobot / Wmmovebot / NowmttBot и далее "Bot settings" потом в "Menu button" нажать "Configure menu button" и вставить URL из ngrok
 
 
 
@@ -198,11 +198,11 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
 - Playwright-сервис: работает в Docker (НЕ требует открытой вкладки терминала, можно закрыть после запуска)
 - Вкладка 5 (шаг 5): ngrok с VPN (работает постоянно)
 - Вкладка 8 (шаг 8): VideoServiceRunner (Roundsvideobot) (работает постоянно)
-- Вкладка 9 (шаг 9): SoranowBot ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** (можно пропустить)
+- Вкладка 9 (шаг 9): WmmoveBot ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** (можно пропустить)
 - Вкладка 9.1 (шаг 9.1): NowmttBot (работает постоянно)
 - Вкладка 9.2 (шаг 9.2): GSForTextBot (работает постоянно)
 
 
 
-Итого: 3-4 вкладки терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, и опционально SoranowBot если не заморожен).
+Итого: 3-4 вкладки терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, и опционально WmmoveBot если не заморожен).
 ```

@@ -47,13 +47,13 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "SoranowBot",
+            name: "WmmoveBot",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
-            path: "soranowbot/Sources/App"
+            path: "wmmovebot/Sources/App"
         ),
         .executableTarget(
             name: "NowmttBot",

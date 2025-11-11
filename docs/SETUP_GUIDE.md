@@ -97,7 +97,7 @@ cp config/env.example config/.env
 9.2. Вставить токены и ключи в `config/.env`:
 - VIDEO_BOT_TOKEN=твой-токен-для-video-bot
 - NOWMTTBOT_TOKEN=твой-токен-для-nowmtt-bot
-- SORANOWBOT_TOKEN=твой-токен-для-sora-bot
+- WMMOVEBOT_TOKEN=твой-токен-для-sora-bot
 - GSFORTEXTBOT_TOKEN=твой-токен-для-gs-bot
 - NEURFOTOBOT_TOKEN=твой-токен-для-neurfoto-bot
 - SALUTESPEECH_AUTH_KEY="Base64-строка из Studio"

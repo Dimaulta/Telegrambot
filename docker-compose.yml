@@ -46,7 +46,7 @@ services:
     deploy:
       replicas: 0
 
-  # Playwright сервис для SoranowBot (получение __NEXT_DATA__ из Sora)
+  # Playwright сервис для WmmoveBot (получение __NEXT_DATA__ из Sora)
   playwright-service:
     build:
       context: ./playwright-service

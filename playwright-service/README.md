@@ -1,4 +1,4 @@
-# Playwright Service для SoranowBot
+# Playwright Service для WmmoveBot
 
 Микросервис на Node.js + Playwright для получения HTML страниц Sora с `__NEXT_DATA__`.
 

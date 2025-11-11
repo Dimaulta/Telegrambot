@@ -8,7 +8,7 @@
 - ✅ NowmttBot — полностью готов
 - ✅ GSforTextBot — полностью готов
 - ⏳ Neurfotobot — в разработке / тестируется
-- ❌ Soranowbot — проект заморожен
+- ❌ Wmmovebot — проект заморожен
 
 ## ⚠️ ВАЖНО: безопасность токенов
 
@@ -33,8 +33,8 @@
 | `nowmttbot` | 8085 | ✅ | Загрузка TikTok‑видео без водяного знака |
 | `gsfortextbot` | 8083 | ✅ | Распознавание голосовых сообщений в текст |
 | `neurfotobot` | 8082 | ⏳ | AI‑обработка изображений (тестируется) |
-| `soranowbot` | 8084 | ❌ | Удаление ватермарки Sora (заморожен) |
-| `playwright-service` | 3000 | ❌ | Chromium/Playwright для `soranowbot` |
+| `wmmovebot` | 8084 | ❌ | Удаление ватермарки Sora (заморожен) |
+| `playwright-service` | 3000 | ❌ | Chromium/Playwright для `wmmovebot` |
 
 Детальное описание компонентов и потоков данных — в [docs/architecture.md](docs/architecture.md).
 
@@ -48,7 +48,7 @@ Telegrambot/
 ├── nowmttbot/              # TikTok downloader
 ├── gsfortextbot/           # Распознавание речи
 ├── Neurfotobot/            # Обработка изображений (WIP)
-├── soranowbot/             # Замороженный сервис
+├── wmmovebot/             # Замороженный сервис
 ├── playwright-service/     # Node.js сервис для браузерной автоматизации
 └── docs/                   # Документация проекта
 ```

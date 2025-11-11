@@ -14,7 +14,7 @@
    ```env
    VIDEO_BOT_TOKEN=ваш_новый_токен
    GSFORTEXTBOT_TOKEN=ваш_токен_gsfortextbot
-   SORANOWBOT_TOKEN=ваш_токен_soranow
+   WMMOVEBOT_TOKEN=ваш_токен_wmmove
    ```
 
 2. **Замените токены в BotFather:**

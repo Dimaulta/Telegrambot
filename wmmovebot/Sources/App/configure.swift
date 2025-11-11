@@ -17,7 +17,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 }
 
 public func configure(_ app: Application) async throws {
-    // Загружаем config/.env и применяем переменные окружения (для SORANOWBOT_TOKEN)
+    // Загружаем config/.env и применяем переменные окружения (для WMMOVEBOT_TOKEN)
     let envPath = "config/.env"
     if let content = try? String(contentsOfFile: envPath) {
         var vars: [String: String] = [:]
@@ -30,10 +30,10 @@ public func configure(_ app: Application) async throws {
             }
         }
         for (k, v) in vars { setenv(k, v, 1) }
-        app.logger.info("Loaded config/.env with \(vars.count) keys for SoranowBot")
+        app.logger.info("Loaded config/.env with \(vars.count) keys for WmmoveBot")
     }
 
-    let port = getPortFromConfig(serviceName: "soranowbot")
+    let port = getPortFromConfig(serviceName: "wmmovebot")
     app.http.server.configuration.port = port
     
     // Middleware для логирования всех входящих запросов (для диагностики webhook)
@@ -52,7 +52,7 @@ public func configure(_ app: Application) async throws {
             cfg.proxy = .server(host: host, port: port)
         }
         app.http.client.configuration = cfg
-        app.logger.info("SoranowBot HTTP proxy enabled: \(host):\(port)")
+        app.logger.info("WmmoveBot HTTP proxy enabled: \(host):\(port)")
     }
 
     try routes(app)

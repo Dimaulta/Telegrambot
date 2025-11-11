@@ -24,7 +24,7 @@
       "webhook_url": "${BASE_URL}/webhook",
       "name": "GS For Text Bot"
     },
-    "soranowbot": {
+    "wmmovebot": {
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
       "enabled": true,

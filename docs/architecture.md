@@ -11,7 +11,7 @@
   - `nowmttbot` — скачивание TikTok видео без водяного знака
 
 - ❄️ **Заморожен (1 бот):**
-  - `soranowbot` — удаление ватермарки с видео Sora (документация по разморозке в `soranowbot/docs/`)
+  - `wmmovebot` — удаление ватермарки с видео Sora (документация по разморозке в `wmmovebot/docs/`)
 
 - ⏸️ **Не начаты (2 бота):**
   - `gsfortextbot` — расшифровка голосовых сообщений в текст
@@ -49,7 +49,7 @@
 ### 3. Playwright Service (Порт 3000) ❄️
 **Назначение:** Микросервис на Node.js для получения HTML страниц с JavaScript-рендерингом
 
-**Статус:** Используется замороженным проектом `soranowbot`
+**Статус:** Используется замороженным проектом `wmmovebot`
 
 **Функции:**
 - Запуск реального браузера (Chromium) в headless режиме
@@ -84,8 +84,8 @@
 - `nowmttbot/Sources/App/Internal/TikTokResolver.swift` — резолвер TikTok ссылок
 - `nowmttbot/Sources/App/Middleware/LoggingMiddleware.swift` — логирование
 
-#### 4.2. SoranowBot (Порт 8084) ❄️ **Заморожен**
-**Статус:** Проект временно заморожен, документация по разморозке в `soranowbot/docs/`
+#### 4.2. WmmoveBot (Порт 8084) ❄️ **Заморожен**
+**Статус:** Проект временно заморожен, документация по разморозке в `wmmovebot/docs/`
 
 **Назначение:** Бот для удаления ватермарки с видео Sora
 
@@ -96,7 +96,7 @@
 
 **Структура:**
 ```
-soranowbot/
+wmmovebot/
 ├── Sources/App/
 │   ├── Controllers/
 │   ├── Models/
@@ -130,6 +130,8 @@ gsfortextbot/
 │   ├── routes.swift
 │   └── configure.swift
 ```
+
+**Документация:** подробный план интеграции SaluteSpeech — `gsfortextbot/docs/SETUP_PLAN.md`.
 
 #### 4.4. Neurfotobot (Порт 8082) ⏸️ **Не начат**
 **Статус:** Только базовая структура, разработка не начата
@@ -189,7 +191,7 @@ Telegram → core-server/webhook → video-processing/webhook
 - `BASE_URL` — базовый URL для webhook'ов
 
 **Опциональные (для замороженных/не начатых ботов):**
-- `SORANOWBOT_TOKEN` — токен бота для удаления ватермарки Sora ❄️
+- `WMMOVEBOT_TOKEN` — токен бота для удаления ватермарки Sora ❄️
 - `GSFORTEXTBOT_TOKEN` — токен бота для распознавания голоса ⏸️
 - `NEURFOTOBOT_TOKEN` — токен бота для нейрофотографий ⏸️
 
@@ -205,7 +207,7 @@ Telegram → core-server/webhook → video-processing/webhook
 - **Обработка видео:** FFmpeg
 - **База данных:** SQLite
 - **Протокол:** HTTP/HTTPS
-- **Браузерная автоматизация (soranowbot):** Node.js + Playwright
+- **Браузерная автоматизация (wmmovebot):** Node.js + Playwright
 - **Контейнеризация:** Docker, Docker Compose
 
 ## Масштабирование

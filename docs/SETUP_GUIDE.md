@@ -94,13 +94,17 @@ cp config/env.example config/.env
 - Создать ботов командой /newbot
 - Скопировать токены для каждого бота
 
-9.2. Вставить токены в config/.env:
+9.2. Вставить токены и ключи в `config/.env`:
 - VIDEO_BOT_TOKEN=твой-токен-для-video-bot
-- SORANOWBOT_TOKEN=твой-токен-для-sora-bot
+- NOWMTTBOT_TOKEN=твой-токен-для-nowmtt-bot
+- WMMOVEBOT_TOKEN=твой-токен-для-sora-bot
 - GSFORTEXTBOT_TOKEN=твой-токен-для-gs-bot
 - NEURFOTOBOT_TOKEN=твой-токен-для-neurfoto-bot
+- SALUTESPEECH_AUTH_KEY="Base64-строка из Studio"
+- SALUTESPEECH_SCOPE=SALUTE_SPEECH_PERS
+- BASE_URL=https://xxxxx-xxxxx-xxxxx.ngrok-free.app
 
-(Пока что BASE_URL можно оставить как есть, обновим позже)
+> Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в `gsfortextbot/docs/SETUP_PLAN.md`.
 
 
 
@@ -153,6 +157,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    location /nowmtt/webhook {
+        proxy_pass http://127.0.0.1:8085;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location /neurfoto/webhook {
         proxy_pass http://127.0.0.1:8082;
         proxy_set_header Host $host;
@@ -187,4 +199,16 @@ docker compose build playwright-service
 
 
 
-12. Установка завершена. Переходи к QUICK_START.md для запуска сервисов.
+12. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`):
+
+```bash
+cd /Users/a1111/Desktop/projects/Telegrambot
+export $(grep -v '^#' config/.env | xargs)
+swift run GSForTextBot serve
+```
+
+(После проверки нажми Ctrl + C, чтобы остановить сервис. Для постоянной работы используй инструкции из QUICK_START.md.)
+
+
+
+13. Установка завершена. Переходи к QUICK_START.md для запуска сервисов.

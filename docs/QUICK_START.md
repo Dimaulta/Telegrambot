@@ -64,13 +64,13 @@ ngrok http 8080 --log=stdout
 
 7. Создать вторую вкладку терминала Cmd + T, загрузить переменные окружения для проверки и настроить webhook'и:
 
-(Проверка: если видишь все 4 токена — всё ок)
+(Проверка: если видишь все 5 токенов — всё ок)
 (Эту вкладку можно закрыть после выполнения скрипта — webhook'и настроены)
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'SORANOWBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN'
+env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN'
 ./config/set-webhooks-manual.sh
 ```
 
@@ -85,16 +85,16 @@ cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run VideoS
 
 
 
-9. ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** Создать четвертую вкладку терминала Cmd + T и запустить Soranowbot:
+9. ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** Создать четвертую вкладку терминала Cmd + T и запустить Wmmovebot:
 (⚠️ **ПРОЕКТ ВРЕМЕННО ЗАМОРОЖЕН** — этот шаг можно пропустить)
 (Эта вкладка должна оставаться открытой — сервис работает постоянно)
 
 ```bash
-cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run SoranowBot
+cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run WmmoveBot
 ```
 
 
-9.1. Создать дополнительную вкладку терминала Cmd + T и запустить NowmttBot:
+9.1. Создать пятую вкладку терминала Cmd + T и запустить NowmttBot:
 (Эта вкладка должна оставаться открытой — сервис работает постоянно)
 
 ```bash
@@ -119,9 +119,36 @@ swift run NowmttBot
 - Видео возвращается без водяного знака (no watermark)
 - Работает через внешние API (TikWM, TiklyDown)
 
+9.2. Создать шестую вкладку терминала Cmd + T и запустить GSForTextBot:
+(Эта вкладка должна оставаться открытой — сервис работает постоянно. Команда загружает переменные окружения из `config/.env`, чтобы бот получил доступ к токенам и сервисам распознавания.)
+
+```bash
+cd /Users/a1111/Desktop/projects/Telegrambot
+export $(grep -v '^#' config/.env | xargs)
+swift run GSForTextBot serve
+```
+
+Подробный план настройки внешних ключей и сертификатов см. в `gsfortextbot/docs/SETUP_PLAN.md`.
+
+### Дополнение: быстрая настройка GSForTextBot
+
+Если поднимаешь gsfortextbot впервые, выполните один раз:
+
+```bash
+mkdir -p config/certs
+openssl s_client -showcerts \
+  -servername ngw.devices.sberbank.ru \
+  -connect ngw.devices.sberbank.ru:9443 </dev/null 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' \
+  > config/certs/salutespeech-chain.pem
+```
+
+Убедись, что в `config/.env` заполнены `GSFORTEXTBOT_TOKEN`, `SALUTESPEECH_AUTH_KEY`, `SALUTESPEECH_SCOPE`, `BASE_URL`.  
+Webhook для бота: `https://<BASE_URL>/gs/text/webhook`.
 
 
-10. Создать пятую вкладку терминала Cmd + T и проверить проксирование через nginx:
+
+10. Создать седьмую вкладку терминала Cmd + T и проверить проксирование через nginx:
 
 ```bash
 curl -i http://127.0.0.1:8080/sora/webhook \
@@ -129,9 +156,17 @@ curl -i http://127.0.0.1:8080/sora/webhook \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://sora.chatgpt.com/p/TEST"}}'
 ```
 
+10.1. В этой же вкладке проверить, что NowmttBot доступен через nginx (должен вернуть `HTTP/1.1 200 OK`):
+
+```bash
+curl -i http://127.0.0.1:8080/nowmtt/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
+```
 
 
-11. В этой же пятой вкладке проверить проксирование через ngrok:
+
+11. В этой же вкладке проверить проксирование через ngrok:
 
 (Сначала получи URL из вкладки, где запущен ngrok - строка "Forwarding https://xxxxx-xxxxx-xxxxx.ngrok-free.app")
 (Или открой http://127.0.0.1:4040 в браузере для веб-интерфейса ngrok)
@@ -144,8 +179,16 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/sora/webhook \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://sora.chatgpt.com/p/TEST"}}'
 ```
 
+11.1. Проверить доступность NowmttBot через ngrok (ожидается `HTTP/2 200`):
 
-12. В @botfather выбрать @roundvideobot / Soranowbot и далее "Bot settings" потом в "Menu button" нажать "Configure menu button" и вставить URL из ngrok
+```bash
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
+```
+
+
+12. В @botfather выбрать @roundvideobot / Wmmovebot / NowmttBot и далее "Bot settings" потом в "Menu button" нажать "Configure menu button" и вставить URL из ngrok
 
 
 
@@ -155,10 +198,11 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/sora/webhook \
 - Playwright-сервис: работает в Docker (НЕ требует открытой вкладки терминала, можно закрыть после запуска)
 - Вкладка 5 (шаг 5): ngrok с VPN (работает постоянно)
 - Вкладка 8 (шаг 8): VideoServiceRunner (Roundsvideobot) (работает постоянно)
-- Вкладка 9 (шаг 9): SoranowBot ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** (можно пропустить)
+- Вкладка 9 (шаг 9): WmmoveBot ⚠️ **ВРЕМЕННО ЗАМОРОЖЕН** (можно пропустить)
 - Вкладка 9.1 (шаг 9.1): NowmttBot (работает постоянно)
+- Вкладка 9.2 (шаг 9.2): GSForTextBot (работает постоянно)
 
 
 
-Итого: 3-4 вкладки терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, и опционально SoranowBot если не заморожен).
+Итого: 3-4 вкладки терминала должны быть открыты постоянно (ngrok, VideoServiceRunner, NowmttBot, и опционально WmmoveBot если не заморожен).
 ```

@@ -1,15 +1,15 @@
 import Vapor
 import Foundation
 
-final class SoranowBotController {
+final class WmmoveBotController {
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("═══════════════════════════════════════════════")
-        req.logger.info("🔔 SoranowBot webhook hit!")
+        req.logger.info("🔔 WmmoveBot webhook hit!")
         req.logger.info("Method: \(req.method), Path: \(req.url.path)")
         
-        let token = Environment.get("SORANOWBOT_TOKEN")
+        let token = Environment.get("WMMOVEBOT_TOKEN")
         guard let token = token, token.isEmpty == false else {
-            req.logger.error("SORANOWBOT_TOKEN is missing")
+            req.logger.error("WMMOVEBOT_TOKEN is missing")
             return Response(status: .internalServerError)
         }
 
@@ -19,13 +19,13 @@ final class SoranowBotController {
             req.logger.debug("Raw body: \(rawBody)")
         }
 
-        req.logger.info("🔍 Decoding SoranowBotUpdate...")
-        let update = try? req.content.decode(SoranowBotUpdate.self)
+        req.logger.info("🔍 Decoding WmmoveBotUpdate...")
+        let update = try? req.content.decode(WmmoveBotUpdate.self)
         if update == nil { 
-            req.logger.error("❌ Failed to decode SoranowBotUpdate - check raw body above")
+            req.logger.error("❌ Failed to decode WmmoveBotUpdate - check raw body above")
         return Response(status: .ok)
     }
-        req.logger.info("✅ SoranowBotUpdate decoded successfully")
+        req.logger.info("✅ WmmoveBotUpdate decoded successfully")
 
         guard let message = update?.message else {
             req.logger.warning("⚠️ No message in update (update_id: \(update?.update_id ?? -1))")

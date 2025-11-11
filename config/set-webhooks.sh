@@ -21,22 +21,22 @@ echo "🌐 BASE_URL: ${BASE_URL}"
 echo ""
 
 # ============================================
-# SORANOWBOT (Sora Watermark Removal)
+# WMMOVEBOT (Sora Watermark Removal)
 # ============================================
-if [ -z "$SORANOWBOT_TOKEN" ]; then
-    echo "⚠️ SORANOWBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$WMMOVEBOT_TOKEN" ]; then
+    echo "⚠️ WMMOVEBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для SoranowBot..."
+    echo "🔧 Настройка webhook для WmmoveBot..."
     echo "📡 URL: ${BASE_URL}/sora/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+    curl -X POST "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/sora/webhook\"}"
     
     echo ""
-    echo "✅ Webhook для SoranowBot настроен!"
+    echo "✅ Webhook для WmmoveBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/getWebhookInfo"
+    curl "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/getWebhookInfo"
     echo ""
 fi
 
@@ -65,11 +65,11 @@ if [ -z "$NEURFOTOBOT_TOKEN" ]; then
     echo "⚠️ NEURFOTOBOT_TOKEN не установлен, пропускаем..."
 else
     echo "🔧 Настройка webhook для Neurfotobot..."
-    echo "📡 URL: ${BASE_URL}/webhook"
+    echo "📡 URL: ${BASE_URL}/neurfoto/webhook"
     
     curl -X POST "https://api.telegram.org/bot${NEURFOTOBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/neurfoto/webhook\"}"
     
     echo ""
     echo "✅ Webhook для Neurfotobot настроен!"

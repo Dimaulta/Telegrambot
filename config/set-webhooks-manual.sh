@@ -19,8 +19,8 @@ fi
 echo "🌐 BASE_URL: ${BASE_URL}"
 echo ""
 
-# SoranowBot
-curl -sS -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+# WmmoveBot
+curl -sS -X POST "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{\"url\":\"${BASE_URL}/sora/webhook\"}"
 

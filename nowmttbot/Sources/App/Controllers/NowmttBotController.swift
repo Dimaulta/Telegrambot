@@ -2,6 +2,8 @@ import Vapor
 import Foundation
 
 final class NowmttBotController {
+    // Rate limiter: 10 запросов в минуту на пользователя
+    private static let rateLimiter = RateLimiter(maxRequests: 10, timeWindow: 60)
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("═══════════════════════════════════════════════")
         req.logger.info("🔔 NowmttBot webhook hit!")
@@ -67,8 +69,22 @@ final class NowmttBotController {
         
         req.logger.info("✅ Detected TikTok URL: \(tiktokUrl)")
 
-        // Выполняем обработку синхронно (Telegram допускает до 60 сек)
+        // Проверка rate limit
         let chatId = message.chat.id
+        let canProceed = await Self.rateLimiter.checkLimit(for: chatId)
+        
+        if !canProceed {
+            req.logger.warning("⚠️ Rate limit exceeded for user \(chatId)")
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "⏸️ Слишком много запросов! Подожди немного перед следующим запросом. Лимит: 10 запросов в минуту.",
+                client: req.client
+            )
+            return Response(status: .ok)
+        }
+
+        // Выполняем обработку синхронно (Telegram допускает до 60 сек)
         let client = req.client
         let logger = req.logger
 

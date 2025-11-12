@@ -1,5 +1,5 @@
-Автор развертывает эти сервисы на Macbook M1 Pro 16GB.
-
+Инструкция по первичной установке компонентов для развёртывания сервиса:
+(Автор развертывает эти сервисы на Macbook M1 Pro 16GB)
 
 
 1. Установить Homebrew (менеджер пакетов для Mac):
@@ -12,27 +12,7 @@
 
 
 
-2. Установить Docker Desktop: 
-
-2.1. Скачать Docker Desktop для Mac:
-- Открыть https://www.docker.com/products/docker-desktop/
-- Скачать Docker Desktop для Apple Silicon (M1/M2/M3)
-- Установить приложение, перетащив в папку Applications
-
-2.2. Запустить Docker Desktop и дождаться полной загрузки:
-(Иконка в строке меню перестанет анимироваться)
-
-2.3. Проверить, что Docker работает:
-
-```bash
-docker ps
-```
-
-(Если видишь список контейнеров или пустой вывод — всё ок)
-
-
-
-3. Установить FFmpeg:
+2. Установить FFmpeg:
 
 ```bash
 brew install ffmpeg
@@ -40,7 +20,7 @@ brew install ffmpeg
 
 
 
-4. Установить ngrok:
+3. Установить ngrok:
 
 ```bash
 brew install ngrok
@@ -48,7 +28,7 @@ brew install ngrok
 
 
 
-5. Установить nginx:
+4. Установить nginx:
 
 ```bash
 brew install nginx
@@ -56,7 +36,7 @@ brew install nginx
 
 
 
-6. Проверить, что Swift установлен:
+5. Проверить, что Swift установлен:
 
 ```bash
 swift --version
@@ -67,7 +47,7 @@ swift --version
 
 
 
-7. Клонировать репозиторий и перейти в папку проекта:
+6. Клонировать репозиторий и перейти в папку проекта:
 
 ```bash
 git clone <URL-РЕПОЗИТОРИЯ>
@@ -79,7 +59,7 @@ cd Telegrambot
 
 
 
-8. Создать файл конфигурации из примера:
+7. Создать файл конфигурации из примера:
 
 ```bash
 cp config/env.example config/.env
@@ -87,35 +67,26 @@ cp config/env.example config/.env
 
 
 
-9. Открыть config/.env в редакторе и заполнить токены ботов:
+8. Открыть config/.env в редакторе и заполнить токены ботов:
 
-9.1. Получить токены в @BotFather в Telegram:
+8.1. Получить токены в @BotFather в Telegram:
 - Открыть @BotFather в Telegram
 - Создать ботов командой /newbot
 - Скопировать токены для каждого бота
 
-9.2. Вставить токены и ключи в `config/.env`:
-- VIDEO_BOT_TOKEN=твой-токен-для-video-bot
-- NOWMTTBOT_TOKEN=твой-токен-для-nowmtt-bot
-- WMMOVEBOT_TOKEN=твой-токен-для-sora-bot
-- GSFORTEXTBOT_TOKEN=твой-токен-для-gs-bot
-- NEURFOTOBOT_TOKEN=твой-токен-для-neurfoto-bot
-- BANANANOWBOT_TOKEN=твой-токен-для-banananow-bot
-- VEONOWBOT_TOKEN=твой-токен-для-veonow-bot
-- VEO3_API_KEY=API-ключ-для-Veo3
-- VEO3_WORKFLOW_ID=workflow-id-для-Veo3
-- BANANANOWBOT_NANO_API_KEY=ключ-для-nano-banana
-- SALUTESPEECH_AUTH_KEY="Base64-строка из Studio"
-- SALUTESPEECH_SCOPE=SALUTE_SPEECH_PERS
-- BASE_URL=https://xxxxx-xxxxx-xxxxx.ngrok-free.app
+8.2. Заполни `config/.env` своими значениями. Ориентируйся на структуру [`config/env.example`](../config/env.example), например:
+```env
+VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
+```
+Пополняй остальные поля аналогично, используя плейсхолдеры из примера
 
 > Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в `gsfortextbot/docs/SETUP_PLAN.md`.
 
 
 
-10. Настроить nginx для проксирования запросов:
+9. Настроить nginx для проксирования запросов:
 
-10.1. Найти путь к конфигурации nginx:
+9.1. Найти путь к конфигурации nginx:
 
 ```bash
 nginx -t
@@ -123,15 +94,15 @@ nginx -t
 
 (В выводе будет указан путь к конфигурации, например: /opt/homebrew/etc/nginx/nginx.conf или /usr/local/etc/nginx/nginx.conf)
 
-10.2. Открыть конфигурацию nginx в редакторе:
+9.2. Открыть конфигурацию nginx в редакторе:
 
 ```bash
 open -a TextEdit /opt/homebrew/etc/nginx/nginx.conf
 ```
 
-(Или использовать любой текстовый редактор, замени путь на тот что получил в шаге 10.1)
+(Или использовать любой текстовый редактор, замени путь на тот что получил в шаге 9.1)
 
-10.3. Найти блок server внутри блока http и заменить на:
+9.3. Найти блок server внутри блока http и заменить на:
 
 ```
 server {
@@ -204,9 +175,9 @@ server {
 }
 ```
 
-10.4. Сохранить файл и закрыть редактор
+9.4. Сохранить файл и закрыть редактор
 
-10.5. Проверить конфигурацию nginx:
+9.5. Проверить конфигурацию nginx:
 
 ```bash
 nginx -t
@@ -216,19 +187,7 @@ nginx -t
 
 
 
-11. Собрать Docker контейнер для Playwright сервиса:
-
-(Убедись что ты находишься в папке проекта)
-
-```bash
-docker compose build playwright-service
-```
-
-(Это займет 10-15 минут при первом запуске)
-
-
-
-12. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`):
+10. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`). Подробный сценарий запуска см. в [docs/QUICK_START.md](docs/QUICK_START.md):
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
@@ -240,4 +199,4 @@ swift run GSForTextBot serve
 
 
 
-13. Установка завершена. Переходи к QUICK_START.md для запуска сервисов.
+11. Установка завершена. Переходи к QUICK_START.md для запуска сервисов.

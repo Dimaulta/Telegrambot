@@ -10,24 +10,17 @@
 - ✅ Токены больше не хранятся в коде
 
 ### Что нужно сделать ВАМ:
-1. **Создайте файл `config/.env`** с вашими токенами:
+1. **Создайте файл `config/.env`** с вашими токенами. Ориентируйтесь на шаблон [`config/env.example`](../config/env.example):
    ```env
-   VIDEO_BOT_TOKEN=ваш_новый_токен
-   GSFORTEXTBOT_TOKEN=ваш_токен_gsfortextbot
-   WMMOVEBOT_TOKEN=ваш_токен_wmmove
+   VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
+   NOWMTTBOT_TOKEN=PASTE_NOWMTTBOT_TOKEN_HERE
+   GSFORTEXTBOT_TOKEN=PASTE_GSFORTEXTBOT_TOKEN_HERE
    ```
 
 2. **Замените токены в BotFather:**
    - Откройте [@BotFather](https://t.me/botfather)
    - Для каждого бота выполните `/revoke` и создайте новый токен
    - Обновите токены в `config/.env`
-
-3. **Настройте новые webhook'и:**
-   ```bash
-   curl -X POST "https://api.telegram.org/botНОВЫЙ_ТОКЕН/setWebhook" \
-     -H "Content-Type: application/json" \
-     -d '{"url":"https://ваш-домен.com/webhook"}'
-   ```
 
 ## Рекомендации по безопасности
 
@@ -54,7 +47,7 @@
 
 ## Контакты
 
-Для вопросов по безопасности обращайтесь к владельцу репозитория.
+Для вопросов по безопасности обращайтесь к владельцу репозитория в Telegram: [@snowflakeios](https://t.me/snowflakeios)
 
 ---
 **Дата последнего обновления токенов:** $(date)

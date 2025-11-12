@@ -1,14 +1,15 @@
-Инструкция по первичной установке компонентов для развёртывания сервиса:
-(Автор развертывает эти сервисы на Macbook M1 Pro 16GB)
+## Инструкция по первичной установке компонентов для развёртывания сервиса
+Автор разворачивает эти сервисы на Macbook M1 Pro 16GB
 
 
-1. Установить Homebrew (менеджер пакетов для Mac):
 
-(Если Homebrew уже установлен, пропусти этот шаг)
+
+1. Установить Homebrew (менеджер пакетов для Mac). Если Homebrew уже установлен, пропусти этот шаг:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
+
 
 
 
@@ -20,11 +21,13 @@ brew install ffmpeg
 
 
 
+
 3. Установить ngrok:
 
 ```bash
 brew install ngrok
 ```
+
 
 
 
@@ -36,26 +39,27 @@ brew install nginx
 
 
 
+
 5. Проверить, что Swift установлен:
 
 ```bash
 swift --version
 ```
 
-(Если видишь версию Swift — всё ок)
-(Если Swift не установлен — установить Xcode Command Line Tools: xcode-select --install)
+Если видишь версию Swift — всё ок. Если Swift не установлен, установи Xcode Command Line Tools командой `xcode-select --install`
+
 
 
 
 6. Клонировать репозиторий и перейти в папку проекта:
 
 ```bash
-git clone <URL-РЕПОЗИТОРИЯ>
+git clone REPO_URL
 cd Telegrambot
 ```
 
-(Замени <URL-РЕПОЗИТОРИЯ> на реальный URL твоего репозитория)
-(В дальнейшем все команды выполняй из папки проекта)
+Замени `REPO_URL` на реальный URL твоего репозитория. Дальше все команды выполняй из папки проекта
+
 
 
 
@@ -64,6 +68,7 @@ cd Telegrambot
 ```bash
 cp config/env.example config/.env
 ```
+
 
 
 
@@ -80,7 +85,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 ```
 Пополняй остальные поля аналогично, используя плейсхолдеры из примера
 
-> Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в `gsfortextbot/docs/SETUP_PLAN.md`.
+> Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_PLAN.md](../gsfortextbot/docs/SETUP_PLAN.md).
 
 
 
@@ -92,7 +97,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 nginx -t
 ```
 
-(В выводе будет указан путь к конфигурации, например: /opt/homebrew/etc/nginx/nginx.conf или /usr/local/etc/nginx/nginx.conf)
+В выводе будет указан путь к конфигурации, например `/opt/homebrew/etc/nginx/nginx.conf` или `/usr/local/etc/nginx/nginx.conf`
 
 9.2. Открыть конфигурацию nginx в редакторе:
 
@@ -100,7 +105,7 @@ nginx -t
 open -a TextEdit /opt/homebrew/etc/nginx/nginx.conf
 ```
 
-(Или использовать любой текстовый редактор, замени путь на тот что получил в шаге 9.1)
+Можешь использовать любой текстовый редактор. Замени путь на тот, что получил в шаге 9.1
 
 9.3. Найти блок server внутри блока http и заменить на:
 
@@ -183,11 +188,11 @@ server {
 nginx -t
 ```
 
-(Если видишь "syntax is ok" и "test is successful" — всё ок)
+Если видишь `syntax is ok` и `test is successful`, значит всё ок
 
 
 
-10. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`). Подробный сценарий запуска см. в [docs/QUICK_START.md](docs/QUICK_START.md):
+10. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`). Подробный сценарий запуска см. в [QUICK_START.md](./QUICK_START.md):
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
@@ -195,8 +200,8 @@ export $(grep -v '^#' config/.env | xargs)
 swift run GSForTextBot serve
 ```
 
-(После проверки нажми Ctrl + C, чтобы остановить сервис. Для постоянной работы используй инструкции из QUICK_START.md.)
+После проверки нажми Ctrl + C, чтобы остановить сервис. Для постоянной работы используй инструкции из QUICK_START.md
 
 
 
-11. Установка завершена. Переходи к QUICK_START.md для запуска сервисов.
+11. Установка завершена. Переходи к [QUICK_START.md](./QUICK_START.md) для запуска сервисов.

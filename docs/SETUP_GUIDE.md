@@ -100,6 +100,11 @@ cp config/env.example config/.env
 - WMMOVEBOT_TOKEN=твой-токен-для-sora-bot
 - GSFORTEXTBOT_TOKEN=твой-токен-для-gs-bot
 - NEURFOTOBOT_TOKEN=твой-токен-для-neurfoto-bot
+- BANANANOWBOT_TOKEN=твой-токен-для-banananow-bot
+- VEONOWBOT_TOKEN=твой-токен-для-veonow-bot
+- VEO3_API_KEY=API-ключ-для-Veo3
+- VEO3_WORKFLOW_ID=workflow-id-для-Veo3
+- BANANANOWBOT_NANO_API_KEY=ключ-для-nano-banana
 - SALUTESPEECH_AUTH_KEY="Base64-строка из Studio"
 - SALUTESPEECH_SCOPE=SALUTE_SPEECH_PERS
 - BASE_URL=https://xxxxx-xxxxx-xxxxx.ngrok-free.app
@@ -135,6 +140,30 @@ server {
 
     location /sora/webhook {
         proxy_pass http://127.0.0.1:8084;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /soranow/webhook {
+        proxy_pass http://127.0.0.1:8086;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /veonow/webhook {
+        proxy_pass http://127.0.0.1:8087;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /banananow/webhook {
+        proxy_pass http://127.0.0.1:8088;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

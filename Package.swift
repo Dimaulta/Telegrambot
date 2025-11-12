@@ -47,6 +47,15 @@ let package = Package(
             ]
         ),
         .executableTarget(
+            name: "VeoNowBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "VeoNowBot/Sources/App"
+        ),
+        .executableTarget(
             name: "WmmoveBot",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
@@ -72,6 +81,22 @@ let package = Package(
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
             path: "gsfortextbot/Sources/App"
+        ),
+        .executableTarget(
+            name: "SoranowBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "soranowbot/Sources/App"
+        ),
+        .executableTarget(
+            name: "BananaNowBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor")
+            ],
+            path: "BananaNowBot/Sources/App"
         )
     ]
 )

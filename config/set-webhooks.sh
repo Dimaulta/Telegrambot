@@ -114,6 +114,72 @@ else
     echo ""
 fi
 
+# ============================================
+# SORANOWBOT (Video Generation via external API)
+# ============================================
+if [ -z "$SORANOWBOT_TOKEN" ]; then
+    echo "⚠️ SORANOWBOT_TOKEN не установлен, пропускаем..."
+else
+    echo "🔧 Настройка webhook для SoranowBot..."
+    echo "📡 URL: ${BASE_URL}/soranow/webhook"
+
+    curl -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "{\"url\":\"${BASE_URL}/soranow/webhook\"}"
+
+    echo ""
+    echo "✅ Webhook для SoranowBot настроен!"
+    echo "📋 Проверка:"
+    curl "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
+fi
+
+# ============================================
+# VEONOWBOT (Veo 3 Video Generation)
+# ============================================
+if [ -z "$VEONOWBOT_TOKEN" ]; then
+    echo "⚠️ VEONOWBOT_TOKEN не установлен, пропускаем..."
+else
+    echo "🔧 Настройка webhook для VeoNowBot..."
+    echo "📡 URL: ${BASE_URL}/veonow/webhook"
+
+    payload="{\"url\":\"${BASE_URL}/veonow/webhook\""
+    if [ -n "$VEONOWBOT_WEBHOOK_SECRET" ]; then
+        payload="${payload},\"secret_token\":\"${VEONOWBOT_WEBHOOK_SECRET}\""
+    fi
+    payload="${payload}}"
+
+    curl -X POST "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "${payload}"
+
+    echo ""
+    echo "✅ Webhook для VeoNowBot настроен!"
+    echo "📋 Проверка:"
+    curl "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
+fi
+
+# ============================================
+# BANANANOWBOT (Nano Banana Media)
+# ============================================
+if [ -z "$BANANANOWBOT_TOKEN" ]; then
+    echo "⚠️ BANANANOWBOT_TOKEN не установлен, пропускаем..."
+else
+    echo "🔧 Настройка webhook для BananaNowBot..."
+    echo "📡 URL: ${BASE_URL}/banananow/webhook"
+
+    curl -X POST "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "{\"url\":\"${BASE_URL}/banananow/webhook\"}"
+
+    echo ""
+    echo "✅ Webhook для BananaNowBot настроен!"
+    echo "📋 Проверка:"
+    curl "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
+fi
+
 echo "🎉 Готово! Все webhook'и настроены."
 
 # ============================================

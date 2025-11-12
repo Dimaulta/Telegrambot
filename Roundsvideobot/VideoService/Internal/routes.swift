@@ -19,7 +19,7 @@ func routes(_ app: Application) async throws {
             
             if let message = update.message {
                 req.logger.info("Получено сообщение от пользователя: \(message.from.first_name) (ID: \(message.from.id))")
-
+                
                 // Обрабатываем /start отдельно
                 if let text = message.text, text == "/start" {
                     let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
@@ -48,6 +48,32 @@ func routes(_ app: Application) async throws {
 
                 // Обработка видео
                 if let video = message.video {
+                    // Лимит: не более 2 видео в минуту на пользователя
+                    let chatIdStr = String(message.chat.id)
+                    if await !RateLimiter.shared.allow(key: chatIdStr) {
+                        let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                        let boundary = UUID().uuidString
+                        var body = ByteBufferAllocator().buffer(capacity: 0)
+                        
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                        body.writeString("\(message.chat.id)\r\n")
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+                        body.writeString("Подождите 1 минуту\r\n")
+                        body.writeString("--\(boundary)--\r\n")
+                        
+                        var headers = HTTPHeaders()
+                        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+                        
+                        _ = try await req.client.post(sendMessageUrl, headers: headers) { post in
+                            post.body = body
+                        }.get()
+                        
+                        req.logger.info("Превышен лимит отправок для чата \(chatIdStr). Сообщение об ожидании отправлено.")
+                        return .ok
+                    }
                     req.logger.info("Получено видео с ID: \(video.file_id)")
                     
                     // Проверяем длительность видео
@@ -155,7 +181,7 @@ func routes(_ app: Application) async throws {
                     _ = try await req.client.post(sendMessageUrl, headers: headers) { post in
                         post.body = body
                     }.get()
-
+                    
                     return .ok
                 }
             }
@@ -188,7 +214,7 @@ func routes(_ app: Application) async throws {
     }
     
     // Обработчик загрузки видео из мини-аппы
-    app.post(["api", "upload"]) { req async throws -> String in
+    app.post(["api", "upload"]) { req async throws -> Response in
         struct UploadData: Content {
             var video: File
             var chatId: String
@@ -199,6 +225,33 @@ func routes(_ app: Application) async throws {
         let file = upload.video
         let chatId = upload.chatId
         req.logger.info("Получен файл: \(file.filename), размер: \(file.data.readableBytes) байт")
+        
+        // Лимит: не более 2 видео в минуту на пользователя
+        if await !RateLimiter.shared.allow(key: chatId) {
+            let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+            let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+            let boundary = UUID().uuidString
+            var body = ByteBufferAllocator().buffer(capacity: 0)
+            
+            body.writeString("--\(boundary)\r\n")
+            body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+            body.writeString("\(chatId)\r\n")
+            body.writeString("--\(boundary)\r\n")
+            body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+            body.writeString("Подождите 1 минуту\r\n")
+            body.writeString("--\(boundary)--\r\n")
+            
+            var headers = HTTPHeaders()
+            headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+            
+            _ = try await req.client.post(sendMessageUrl, headers: headers) { post in
+                post.body = body
+            }.get()
+            
+            var resp = Response(status: .tooManyRequests)
+            resp.body = .init(string: "Подождите 1 минуту")
+            return resp
+        }
 
         // Декодируем cropData
         guard let cropDataJson = upload.cropData.data(using: .utf8) else {
@@ -260,7 +313,9 @@ func routes(_ app: Application) async throws {
             throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
         }
 
-        return "Видео успешно обработано и отправлено!"
+        var okResp = Response(status: .ok)
+        okResp.body = .init(string: "Видео успешно обработано и отправлено!")
+        return okResp
     }
     
     // Отдаём index.html при GET //

@@ -2,8 +2,34 @@ import Vapor
 import Foundation
 import Fluent
 
+/// Actor для thread-safe дедупликации update_id
+actor UpdateIdDeduplicator {
+    private var processedUpdateIds = Set<Int>()
+    private let maxProcessedIds = 1000
+    
+    func isDuplicate(_ updateId: Int) -> Bool {
+        if processedUpdateIds.contains(updateId) {
+            return true
+        }
+        
+        // Добавляем в множество обработанных
+        processedUpdateIds.insert(updateId)
+        
+        // Ограничиваем размер множества (удаляем старые, если превышен лимит)
+        if processedUpdateIds.count > maxProcessedIds {
+            // Удаляем самые старые (просто очищаем и оставляем последние)
+            let sortedIds = Array(processedUpdateIds.sorted().suffix(maxProcessedIds / 2))
+            processedUpdateIds = Set(sortedIds)
+        }
+        
+        return false
+    }
+}
+
 /// Основной контроллер для обработки webhook'ов от Telegram
 final class ContentFabrikaBotController: @unchecked Sendable {
+    private static let deduplicator = UpdateIdDeduplicator()
+    private static let rateLimiter = RateLimiter(limit: 2, interval: 60)
     
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("🔔 handleWebhook called")
@@ -24,31 +50,19 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         }
         
         req.logger.info("✅ Update decoded successfully, update_id: \(update.update_id)")
+        
+        // Дедупликация: проверяем, не обрабатывали ли мы уже этот update_id
+        let isDuplicate = await ContentFabrikaBotController.deduplicator.isDuplicate(update.update_id)
+        
+        if isDuplicate {
+            req.logger.info("⚠️ Duplicate update_id \(update.update_id) - ignoring")
+            return Response(status: .ok)
+        }
 
         // Обработка callback query (кнопки) - ДОЛЖНО БЫТЬ ПЕРВЫМ
         if let callback = update.callback_query {
             req.logger.info("📱 Received callback_query: \(callback.data ?? "no data")")
             try await handleCallback(callback: callback, token: token, req: req)
-            return Response(status: .ok)
-        }
-
-        // Обработка сообщений из канала (когда бот админ и получает обновления)
-        if let channelPost = update.channel_post {
-            try await PostService.saveChannelPost(channelPost: channelPost, token: token, req: req)
-            return Response(status: .ok)
-        }
-
-        // Обработка my_chat_member (когда бот добавляется в канал)
-        if let myChatMember = update.my_chat_member {
-            req.logger.info("👤 Bot added to chat: \(myChatMember.chat.id), status: \(myChatMember.new_chat_member.status)")
-            if myChatMember.chat.type == "channel" {
-                _ = try await ChannelService.createOrUpdateChannel(
-                    telegramChatId: myChatMember.chat.id,
-                    telegramChatTitle: myChatMember.chat.title,
-                    ownerUserId: myChatMember.from.id,
-                    db: req.db
-                )
-            }
             return Response(status: .ok)
         }
 
@@ -116,7 +130,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 
                 if postsCount >= 3 {
                     // Когда постов достаточно, предлагаем изучить канал с кнопкой
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard()
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -126,7 +140,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         replyToMessageId: message.message_id
                     )
                 } else {
-                    let keyboard = KeyboardService.createDeleteDataKeyboard()
+                    let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -150,21 +164,13 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             return Response(status: .ok)
         }
         
-        // Если сообщение из канала (когда бот админ)
-        if message.chat.type == "channel" {
-            req.logger.info("📨 Message from channel where bot is admin: chat.id=\(message.chat.id)")
-            // Это обрабатывается через channel_post в начале handleWebhook
-            return Response(status: .ok)
-        }
-
         // Обычное сообщение от пользователя
-        // Если пользователь пишет боту после удаления переписки, показываем приветствие
         let channel = try await ChannelService.findUserChannel(ownerUserId: userId, db: req.db)
         
-        // Если нет канала и это не команда - показываем приветствие (возможно, пользователь удалил переписку)
+        // Если нет постов/каналов и это не команда - напоминаем переслать публикации
         if channel == nil && !text.hasPrefix("/") {
-            req.logger.info("👋 User without channel sent message, showing welcome")
-            try await WelcomeService.sendWelcome(userId: userId, chatId: chatId, token: token, req: req)
+            req.logger.info("📩 User message without saved posts — sending reminder")
+            try await WelcomeService.sendForwardReminder(userId: userId, chatId: chatId, token: token, req: req)
             return Response(status: .ok)
         }
         
@@ -172,11 +178,11 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         let allChannels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
         
         if allChannels.isEmpty {
-            // У пользователя нет каналов - просим добавить бота
+            // У пользователя нет каналов - просим переслать посты
             try await TelegramService.sendMessage(
                 token: token,
                 chatId: chatId,
-                text: "Добавь меня в свой канал как администратора с правом публикации, затем используй /start для начала работы.",
+                text: "Сначала перешли мне от 3 до 10 постов из своего канала через Forward. Как только появится минимум 3 публикации, кнопка «Изучить канал» станет активной.",
                 client: req.client
             )
         } else if allChannels.count == 1 {
@@ -185,15 +191,66 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             let channelId = try channel.requireID()
             
             if let styleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) {
-                // Профиль готов - генерируем пост
-                try await PostGenerationService.generateAndPublishPost(
-                    topic: text,
-                    styleProfile: styleProfile,
-                    channel: channel,
-                    userId: userId,
+                // Профиль готов - генерируем пост в фоне (чтобы быстро ответить Telegram)
+                let client = req.client
+                let logger = req.logger
+                let app = req.application
+                let eventLoop = req.eventLoop
+                
+                let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                guard allowed else {
+                    try await TelegramService.sendMessage(
+                        token: token,
+                        chatId: chatId,
+                        text: "⚠️ Давай не торопиться — можно сгенерировать не больше двух постов в минуту. Попробуй ещё раз чуть позже 💛",
+                        client: req.client
+                    )
+                    return Response(status: .ok)
+                }
+                
+                // Отправляем сообщение о начале генерации
+                _ = try? await TelegramService.sendMessage(
                     token: token,
-                    req: req
+                    chatId: chatId,
+                    text: "Генерирую пост в твоём стиле... ✨",
+                    client: client
                 )
+                
+                        // Запускаем генерацию в фоне
+                        Task { [token, userId, text] in
+                            logger.info("🚀 Background task started for post generation")
+                            do {
+                                // Создаём новый Request для фоновой обработки
+                                // Request автоматически получает client из application
+                                let backgroundReq = Request(application: app, method: .GET, url: URI(string: "/"), on: eventLoop)
+                                
+                                try await PostGenerationService.generatePostForUser(
+                                    topic: text,
+                                    styleProfile: styleProfile,
+                                    channel: channel,
+                                    userId: userId,
+                                    token: token,
+                                    req: backgroundReq
+                                )
+                                logger.info("✅ Post generation completed")
+                            } catch {
+                                logger.error("❌ Error in background post generation: \(error)")
+                                logger.error("❌ Error details: \(error)")
+                                if let abortError = error as? Abort {
+                                    logger.error("❌ Abort error: status=\(abortError.status), reason=\(abortError.reason)")
+                                }
+                                let errorChatId = TelegramService.getChatIdFromUserId(userId: userId)
+                                _ = try? await TelegramService.sendMessage(
+                                    token: token,
+                                    chatId: errorChatId,
+                                    text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
+                                    client: client
+                                )
+                            }
+                        }
+                
+                // Возвращаем ответ сразу, обработка продолжается в фоне
+                return Response(status: .ok)
             } else {
                 // Профиль не готов - проверяем, есть ли посты в БД
                 let postsCount = try await ChannelPost.query(on: req.db)
@@ -202,17 +259,17 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 
                 if postsCount == 0 {
                     // Нет постов - просим переслать
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard()
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "Сначала нужно изучить стиль канала.\n\n📝 Перешли мне 5-10 постов из канала (Forward), затем нажми 'Изучить канал'.",
+                        text: "Сначала нужно изучить стиль канала.\n\n📝 Перешли мне от 3 до 10 постов из канала (Forward), затем нажми «Изучить канал».",
                         keyboard: keyboard,
                         client: req.client
                     )
                 } else {
                     // Есть посты, но стиль не изучен - предлагаем изучить
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard()
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -294,7 +351,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 
                 if postsCount >= 3 {
                     // Когда постов достаточно, предлагаем изучить канал с кнопкой
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard()
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -304,7 +361,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         replyToMessageId: message.message_id
                     )
                 } else {
-                    let keyboard = KeyboardService.createDeleteDataKeyboard()
+                    let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: postsCount)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -341,7 +398,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "Сначала нужно изучить стиль канала. Перешли мне посты из канала (Forward), затем нажми 'Изучить канал'.",
+                        text: "Сначала нужно изучить стиль канала. Перешли мне от 3 до 10 постов из канала (Forward), затем нажми «Изучить канал».",
                         keyboard: keyboard,
                         client: req.client
                     )
@@ -379,14 +436,14 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 try await TelegramService.answerCallbackQuery(
                     token: token,
                     callbackId: callback.id,
-                    text: "Не найден активный канал. Добавь меня в свой канал как администратора.",
+                    text: "Не найден канал с постами. Перешли мне публикации через Forward.",
                     req: req
                 )
                 // Отправляем сообщение как reply к предыдущему
                 _ = try await TelegramService.sendMessage(
                     token: token,
                     chatId: chatId,
-                    text: "❌ Не найден активный канал.\n\nДобавь меня в свой канал как администратора с правом публикации, затем перешли мне посты из канала.",
+                        text: "❌ Я ещё не знаю твой канал.\n\nПерешли мне от 3 до 10 постов (Forward), и кнопка «Изучить канал» станет доступной.",
                     client: req.client,
                     replyToMessageId: replyToMessageId
                 )
@@ -450,14 +507,14 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 try await TelegramService.answerCallbackQuery(
                     token: token,
                     callbackId: callback.id,
-                    text: "Не найден активный канал.",
+                    text: "Не найден канал для переобучения. Перешли мне посты заново.",
                     req: req
                 )
                 // Отправляем сообщение как reply к предыдущему
                 _ = try await TelegramService.sendMessage(
                     token: token,
                     chatId: chatId,
-                    text: "❌ Не найден активный канал.\n\nДобавь меня в свой канал как администратора с правом публикации.",
+                    text: "❌ Пока нет канала для переобучения. Собери минимум 3 пересланных поста и изучи стиль, а потом я смогу его обновить.",
                     client: req.client,
                     replyToMessageId: replyToMessageId
                 )
@@ -515,22 +572,78 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     .filter(\.$ownerUserId == userId)
                     .first(),
                    let styleProfile = try await StyleService.getStyleProfile(channelId: channelUUID, db: req.db) {
+                            
+                            let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                            guard allowed else {
+                                _ = try? await TelegramService.answerCallbackQuery(
+                                    token: token,
+                                    callbackId: callback.id,
+                                    text: "Подожди немного перед следующей генерацией",
+                                    req: req
+                                )
+                                _ = try? await TelegramService.sendMessage(
+                                    token: token,
+                                    chatId: chatId,
+                                    text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
+                                    client: req.client,
+                                    replyToMessageId: replyToMessageId
+                                )
+                                return
+                            }
                     
-                    try await TelegramService.answerCallbackQuery(
+                    _ = try await TelegramService.answerCallbackQuery(
                         token: token,
                         callbackId: callback.id,
-                        text: "Генерирую пост...",
+                        text: nil,  // Убираем дублирующее сообщение - оно будет отправлено в PostGenerationService
                         req: req
                     )
                     
-                    try await PostGenerationService.generateAndPublishPost(
-                        topic: topic,
-                        styleProfile: styleProfile,
-                        channel: channel,
-                        userId: userId,
+                    // Генерируем пост в фоне (чтобы быстро ответить Telegram)
+                    let client = req.client
+                    let logger = req.logger
+                    let app = req.application
+                    let eventLoop = req.eventLoop
+                    
+                    // Отправляем сообщение о начале генерации
+                    _ = try? await TelegramService.sendMessage(
                         token: token,
-                        req: req
+                        chatId: chatId,
+                        text: "Генерирую пост в твоём стиле... ✨",
+                        client: client
                     )
+                    
+                    // Запускаем генерацию в фоне
+                    Task { [token, userId, topic] in
+                        logger.info("🚀 Background task started for post generation (callback)")
+                        do {
+                            // Создаём новый Request для фоновой обработки
+                            // Request автоматически получает client из application
+                            let backgroundReq = Request(application: app, method: .GET, url: URI(string: "/"), on: eventLoop)
+                            
+                                    try await PostGenerationService.generatePostForUser(
+                                topic: topic,
+                                styleProfile: styleProfile,
+                                channel: channel,
+                                userId: userId,
+                                token: token,
+                                req: backgroundReq
+                            )
+                            logger.info("✅ Post generation completed (callback)")
+                        } catch {
+                            logger.error("❌ Error in background post generation (callback): \(error)")
+                            logger.error("❌ Error details: \(error)")
+                                if let abortError = error as? Abort {
+                                    logger.error("❌ Abort error: status=\(abortError.status), reason=\(abortError.reason)")
+                            }
+                            let errorChatId = TelegramService.getChatIdFromUserId(userId: userId)
+                            _ = try? await TelegramService.sendMessage(
+                                token: token,
+                                chatId: errorChatId,
+                                text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
+                                client: client
+                            )
+                        }
+                    }
                 } else {
                     try await TelegramService.answerCallbackQuery(
                         token: token,
@@ -631,7 +744,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         _ = try await TelegramService.sendMessageWithKeyboard(
             token: token,
             chatId: chatId,
-            text: "✅ Все данные удалены!\n\n🗑️ Удалено:\n• \(deletedChannelsCount) канал(ов)\n• \(deletedPostsCount) пост(ов)\n• \(deletedProfilesCount) профиль(ей) стиля\n\nТеперь можешь начать заново:\n1. Добавь меня в канал как администратора\n2. Перешли мне посты из канала\n3. Нажми 'Изучить канал'",
+            text: "✅ Все данные удалены!\n\n🗑️ Удалено:\n• \(deletedChannelsCount) канал(ов)\n• \(deletedPostsCount) пост(ов)\n• \(deletedProfilesCount) профиль(ей) стиля\n\nНачнём заново:\n1. Перешли мне от 3 до 10 постов (Forward) из нужного канала\n2. Дождись, когда появится кнопка «Изучить канал»\n3. Запусти анализ и отправляй темы для новых постов",
             keyboard: keyboard,
             client: req.client
         )

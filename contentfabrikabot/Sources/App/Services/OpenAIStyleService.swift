@@ -53,20 +53,60 @@ struct OpenAIStyleService {
         
         request.body = try .init(data: JSONEncoder().encode(payload))
         
+        logger.info("📤 Sending request to OpenAI API for style analysis")
         let response = try await client.send(request)
-        guard response.status == .ok, let body = response.body else {
+        
+        // Логируем статус ответа
+        logger.info("📥 OpenAI API response status: \(response.status)")
+        
+        guard response.status == .ok else {
             var errorBody = ""
             if let errorBuffer = response.body {
-                errorBody = errorBuffer.getString(at: 0, length: errorBuffer.readableBytes) ?? ""
+                errorBody = errorBuffer.getString(at: 0, length: min(errorBuffer.readableBytes, 1000)) ?? ""
             }
+            logger.error("❌ OpenAI API error: status=\(response.status), body=\(errorBody)")
             throw Abort(.badRequest, reason: "OpenAI API error: \(response.status) - \(errorBody)")
         }
         
-        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        guard let body = response.body else {
+            logger.error("❌ OpenAI API response body is nil")
+            throw Abort(.badRequest, reason: "OpenAI API response body is nil")
+        }
+        
+        let readableBytes = body.readableBytes
+        logger.info("📥 OpenAI API response body size: \(readableBytes) bytes")
+        
+        guard readableBytes > 0 else {
+            logger.error("❌ OpenAI API response body is empty")
+            throw Abort(.badRequest, reason: "OpenAI API response body is empty")
+        }
+        
+        let data = body.getData(at: 0, length: readableBytes) ?? Data()
+        
+        guard !data.isEmpty else {
+            logger.error("❌ OpenAI API response data is empty after extraction")
+            throw Abort(.badRequest, reason: "OpenAI API response data is empty")
+        }
+        
+        // Логируем первые 500 символов ответа для отладки
+        if let responseString = String(data: data, encoding: .utf8) {
+            logger.info("📥 OpenAI API response preview: \(responseString.prefix(500))")
+        }
+        
+        let decoded: OpenAIResponse
+        do {
+            decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        } catch {
+            logger.error("❌ Failed to decode OpenAI response: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                logger.error("📥 Full response body: \(responseString)")
+            }
+            throw Abort(.badRequest, reason: "Failed to decode OpenAI response: \(error.localizedDescription)")
+        }
         
         guard let choice = decoded.choices.first,
               let content = choice.message.content else {
+            logger.error("❌ OpenAI response has no content in choices")
             throw Abort(.badRequest, reason: "OpenAI response has no content")
         }
         
@@ -88,8 +128,12 @@ struct OpenAIStyleService {
 - Напиши пост ТОЛЬКО в точном соответствии со стилем автора
 - НЕ добавляй дефолтные фразы типа "Привет друзья", "Добро пожаловать" и т.п., если их нет в стиле автора
 - Используй ТОЧНО те же особенности: длину предложений, эмодзи (только если они есть в стиле автора), тон, структуру и устойчивые слова
-- НЕ добавляй эмодзи, если их нет в стиле автора
+- Избегай эмодзи. Даже если они встречаются в стиле автора, используй максимум один и только если без него текст теряет смысл
 - Начни пост сразу с содержания, без приветствий, если их нет в стиле автора
+- Не используй длинные тире — или –. Всегда заменяй их на обычный дефис "-"
+- Каждое предложение начинай с заглавной буквы
+- В пунктах списков не ставь точку в конце строки
+- Последнее предложение оставь без точки, вопросительного или восклицательного знака — просто закончи текст
 - Пост должен быть КОРОТКИМ: максимум 800-900 символов (для возможности добавления фото в Telegram)
 - Генерируй ТОЛЬКО текст публикации, без дополнительных комментариев
 """
@@ -110,24 +154,86 @@ struct OpenAIStyleService {
         
         request.body = try .init(data: JSONEncoder().encode(payload))
         
+        logger.info("📤 Sending request to OpenAI API for post generation")
         let response = try await client.send(request)
-        guard response.status == .ok, let body = response.body else {
+        
+        // Логируем статус ответа
+        logger.info("📥 OpenAI API response status: \(response.status)")
+        
+        guard response.status == .ok else {
             var errorBody = ""
             if let errorBuffer = response.body {
-                errorBody = errorBuffer.getString(at: 0, length: errorBuffer.readableBytes) ?? ""
+                errorBody = errorBuffer.getString(at: 0, length: min(errorBuffer.readableBytes, 1000)) ?? ""
             }
+            logger.error("❌ OpenAI API error: status=\(response.status), body=\(errorBody)")
             throw Abort(.badRequest, reason: "OpenAI API error: \(response.status) - \(errorBody)")
         }
         
-        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        guard let body = response.body else {
+            logger.error("❌ OpenAI API response body is nil")
+            throw Abort(.badRequest, reason: "OpenAI API response body is nil")
+        }
+        
+        let readableBytes = body.readableBytes
+        logger.info("📥 OpenAI API response body size: \(readableBytes) bytes")
+        
+        guard readableBytes > 0 else {
+            logger.error("❌ OpenAI API response body is empty")
+            throw Abort(.badRequest, reason: "OpenAI API response body is empty")
+        }
+        
+        let data = body.getData(at: 0, length: readableBytes) ?? Data()
+        
+        guard !data.isEmpty else {
+            logger.error("❌ OpenAI API response data is empty after extraction")
+            throw Abort(.badRequest, reason: "OpenAI API response data is empty")
+        }
+        
+        // Логируем первые 500 символов ответа для отладки
+        if let responseString = String(data: data, encoding: .utf8) {
+            logger.info("📥 OpenAI API response preview: \(responseString.prefix(500))")
+        }
+        
+        let decoded: OpenAIResponse
+        do {
+            decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        } catch {
+            logger.error("❌ Failed to decode OpenAI response: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                logger.error("📥 Full response body: \(responseString)")
+            }
+            throw Abort(.badRequest, reason: "Failed to decode OpenAI response: \(error.localizedDescription)")
+        }
         
         guard let choice = decoded.choices.first,
               let content = choice.message.content else {
+            logger.error("❌ OpenAI response has no content in choices")
             throw Abort(.badRequest, reason: "OpenAI response has no content")
         }
         
-        return content
+        return sanitizeGeneratedPost(content)
+    }
+}
+
+private func sanitizeGeneratedPost(_ text: String) -> String {
+    var cleaned = text
+        .replacingOccurrences(of: "—", with: "-")
+        .replacingOccurrences(of: "–", with: "-")
+    
+    let withoutEmoji = cleaned.filter { !$0.isEmoji }
+    cleaned = String(withoutEmoji).trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    while let last = cleaned.last, ".!?…".contains(last) {
+        cleaned.removeLast()
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    return cleaned
+}
+
+private extension Character {
+    var isEmoji: Bool {
+        return unicodeScalars.contains { $0.properties.isEmoji && ($0.properties.isEmojiPresentation || $0.properties.generalCategory == .otherSymbol) }
     }
 }
 

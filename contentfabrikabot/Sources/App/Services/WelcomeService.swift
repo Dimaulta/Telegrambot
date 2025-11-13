@@ -11,90 +11,127 @@ struct WelcomeService {
         token: String,
         req: Request
     ) async throws {
-        // Проверяем, есть ли у пользователя канал
-        let channel = try await ChannelService.findUserChannel(ownerUserId: userId, db: req.db)
-        
         var welcomeMessage = """
-Привет! Я ContentFabrikaBot — помогу тебе создавать посты для твоего Telegram канала в твоём уникальном стиле! 📝
+Привет! Я сгенерирую текст для публикации в твоём стиле! 
 
-📌 Пошаговая инструкция:
+1. Перешли мне три публикации из канала
+2. Появится кнопка «Изучить канал», нажми её, и я запомню стиль
+3. Отправь тему или промт, а я верну готовый текст, который ты копируешь себе
 
-1️⃣ Добавь меня в свой канал как администратора с правом публикации постов
+(Ограничение на частоту генераций: до двух генераций в минуту)
 
-2️⃣ После добавления перешли мне из канала 5-10 последних постов (Forward из канала в этот чат)
-
-3️⃣ Нажми кнопку "Изучить канал" ниже — я проанализирую стиль
-
-4️⃣ Отправь мне тему для нового поста — я создам его в твоём стиле
-
-5️⃣ Пост появится в отложенных публикациях канала и будет опубликован через 24 часа
-
-💡 Важно: 
-• После того как я стану админом, я буду автоматически сохранять новые посты
-• Для изучения стиля нужно переслать посты из канала (Forward), а не копировать текст
-• Ты сможешь отредактировать пост в отложенных публикациях до момента публикации
 """
-        
-        if let channel = channel {
-            let channelId = try channel.requireID()
-            let postsCount = try await ChannelPost.query(on: req.db)
-                .filter(\.$channel.$id == channelId)
-                .count()
-            
-            if postsCount > 0 {
-                welcomeMessage += "\n\n✅ В базе данных найдено \(postsCount) пост(ов) из твоего канала."
-            } else {
-                welcomeMessage += "\n\n⚠️ В базе данных пока нет постов. Перешли мне посты из канала для изучения стиля."
-            }
-        } else {
-            welcomeMessage += "\n\n⚠️ Канал не найден. Добавь меня в свой канал как администратора."
-        }
 
-        var buttons: [[InlineKeyboardButton]] = []
+        welcomeMessage += "\n"
         
-        // Проверяем, есть ли канал и посты
-        if let channel = try await ChannelService.findUserChannel(ownerUserId: userId, db: req.db) {
-            let channelId = try channel.requireID()
-            let postsCount = try await ChannelPost.query(on: req.db)
-                .filter(\.$channel.$id == channelId)
-                .count()
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        var totalSavedPosts = 0
+        
+        if channels.isEmpty {
+            welcomeMessage += """
+⚠️ Тут пока нет сохранённых постов. Перешли мне три публикации из канала
+"""
+        } else {
+            welcomeMessage += "\n\n📂 Что у меня уже есть:"
+            var summaries: [String] = []
+            var hasReadyStyle = false
+            var hasEnoughPosts = false
             
-            // Проверяем, есть ли уже изученный стиль
-            let hasStyleProfile = (try? await StyleProfile.query(on: req.db)
-                .filter(\.$channel.$id == channelId)
-                .filter(\.$isReady == true)
-                .first()) != nil
+            for channel in channels {
+                let channelId = try channel.requireID()
+                let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+                let postsCount = try await ChannelPost.query(on: req.db)
+                    .filter(\.$channel.$id == channelId)
+                    .count()
+                totalSavedPosts += postsCount
+                let hasStyleProfile = (try? await StyleProfile.query(on: req.db)
+                    .filter(\.$channel.$id == channelId)
+                    .filter(\.$isReady == true)
+                    .first()) != nil
+                
+                if hasStyleProfile { hasReadyStyle = true }
+                if postsCount >= 3 { hasEnoughPosts = true }
+                
+                let status: String
+                if hasStyleProfile {
+                    status = "стиль изучен — можно сразу генерировать"
+                } else if postsCount >= 3 {
+                    status = "готов к анализу"
+                } else if postsCount == 0 {
+                    status = "пока нет сохранённых постов"
+                } else {
+                    status = "нужно ещё \(max(0, 3 - postsCount)) пост(а) для анализа"
+                }
+                
+                summaries.append("• \(title): \(status) (сохранено \(postsCount))")
+            }
             
-            // Кнопка "Изучить канал" показывается только если есть минимум 3 поста
-            if postsCount >= 3 {
+            if !summaries.isEmpty {
+                welcomeMessage += "\n" + summaries.joined(separator: "\n")
+            }
+            
+            welcomeMessage += "\n\n📝 Готовые тексты я отправляю в этот чат — автор публикует их вручную, когда удобно."
+            
+            var buttons: [[InlineKeyboardButton]] = []
+            
+            if hasEnoughPosts {
                 buttons.append([
                     InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
                 ])
-                
-                // Кнопка "Переизучить" показывается только если стиль уже изучен
-                if hasStyleProfile {
-                    buttons.append([
-                        InlineKeyboardButton(text: "🔄 Переизучить стиль", callback_data: "relearn_style")
-                    ])
-                }
-            } else if postsCount > 0 {
-                // Если постов меньше 3, показываем информацию, но не кнопку
-                welcomeMessage += "\n\n⚠️ Найдено только \(postsCount) пост(а). Для изучения стиля нужно минимум 3 поста. Перешли еще посты из канала."
             }
+            
+            if hasReadyStyle {
+                buttons.append([
+                    InlineKeyboardButton(text: "🤖 Сгенерировать пост", callback_data: "create_new_post")
+                ])
+                buttons.append([
+                    InlineKeyboardButton(text: "🔄 Переизучить канал", callback_data: "relearn_style")
+                ])
+            }
+            
+            buttons.append([
+                InlineKeyboardButton(text: KeyboardService.deleteButtonTitle(totalCount: totalSavedPosts), callback_data: "reset_all_data")
+            ])
+            
+            let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
+            
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: welcomeMessage,
+                keyboard: keyboard,
+                client: req.client
+            )
+            return
         }
         
-        // Всегда показываем кнопку сброса данных
-        buttons.append([
-            InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
-        ])
-        
-        let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
+        let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: totalSavedPosts)
         
         try await TelegramService.sendMessageWithKeyboard(
             token: token,
             chatId: chatId,
             text: welcomeMessage,
             keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Напоминание о необходимости переслать публикации
+    static func sendForwardReminder(
+        userId: Int64,
+        chatId: Int64,
+        token: String,
+        req: Request
+    ) async throws {
+        let reminder = """
+Мне пока не хватает материалов 💛
+
+Перешли от 3 до 10 публикаций из своего канала (Forward), и как только появятся 3 поста, я включу кнопку «Изучить канал». После анализа буду присылать тебе готовые тексты сюда, а публиковать их ты сможешь вручную.
+"""
+        _ = try await TelegramService.sendMessage(
+            token: token,
+            chatId: chatId,
+            text: reminder,
             client: req.client
         )
     }

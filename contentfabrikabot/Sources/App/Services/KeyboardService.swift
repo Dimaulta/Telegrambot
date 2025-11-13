@@ -4,44 +4,44 @@ import Vapor
 struct KeyboardService {
     
     /// Создать клавиатуру с кнопкой "Изучить канал" и "Удалить все данные"
-    static func createAnalyzeChannelKeyboard() -> InlineKeyboardMarkup {
+    static func createAnalyzeChannelKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
         return InlineKeyboardMarkup(inline_keyboard: [
             [
                 InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
             ],
             [
-                InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
+                InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
             ]
         ])
     }
     
     /// Создать клавиатуру только с кнопкой "Удалить все данные"
-    static func createDeleteDataKeyboard() -> InlineKeyboardMarkup {
+    static func createDeleteDataKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
         return InlineKeyboardMarkup(inline_keyboard: [[
-            InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
+            InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
         ]])
     }
     
     /// Создать клавиатуру с кнопкой "Сгенерировать пост" и "Удалить все данные"
-    static func createGeneratePostKeyboard() -> InlineKeyboardMarkup {
+    static func createGeneratePostKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
         return InlineKeyboardMarkup(inline_keyboard: [
             [
                 InlineKeyboardButton(text: "🤖 Сгенерировать пост", callback_data: "create_new_post")
             ],
             [
-                InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
+                InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
             ]
         ])
     }
     
     /// Создать клавиатуру с кнопкой "Переизучить канал" и "Удалить все данные"
-    static func createRelearnKeyboard() -> InlineKeyboardMarkup {
+    static func createRelearnKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
         return InlineKeyboardMarkup(inline_keyboard: [
             [
                 InlineKeyboardButton(text: "🔄 Переизучить канал", callback_data: "relearn_style")
             ],
             [
-                InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
+                InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
             ]
         ])
     }
@@ -51,6 +51,28 @@ struct KeyboardService {
         return InlineKeyboardMarkup(inline_keyboard: [[
             InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
         ]])
+    }
+    
+    /// Клавиатура после генерации поста
+    static func createPostResultKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
+        return InlineKeyboardMarkup(inline_keyboard: [
+            [
+                InlineKeyboardButton(text: "🤖 Сгенерировать ещё", callback_data: "create_new_post")
+            ],
+            [
+                InlineKeyboardButton(text: "🔄 Переизучить канал", callback_data: "relearn_style")
+            ],
+            [
+                InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
+            ]
+        ])
+    }
+    
+    static func deleteButtonTitle(totalCount: Int) -> String {
+        guard totalCount > 0 else {
+            return "🗑️ Удалить все данные"
+        }
+        return "🗑️ Удалить все данные (\(totalCount))"
     }
 }
 

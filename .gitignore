@@ -24,9 +24,6 @@ Roundsvideobot/Resources/temporaryvideoFiles/
 logs/
 config/certs/
 
-# User images (created automatically, but user content should not be in repo)
-img/
-
 # Database files
 *.sqlite
 *.sqlite3

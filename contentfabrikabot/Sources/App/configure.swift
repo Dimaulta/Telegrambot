@@ -57,15 +57,6 @@ public func configure(_ app: Application) async throws {
     // Middleware для логирования всех входящих запросов (для диагностики webhook)
     app.middleware.use(LoggingMiddleware())
 
-    // Создаем папку для изображений если её нет
-    let imgDir = "img"
-    if !FileManager.default.fileExists(atPath: imgDir) {
-        try FileManager.default.createDirectory(atPath: imgDir, withIntermediateDirectories: true)
-        app.logger.info("✅ Создана папка для изображений: \(imgDir)")
-    } else {
-        app.logger.info("ℹ️ Папка для изображений уже существует: \(imgDir)")
-    }
-
     app.logger.info("ContentFabrikaBot configured on port \(port)")
 
     try routes(app)

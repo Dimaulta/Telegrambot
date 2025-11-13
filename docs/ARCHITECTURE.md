@@ -9,18 +9,18 @@
 
 ### Статус разработки
 
-- ✅ **MVP (3 бота):**
+- ✅ **MVP (4 бота):**
   - `Roundsvideobot` — обработка видео в видеокружки с miniapp интерфейсом
   - `nowmttbot` — скачивание TikTok видео без водяного знака
   - `gsfortextbot` — голос → текст через SaluteSpeech
+  - `contentfabrikabot` — генерация постов в стиле автора через OpenAI
 
 - 🛠️ **В разработке (3 бота):**
   - `soranowbot` — интеграция с внешним сервисом Sora Now, MVP ещё в работе
   - `BananaNowBot` — генерация изображений/видео через Nano Banana, реализован каркас
   - `VeoNowBot` — интеграция с Veo 3 API, пока только заглушки
 
-- ⏳ **Исследование/Тестирование (2 бота):**
-  - `contentfabrikabot` — генерация постов в стиле автора через OpenAI
+- ⏳ **Исследование/Тестирование (1 бот):**
   - `Neurfotobot` — обработка изображений через AI (подготовка)
 
 - ❄️ **Заморожен (1 бот):**
@@ -109,8 +109,8 @@
 
 **Документация:** `gsfortextbot/docs/SETUP_PLAN.md` — ключи, сертификаты и чек-лист запуска.
 
-#### 4.3. ContentFabrikaBot (Порт 8089) ⏳ **В разработке**
-**Статус:** Проект в активной разработке, MVP ещё не выпущен
+#### 4.3. ContentFabrikaBot (Порт 8089) ✅ **MVP**
+**Статус:** Доведен до MVP, работает в продакшене
 
 **Назначение:** Генерация постов для Telegram каналов в уникальном стиле автора через OpenAI API
 
@@ -247,9 +247,9 @@ Telegram → core-server/webhook → video-processing/webhook
 - `VIDEO_BOT_TOKEN` — Roundsvideobot
 - `NOWMTTBOT_TOKEN` — NowmttBot
 - `GSFORTEXTBOT_TOKEN`, `SALUTESPEECH_AUTH_KEY` — GSForTextBot (SaluteSpeech)
+- `CONTENTFABRIKABOT_TOKEN`, `OPENAI_API_KEY` — ContentFabrikaBot
 
 **Дополнительные (для новых/замороженных сервисов):**
-- `CONTENTFABRIKABOT_TOKEN`, `OPENAI_API_KEY` — ContentFabrikaBot ⏳
 - `BANANANOWBOT_TOKEN`, `BANANANOWBOT_PORT`, `BANANANOWBOT_NANO_API_KEY` — BananaNowBot 🛠️
 - `SORANOWBOT_TOKEN`, `SORANOWBOT_API_URL`, `SORANOWBOT_API_KEY`, `SORANOWBOT_HTTP_PROXY`, `SORANOWBOT_PROXY_*` — SoranowBot 🛠️
 - `VEONOWBOT_TOKEN`, `VEONOWBOT_WEBHOOK_SECRET`, `VEO3_API_KEY`, `VEO3_WORKFLOW_ID`, `VEO3_BASE_URL`, `VEONOWBOT_PORT` — VeoNowBot 🛠️

@@ -48,6 +48,8 @@ swift --version
 
 Если видишь версию Swift — всё ок. Если Swift не установлен, установи Xcode Command Line Tools командой `xcode-select --install`
 
+> **Примечание о SQLite**: SQLite встроен в macOS и не требует отдельной установки. Проект использует FluentSQLiteDriver (Swift пакет), который автоматически подключается при установке зависимостей через `swift package resolve`
+
 
 
 

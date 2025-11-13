@@ -24,6 +24,11 @@ curl -i http://127.0.0.1:8080/veonow/webhook \
 curl -i http://127.0.0.1:8080/banananow/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй яркий постер с бананом"}}'
+
+# ContentFabrikaBot
+curl -i http://127.0.0.1:8080/contentfabrika/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 ```
 
 ## Через ngrok (внешний URL)
@@ -50,4 +55,9 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/veonow/webhook \
 curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/banananow/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Создай атмосферную сцену с бананами"}}'
+
+# ContentFabrikaBot
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/contentfabrika/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 ```

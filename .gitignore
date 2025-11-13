@@ -23,3 +23,9 @@ config/.env.*
 Roundsvideobot/Resources/temporaryvideoFiles/
 logs/
 config/certs/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+contentfabrikabot/db.sqlite

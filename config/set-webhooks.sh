@@ -3,9 +3,21 @@
 # Скрипт для настройки webhook'ов для всех ботов
 # Загружает переменные из config/.env
 
-# Загружаем переменные из .env
+# Загружаем переменные из .env (правильная обработка комментариев)
 if [ -f "config/.env" ]; then
-    export $(grep -v '^#' config/.env | xargs)
+    # Убираем комментарии (всё после #), пустые строки и строки, начинающиеся с #
+    set -a
+    while IFS= read -r line; do
+        # Пропускаем пустые строки и строки, начинающиеся с #
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        # Убираем комментарии в конце строки
+        line="${line%%#*}"
+        # Убираем пробелы в начале и конце
+        line=$(echo "$line" | xargs)
+        # Экспортируем только если есть знак =
+        [[ "$line" == *"="* ]] && export "$line"
+    done < config/.env
+    set +a
 else
     echo "❌ Файл config/.env не найден!"
     exit 1
@@ -29,14 +41,15 @@ else
     echo "🔧 Настройка webhook для WmmoveBot..."
     echo "📡 URL: ${BASE_URL}/sora/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/sora/webhook\"}"
     
     echo ""
     echo "✅ Webhook для WmmoveBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/getWebhookInfo"
+    echo ""
     echo ""
 fi
 
@@ -47,11 +60,11 @@ if [ -z "$VIDEO_BOT_TOKEN" ]; then
     echo "⚠️ VIDEO_BOT_TOKEN не установлен, пропускаем..."
 else
     echo "🔧 Настройка webhook для Video Bot..."
-    echo "📡 URL: ${BASE_URL}/webhook"
+    echo "📡 URL: ${BASE_URL}/rounds/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${VIDEO_BOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${VIDEO_BOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/rounds/webhook\"}"
     
     echo ""
     echo "✅ Webhook для Video Bot настроен!"
@@ -67,7 +80,7 @@ else
     echo "🔧 Настройка webhook для Neurfotobot..."
     echo "📡 URL: ${BASE_URL}/neurfoto/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${NEURFOTOBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${NEURFOTOBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/neurfoto/webhook\"}"
     
@@ -83,11 +96,11 @@ if [ -z "$GSFORTEXTBOT_TOKEN" ]; then
     echo "⚠️ GSFORTEXTBOT_TOKEN не установлен, пропускаем..."
 else
     echo "🔧 Настройка webhook для GS For Text Bot..."
-    echo "📡 URL: ${BASE_URL}/webhook"
+    echo "📡 URL: ${BASE_URL}/gs/text/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${GSFORTEXTBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${GSFORTEXTBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/gs/text/webhook\"}"
     
     echo ""
     echo "✅ Webhook для GS For Text Bot настроен!"
@@ -103,14 +116,15 @@ else
     echo "🔧 Настройка webhook для NowmttBot..."
     echo "📡 URL: ${BASE_URL}/nowmtt/webhook"
     
-    curl -X POST "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/nowmtt/webhook\"}"
     
     echo ""
     echo "✅ Webhook для NowmttBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/getWebhookInfo"
+    echo ""
     echo ""
 fi
 
@@ -123,14 +137,15 @@ else
     echo "🔧 Настройка webhook для SoranowBot..."
     echo "📡 URL: ${BASE_URL}/soranow/webhook"
 
-    curl -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/soranow/webhook\"}"
 
     echo ""
     echo "✅ Webhook для SoranowBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
     echo ""
 fi
 
@@ -145,18 +160,24 @@ else
 
     payload="{\"url\":\"${BASE_URL}/veonow/webhook\""
     if [ -n "$VEONOWBOT_WEBHOOK_SECRET" ]; then
-        payload="${payload},\"secret_token\":\"${VEONOWBOT_WEBHOOK_SECRET}\""
+        # Проверяем, что secret token содержит только допустимые символы
+        if [[ "$VEONOWBOT_WEBHOOK_SECRET" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            payload="${payload},\"secret_token\":\"${VEONOWBOT_WEBHOOK_SECRET}\""
+        else
+            echo "⚠️ VEONOWBOT_WEBHOOK_SECRET содержит недопустимые символы, используем без secret token"
+        fi
     fi
     payload="${payload}}"
 
-    curl -X POST "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "${payload}"
 
     echo ""
     echo "✅ Webhook для VeoNowBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
     echo ""
 fi
 
@@ -169,35 +190,37 @@ else
     echo "🔧 Настройка webhook для BananaNowBot..."
     echo "📡 URL: ${BASE_URL}/banananow/webhook"
 
-    curl -X POST "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/banananow/webhook\"}"
 
     echo ""
     echo "✅ Webhook для BananaNowBot настроен!"
     echo "📋 Проверка:"
-    curl "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
+    echo ""
+fi
+
+# ============================================
+# CONTENTFABRIKABOT (AI Content Generator)
+# ============================================
+if [ -z "$CONTENTFABRIKABOT_TOKEN" ]; then
+    echo "⚠️ CONTENTFABRIKABOT_TOKEN не установлен, пропускаем..."
+else
+    echo "🔧 Настройка webhook для ContentFabrikaBot..."
+    echo "📡 URL: ${BASE_URL}/contentfabrika/webhook"
+
+    curl -sS -X POST "https://api.telegram.org/bot${CONTENTFABRIKABOT_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "{\"url\":\"${BASE_URL}/contentfabrika/webhook\"}"
+
+    echo ""
+    echo "✅ Webhook для ContentFabrikaBot настроен!"
+    echo "📋 Проверка:"
+    curl -sS "https://api.telegram.org/bot${CONTENTFABRIKABOT_TOKEN}/getWebhookInfo"
+    echo ""
     echo ""
 fi
 
 echo "🎉 Готово! Все webhook'и настроены."
-
-# ============================================
-# Другие боты (если нужны)
-# ============================================
-
-# VIDEO_BOT (Video Processing)
-# curl -X POST "https://api.telegram.org/botVIDEO_BOT_TOKEN/setWebhook" \
-#   -H "Content-Type: application/json" \
-#   -d '{"url":"https://your-domain.com/webhook"}'
-
-# NEURFOTOBOT (AI Photo Generation)
-# curl -X POST "https://api.telegram.org/botNEURFOTOBOT_TOKEN/setWebhook" \
-#   -H "Content-Type: application/json" \
-#   -d '{"url":"https://your-domain.com/webhook"}'
-
-# GSFORTEXTBOT (Voice to Text)
-# curl -X POST "https://api.telegram.org/botGSFORTEXTBOT_TOKEN/setWebhook" \
-#   -H "Content-Type: application/json" \
-#   -d '{"url":"https://your-domain.com/webhook"}'
-

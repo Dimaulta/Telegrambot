@@ -48,6 +48,8 @@ swift --version
 
 Если видишь версию Swift — всё ок. Если Swift не установлен, установи Xcode Command Line Tools командой `xcode-select --install`
 
+> **Примечание о SQLite**: SQLite встроен в macOS и не требует отдельной установки. Проект использует FluentSQLiteDriver (Swift пакет), который автоматически подключается при установке зависимостей через `swift package resolve`
+
 
 
 
@@ -177,6 +179,14 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    location /contentfabrika/webhook {
+        proxy_pass http://127.0.0.1:8089/contentfabrika/webhook;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
@@ -196,7 +206,7 @@ nginx -t
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
-export $(grep -v '^#' config/.env | xargs)
+set -a; source config/.env; set +a
 swift run GSForTextBot serve
 ```
 

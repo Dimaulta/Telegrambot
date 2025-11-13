@@ -29,7 +29,10 @@ let package = Package(
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
-            path: "Roundsvideobot/VideoService"
+            path: "Roundsvideobot/VideoService",
+            resources: [
+                .process("Public")
+            ]
         ),
         .executableTarget(
             name: "VideoServiceRunner",
@@ -97,6 +100,25 @@ let package = Package(
                 .product(name: "Vapor", package: "vapor")
             ],
             path: "BananaNowBot/Sources/App"
+        ),
+        .executableTarget(
+            name: "ContentFabrikaBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "contentfabrikabot/Sources/App"
+        ),
+        .executableTarget(
+            name: "Neurfotobot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation")
+            ],
+            path: "Neurfotobot/Sources/App"
         )
     ]
 )

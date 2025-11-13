@@ -67,6 +67,16 @@
       "enabled": true,
       "webhook_url": "${BASE_URL}/banananow/webhook",
       "name": "BananaNowBot - Nano Banana Media"
+    },
+    "contentfabrikabot": {
+      "url": "http://localhost:8089",
+      "routes": [
+        "/webhook",
+        "/contentfabrika/webhook"
+      ],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/contentfabrika/webhook",
+      "name": "ContentFabrikaBot - AI Content Generator"
     }
   }
 }

@@ -73,14 +73,14 @@ ngrok http 8080 --log=stdout
 
 5. Создай третью вкладку (Cmd + T), загрузи переменные окружения и настрой webhook'и:
 
-(Проверка: если видишь все 5 токенов — всё ок)
-(Эту вкладку можно закрыть после выполнения скрипта — webhook'и настроены)
+Проверка: если видишь все токены — всё ок
+Эту вкладку можно закрыть после выполнения скрипта — webhook'и настроены
 
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN'
-./config/set-webhooks-manual.sh
+env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN'
+./config/set-webhooks.sh
 ```
 
 
@@ -90,40 +90,50 @@ env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKE
 
 - VideoServiceRunner — основной обработчик Roundsvideobot
   ```bash
-  cd /Users/a1111/Desktop/projects/Telegrambot && LOG_LEVEL=debug swift run VideoServiceRunner
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
+  LOG_LEVEL=debug swift run VideoServiceRunner
   ```
 
 - NowmttBot — скачивание TikTok без водяного знака
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
   swift run NowmttBot
   ```
 
 - GSForTextBot — голос в текст (SaluteSpeech)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
-  set -a
-  source config/.env
-  set +a
+  set -a; source config/.env; set +a
   swift run GSForTextBot serve
   ```
 
-- BananaNowBot — прототип Nano Banana
+- ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
-  export $(grep -v '^#' config/.env | xargs)
+  set -a; source config/.env; set +a
+  swift run ContentFabrikaBot
+  ```
+
+- BananaNowBot — бот для использования Nano Banana (в разработке)
+  ```bash
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
   swift run BananaNowBot
   ```
 
 - SoranowBot — бот для генерации видео из текстового описания с помощью Sora2 (в разработке)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
   swift run SoranowBot
   ```
 
 - VeoNowBot - бот для генерации видео из текстового описания через Veo 3 (в разработке)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
   swift run VeoNowBot
   ```
 
@@ -168,9 +178,10 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 - Четвёртая вкладка (шаг 6): VideoServiceRunner (Roundsvideobot) — основной сервис формирования видеокружков
 - Пятая вкладка (шаг 6): NowmttBot — загрузка TikTok без водяного знака
 - Шестая вкладка (шаг 6): GSForTextBot — распознавание голосовых через SaluteSpeech
-- Седьмая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
-- Восьмая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
-- Девятая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)
+- Седьмая вкладка (шаг 6): ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
+- Восьмая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
+- Девятая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
+- Десятая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)
 
 Обычно активно несколько вкладок: ngrok (обязательно), сервисы, которые ты запускаешь самостоятельно
 ```

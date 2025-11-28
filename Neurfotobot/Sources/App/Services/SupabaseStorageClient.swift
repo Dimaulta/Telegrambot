@@ -6,8 +6,8 @@ struct SupabaseStorageConfig {
     let bucket: String
     let serviceKey: String
 
-    static func load(from environment: EnvironmentValues) throws -> SupabaseStorageConfig {
-        guard let urlString = Environment.get("SUPABASE_URL"), let url = URI(string: urlString) else {
+    static func load() throws -> SupabaseStorageConfig {
+        guard let urlString = Environment.get("SUPABASE_URL") else {
             throw Abort(.internalServerError, reason: "SUPABASE_URL is not set")
         }
         guard let bucket = Environment.get("SUPABASE_BUCKET"), !bucket.isEmpty else {
@@ -16,28 +16,28 @@ struct SupabaseStorageConfig {
         guard let serviceKey = Environment.get("SUPABASE_SERVICE_KEY"), !serviceKey.isEmpty else {
             throw Abort(.internalServerError, reason: "SUPABASE_SERVICE_KEY is not set")
         }
-        return SupabaseStorageConfig(url: url, bucket: bucket, serviceKey: serviceKey)
+        return SupabaseStorageConfig(url: URI(string: urlString), bucket: bucket, serviceKey: serviceKey)
     }
 }
 
 struct SupabaseStorageClient {
     private let config: SupabaseStorageConfig
     private let client: Client
+    private let bufferAllocator = ByteBufferAllocator()
+    private let pathComponentAllowed: CharacterSet = {
+        var set = CharacterSet.urlPathAllowed
+        set.remove(charactersIn: "/")
+        return set
+    }()
 
     init(request: Request) throws {
-        self.config = try SupabaseStorageConfig.load(from: request.environment)
+        self.config = try SupabaseStorageConfig.load()
         self.client = request.client
     }
 
     init(application: Application) throws {
-        self.config = try SupabaseStorageConfig.load(from: application.environment)
+        self.config = try SupabaseStorageConfig.load()
         self.client = application.client
-    }
-
-    private var baseStorageURI: URI {
-        var uri = config.url
-        uri.path = "/storage/v1"
-        return uri
     }
 
     private func authorizedHeaders(contentType: String? = nil, upsert: Bool = false) -> HTTPHeaders {
@@ -52,76 +52,87 @@ struct SupabaseStorageClient {
         return headers
     }
 
+    private func makeBody(from data: Data) -> ByteBuffer {
+        var buffer = bufferAllocator.buffer(capacity: data.count)
+        buffer.writeBytes(data)
+        return buffer
+    }
+
+    private func bodyString(from body: ByteBuffer?) -> String {
+        guard var body else { return "" }
+        return body.readString(length: body.readableBytes) ?? ""
+    }
+
+    private func encodePath(_ path: String) -> String {
+        path
+            .split(separator: "/")
+            .map { component in
+                component.addingPercentEncoding(withAllowedCharacters: pathComponentAllowed) ?? String(component)
+            }
+            .joined(separator: "/")
+    }
+
     @discardableResult
     func upload(path: String, data: ByteBuffer, contentType: String, upsert: Bool = true) async throws -> String {
-        var uri = baseStorageURI
-        uri.path += "/object/\(config.bucket)/\(path)"
+        let encodedPath = encodePath(path)
+        var uri = config.url
+        uri.path = "/storage/v1/object/\(config.bucket)/\(encodedPath)"
 
-        var request = ClientRequest(method: .post, url: uri)
+        var request = ClientRequest(method: .POST, url: uri)
         request.headers = authorizedHeaders(contentType: contentType, upsert: upsert)
-        request.body = .init(buffer: data)
+        request.body = data
 
         let response = try await client.send(request)
         guard response.status == .ok || response.status == .created else {
-            let errorBody = response.body?.string ?? "unknown error"
-            throw Abort(.badRequest, reason: "Supabase upload failed: \(response.status) - \(errorBody)")
+            throw Abort(.badRequest, reason: "Supabase upload failed: \(response.status) - \(bodyString(from: response.body))")
         }
-        return path
+        return normalizePath(path)
     }
 
-    func createSignedURL(path: String, expiresIn seconds: Int = 3600) async throws -> String {
-        struct Payload: Content { let expiresIn: Int }
-        struct ResponseBody: Content { let signedURL: String }
-
-        var uri = baseStorageURI
-        uri.path += "/object/sign/\(config.bucket)/\(path)"
-
-        var request = ClientRequest(method: .post, url: uri)
-        request.headers = authorizedHeaders(contentType: "application/json")
-        let payload = Payload(expiresIn: seconds)
-        request.body = try .init(data: JSONEncoder().encode(payload))
-
-        let response = try await client.send(request)
-        guard response.status == .ok else {
-            let errorBody = response.body?.string ?? "unknown error"
-            throw Abort(.badRequest, reason: "Supabase signed URL failed: \(response.status) - \(errorBody)")
+    private func normalizePath(_ rawPath: String) -> String {
+        if rawPath.hasPrefix(config.bucket + "/") {
+            return String(rawPath.dropFirst(config.bucket.count + 1))
         }
+        return rawPath
+    }
 
-        guard let body = response.body else {
-            throw Abort(.badRequest, reason: "Supabase signed URL response is empty")
+    func publicURL(for path: String) -> String {
+        let normalized = normalizePath(path)
+        let encodedPath = encodePath(normalized)
+        var base = config.url.string
+        if base.hasSuffix("/") {
+            base.removeLast()
         }
-
-        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoder = JSONDecoder()
-        let responseBody = try decoder.decode(ResponseBody.self, from: data)
-        return responseBody.signedURL
+        return "\(base)/storage/v1/object/public/\(config.bucket)/\(encodedPath)"
     }
 
     func delete(path: String) async throws {
-        var uri = baseStorageURI
-        uri.path += "/object/\(config.bucket)/\(path)"
+        let encodedPath = encodePath(path)
+        var uri = config.url
+        uri.path = "/storage/v1/object/\(config.bucket)/\(encodedPath)"
 
-        var request = ClientRequest(method: .delete, url: uri)
+        var request = ClientRequest(method: .DELETE, url: uri)
         request.headers = authorizedHeaders()
 
         let response = try await client.send(request)
         guard response.status == .ok || response.status == .noContent else {
-            let errorBody = response.body?.string ?? "unknown error"
-            throw Abort(.badRequest, reason: "Supabase delete failed: \(response.status) - \(errorBody)")
+            throw Abort(.badRequest, reason: "Supabase delete failed: \(response.status) - \(bodyString(from: response.body))")
         }
     }
 
     func download(path: String) async throws -> Data {
-        let signedURL = try await createSignedURL(path: path, expiresIn: 300)
-        guard let url = URL(string: signedURL) else {
-            throw Abort(.badRequest, reason: "Signed URL is invalid")
+        let urlString = publicURL(for: path)
+        guard let url = URL(string: urlString) else {
+            throw Abort(.badRequest, reason: "Public URL is invalid")
         }
         let response = try await client.get(URI(string: url.absoluteString))
-        guard response.status == .ok, let body = response.body else {
-            let errorBody = response.body?.string ?? ""
-            throw Abort(.badRequest, reason: "Supabase download failed: \(response.status) - \(errorBody)")
+        guard response.status == .ok else {
+            throw Abort(.badRequest, reason: "Supabase download failed: \(response.status) - \(bodyString(from: response.body))")
         }
-        return body.getData(at: 0, length: body.readableBytes) ?? Data()
+        guard var body = response.body else {
+            throw Abort(.badRequest, reason: "Supabase download response is empty")
+        }
+        return body.readData(length: body.readableBytes) ?? Data()
     }
 }
 

@@ -8,19 +8,29 @@ actor NeurfotobotPipelineService {
         await PhotoSessionManager.shared.setTrainingState(.training, for: chatId)
 
         let photos = await PhotoSessionManager.shared.getPhotos(for: chatId)
-        guard photos.count >= 8 else {
+        guard photos.count >= 5 else {
             logger.warning("Not enough photos to start training for chatId=\(chatId)")
             return
         }
+
+        let keepArtifactsOnFailure = Environment.get("KEEP_DATASETS_ON_FAILURE")?.lowercased() == "true"
 
         do {
             let datasetBuilder = try DatasetBuilder(application: application, logger: logger)
             let dataset = try await datasetBuilder.buildDataset(for: chatId, photos: photos)
             await PhotoSessionManager.shared.setDatasetPath(dataset.datasetPath, for: chatId)
 
+            do {
+                let headRequest = ClientRequest(method: .HEAD, url: URI(string: dataset.publicURL))
+                let headResponse = try await application.client.send(headRequest)
+                logger.info("Dataset HEAD request status for chatId=\(chatId): \(headResponse.status)")
+            } catch {
+                logger.warning("Failed to verify dataset availability for chatId=\(chatId): \(error)")
+            }
+
             let replicate = try ReplicateClient(application: application, logger: logger)
             let destinationModel = replicate.destinationModelName(for: chatId)
-            let training = try await replicate.startTraining(destinationModel: destinationModel, datasetURL: dataset.signedURL, conceptName: "user\(chatId)")
+            let training = try await replicate.startTraining(destinationModel: destinationModel, datasetURL: dataset.publicURL, conceptName: "user\(chatId)")
             await PhotoSessionManager.shared.setTrainingId(training.id, for: chatId)
 
             try await sendMessage(token: botToken, chatId: chatId, text: "Запустила обучение персональной модели. Это займёт несколько минут, я напишу, когда всё будет готово.", application: application)
@@ -55,12 +65,20 @@ actor NeurfotobotPipelineService {
             logger.error("Training pipeline failed for chatId=\(chatId): \(error)")
             await PhotoSessionManager.shared.setTrainingState(.failed, for: chatId)
             if let datasetPath = await PhotoSessionManager.shared.getDatasetPath(for: chatId) {
-                if let datasetBuilder = try? DatasetBuilder(application: application, logger: logger) {
-                    await datasetBuilder.deleteDataset(at: datasetPath)
+                if !keepArtifactsOnFailure {
+                    if let datasetBuilder = try? DatasetBuilder(application: application, logger: logger) {
+                        await datasetBuilder.deleteDataset(at: datasetPath)
+                    }
+                } else {
+                    logger.warning("Preserving dataset for chatId=\(chatId) due to KEEP_DATASETS_ON_FAILURE flag")
                 }
                 await PhotoSessionManager.shared.setDatasetPath(nil, for: chatId)
             }
-            try? await deleteOriginalPhotos(chatId: chatId, application: application, logger: logger)
+            if keepArtifactsOnFailure {
+                logger.warning("Preserving original photos for chatId=\(chatId) due to KEEP_DATASETS_ON_FAILURE flag")
+            } else {
+                try? await deleteOriginalPhotos(chatId: chatId, application: application, logger: logger)
+            }
             try? await sendMessage(token: botToken, chatId: chatId, text: "Что-то пошло не так при обучении модели. Попробуй ещё раз позже.", application: application)
         }
     }
@@ -108,8 +126,9 @@ actor NeurfotobotPipelineService {
     func deleteModel(chatId: Int64, botToken: String, application: Application, logger: Logger) async {
         do {
             let replicate = try ReplicateClient(application: application, logger: logger)
-            let destinationModel = replicate.destinationModelName(for: chatId)
-            try await replicate.deleteModel(destinationModel: destinationModel)
+            if let version = await PhotoSessionManager.shared.getModelVersion(for: chatId) {
+                try await replicate.deleteModelVersion(id: version)
+            }
             if let datasetPath = await PhotoSessionManager.shared.getDatasetPath(for: chatId) {
                 let datasetBuilder = try DatasetBuilder(application: application, logger: logger)
                 await datasetBuilder.deleteDataset(at: datasetPath)

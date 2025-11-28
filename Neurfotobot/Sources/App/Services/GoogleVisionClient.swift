@@ -4,6 +4,7 @@ import Foundation
 struct GoogleVisionClient {
     private let apiKey: String
     private let client: Client
+    private let allocator = ByteBufferAllocator()
 
     init(request: Request) throws {
         guard let key = Environment.get("GOOGLE_VISION_API_KEY"), !key.isEmpty else {
@@ -24,18 +25,29 @@ struct GoogleVisionClient {
         )
 
         let url = URI(string: "https://vision.googleapis.com/v1/images:annotate?key=\(apiKey)")
+        let dataBody = try JSONEncoder().encode(payload)
+        var byteBuffer = allocator.buffer(capacity: dataBody.count)
+        byteBuffer.writeBytes(dataBody)
+
         var request = ClientRequest(method: .POST, url: url)
         request.headers.add(name: .contentType, value: "application/json")
-        request.body = try .init(data: JSONEncoder().encode(payload))
+        request.body = byteBuffer
 
         let response = try await client.send(request)
-        guard response.status == .ok, let body = response.body else {
-            let errorBody = response.body?.string ?? ""
+        guard response.status == .ok else {
+            let errorBody = response.body.flatMap { buffer -> String in
+                var copy = buffer
+                return copy.readString(length: copy.readableBytes) ?? ""
+            } ?? ""
             throw Abort(.badRequest, reason: "Google Vision error: \(response.status) - \(errorBody)")
         }
 
-        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoded = try JSONDecoder().decode(GoogleVisionResponse.self, from: data)
+        guard let body = response.body else {
+            throw Abort(.badRequest, reason: "Google Vision response is empty")
+        }
+
+        let responseData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+        let decoded = try JSONDecoder().decode(GoogleVisionResponse.self, from: responseData)
         guard let first = decoded.responses.first, let annotation = first.safeSearchAnnotation else {
             throw Abort(.badRequest, reason: "Google Vision returned empty response")
         }

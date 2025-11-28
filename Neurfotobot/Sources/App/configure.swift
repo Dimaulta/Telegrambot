@@ -40,8 +40,5 @@ public func configure(_ app: Application) async throws {
     let port = getPortFromConfig(serviceName: "Neurfotobot")
     app.http.server.configuration.port = port
 
-    // Включаем базовое логирование запросов (полезно на этапе интеграции)
-    app.middleware.use(RequestLoggerMiddleware(logLevel: .info))
-
     try routes(app)
 }

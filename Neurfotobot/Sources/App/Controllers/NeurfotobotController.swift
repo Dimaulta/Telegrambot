@@ -2,8 +2,7 @@ import Vapor
 import Foundation
 
 final class NeurfotobotController {
-    private let minimumPhotoCount = 8
-    private let targetPhotoCount = 10
+    private let minimumPhotoCount = 5
     private let maximumPhotoCount = 10
 
     func handleWebhook(_ req: Request) async throws -> Response {
@@ -31,7 +30,7 @@ final class NeurfotobotController {
         if text == "/start" {
             await PhotoSessionManager.shared.reset(for: message.chat.id)
             let welcomeMessage = """
-Привет! Загрузи десять своих фотографий где хорошо видно лицо. Я соберу модель за несколько минут и по твоему промпту верну фото с твоим участием!
+Привет! Загрузи от пяти до десяти своих фотографий, где хорошо видно лицо. Я соберу модель за несколько минут и по твоему промпту верну фото с твоим участием!
 
 ⏳ Обычно всё готово за несколько минут. Мы сообщим, когда модель соберётся и можно будет придумать образ. Чтобы всем было комфортно, автоматически проверяем фотографии через SafeSearch, а промпты через OpenAI Moderation. Добросовестных пользователей это никак не затрагивает, но любой незаконный контент блокируется и фиксируется в логах
 """
@@ -48,7 +47,12 @@ final class NeurfotobotController {
             }
         }
 
-        if !text.isEmpty && text != "/start" && text != "/model" {
+        if text == "/train" {
+            try await handleTrainCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+
+        if !text.isEmpty && text != "/start" && text != "/model" && text != "/train" {
             do {
                 try await handlePrompt(text: text, message: message, token: token, req: req)
             } catch {
@@ -93,12 +97,28 @@ final class NeurfotobotController {
     }
 
     private func handlePhotoMessage(photos: [NeurfotobotPhoto], message: NeurfotobotMessage, token: String, req: Request) async throws {
-        let existing = await PhotoSessionManager.shared.getPhotos(for: message.chat.id)
-        guard existing.count < 10 else {
+        let trainingState = await PhotoSessionManager.shared.getTrainingState(for: message.chat.id)
+        switch trainingState {
+        case .idle:
+            break
+        case .failed:
+            await PhotoSessionManager.shared.reset(for: message.chat.id)
+        case .training, .ready:
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
-                text: "Мы уже получили 10 фотографий. Скоро вернусь с результатами!",
+                text: "Сейчас модель уже обучается или готова. Дождись завершения, пожалуйста.",
+                client: req.client
+            )
+            return
+        }
+
+        let existing = await PhotoSessionManager.shared.getPhotos(for: message.chat.id)
+        guard existing.count < maximumPhotoCount else {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: message.chat.id,
+                text: "Я уже получила максимальные \(maximumPhotoCount) фотографий. Скоро вернусь с обновлениями!",
                 client: req.client
             )
             return
@@ -120,29 +140,30 @@ final class NeurfotobotController {
         let storage = try SupabaseStorageClient(request: req)
         let objectPath = "\(message.chat.id)/\(UUID().uuidString).\(finalExt)"
 
-        _ = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
-        let newCount = await PhotoSessionManager.shared.addPhoto(path: objectPath, for: message.chat.id)
-        let remaining = max(0, targetPhotoCount - newCount)
+        let storedPath = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
+        req.logger.info("Uploaded photo stored at \(storedPath)")
+        let newCount = await PhotoSessionManager.shared.addPhoto(path: storedPath, for: message.chat.id)
+        let remaining = max(0, maximumPhotoCount - newCount)
 
         if newCount < minimumPhotoCount {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
-                text: "Фото \(newCount)/\(targetPhotoCount) загружено. Нужно минимум \(minimumPhotoCount) снимков, добавь ещё \(minimumPhotoCount - newCount).",
+                text: "Фото \(newCount)/\(maximumPhotoCount) загружено. Мне нужно минимум \(minimumPhotoCount) снимков, добавь ещё \(minimumPhotoCount - newCount).",
                 client: req.client
             )
-        } else if newCount < targetPhotoCount {
+        } else if newCount < maximumPhotoCount {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
-                text: "Фото \(newCount)/\(targetPhotoCount) загружено на временное хранилище. Можно отправить ещё \(remaining).",
+                text: "Фото \(newCount)/\(maximumPhotoCount) загружено. Этого уже достаточно, чтобы начать обучение. Если хочешь, добавь ещё \(remaining) или отправь команду /train, чтобы я запустила процесс.",
                 client: req.client
             )
-        } else if newCount == targetPhotoCount {
+        } else if newCount == maximumPhotoCount {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
-                text: "Все \(targetPhotoCount) фото получены и сохранены. Проверяю их и запускаю обучение модели!",
+                text: "Все \(maximumPhotoCount) фото получены и сохранены. Проверяю их и запускаю обучение модели!",
                 client: req.client
             )
             try await validatePhotos(chatId: message.chat.id, token: token, req: req)
@@ -154,6 +175,57 @@ final class NeurfotobotController {
                 client: req.client
             )
         }
+    }
+
+    private func handleTrainCommand(chatId: Int64, token: String, req: Request) async throws {
+        let trainingState = await PhotoSessionManager.shared.getTrainingState(for: chatId)
+        switch trainingState {
+        case .training:
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Я уже обучаю модель. Дождись окончания, пожалуйста.",
+                client: req.client
+            )
+            return
+        case .ready:
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Модель уже готова! Просто опиши образ, и я сгенерирую фото.",
+                client: req.client
+            )
+            return
+        case .failed:
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Прошлая попытка не удалась. Пришли, пожалуйста, новую подборку фото.",
+                client: req.client
+            )
+            return
+        case .idle:
+            break
+        }
+
+        let photos = await PhotoSessionManager.shared.getPhotos(for: chatId)
+        guard photos.count >= minimumPhotoCount else {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Пока загружено только \(photos.count) фото. Нужно минимум \(minimumPhotoCount), чтобы начать обучение.",
+                client: req.client
+            )
+            return
+        }
+
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: "Проверяю фотографии и запускаю обучение!",
+            client: req.client
+        )
+        try await validatePhotos(chatId: chatId, token: token, req: req)
     }
 
     private func fetchTelegramFileInfo(token: String, fileId: String, client: Client) async throws -> TelegramFileResponse {
@@ -191,26 +263,33 @@ final class NeurfotobotController {
 
     private func validatePhotos(chatId: Int64, token: String, req: Request) async throws {
         let storage = try SupabaseStorageClient(request: req)
-        let vision = try GoogleVisionClient(request: req)
         let photos = await PhotoSessionManager.shared.getPhotos(for: chatId)
         let riskyLevels: Set<String> = ["LIKELY", "VERY_LIKELY"]
+        let safeSearchDisabled = Environment.get("DISABLE_SAFESEARCH")?.lowercased() == "true"
 
-        for photo in photos {
-            do {
-                let data = try await storage.download(path: photo.path)
-                let annotation = try await vision.analyzeSafeSearch(data: data)
-                if riskyLevels.contains(annotation.adult) ||
-                    riskyLevels.contains(annotation.violence ?? "") ||
-                    riskyLevels.contains(annotation.racy ?? "") ||
-                    riskyLevels.contains(annotation.medical ?? "") {
+        if !safeSearchDisabled {
+            let vision = try GoogleVisionClient(request: req)
+
+            for photo in photos {
+                do {
+                    req.logger.info("Validating photo at path \(photo.path)")
+                    let data = try await storage.download(path: photo.path)
+                    let annotation = try await vision.analyzeSafeSearch(data: data)
+                    if riskyLevels.contains(annotation.adult) ||
+                        riskyLevels.contains(annotation.violence ?? "") ||
+                        riskyLevels.contains(annotation.racy ?? "") ||
+                        riskyLevels.contains(annotation.medical ?? "") {
+                        try await handleModerationFail(chatId: chatId, token: token, storage: storage, photos: photos, req: req)
+                        return
+                    }
+                } catch {
+                    req.logger.error("SafeSearch check failed for \(photo.path): \(error)")
                     try await handleModerationFail(chatId: chatId, token: token, storage: storage, photos: photos, req: req)
                     return
                 }
-            } catch {
-                req.logger.error("SafeSearch check failed for \(photo.path): \(error)")
-                try await handleModerationFail(chatId: chatId, token: token, storage: storage, photos: photos, req: req)
-                return
             }
+        } else {
+            req.logger.warning("SafeSearch is disabled via DISABLE_SAFESEARCH env flag; skipping moderation for chat \(chatId)")
         }
 
         _ = try? await sendTelegramMessage(
@@ -247,7 +326,7 @@ final class NeurfotobotController {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
-                text: "Сначала пришли 10 фото, чтобы я могла обучить модель.",
+                text: "Сначала пришли минимум \(minimumPhotoCount) фото (можно до \(maximumPhotoCount)), чтобы я могла обучить модель.",
                 client: req.client
             )
             return
@@ -309,7 +388,7 @@ final class NeurfotobotController {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: chatId,
-                text: "Пока что персональная модель не создана. Пришли 10 фото, чтобы мы могли её обучить.",
+                text: "Пока что персональная модель не создана. Пришли хотя бы \(minimumPhotoCount) фото (до \(maximumPhotoCount)), чтобы мы могли её обучить.",
                 client: req.client
             )
         }
@@ -380,4 +459,4 @@ private struct ReplyMarkup: Encodable {
 private struct InlineKeyboardButton: Encodable {
     let text: String
     let callback_data: String
-}
+} 

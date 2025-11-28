@@ -10,6 +10,8 @@ struct OpenAIModerationClient {
     private let apiKey: String
     private let client: Client
 
+    private let allocator = ByteBufferAllocator()
+
     init(request: Request) throws {
         guard let apiKey = Environment.get("OPENAI_API_KEY"), !apiKey.isEmpty else {
             throw Abort(.internalServerError, reason: "OPENAI_API_KEY is not set")
@@ -20,21 +22,31 @@ struct OpenAIModerationClient {
 
     func analyze(text: String) async throws -> AnalysisResult {
         let url = URI(string: "https://api.openai.com/v1/moderations")
+        let payload = OpenAIRequest(model: "omni-moderation-latest", input: text)
+        let data = try JSONEncoder().encode(payload)
+        var buffer = allocator.buffer(capacity: data.count)
+        buffer.writeBytes(data)
+
         var request = ClientRequest(method: .POST, url: url)
         request.headers.add(name: .authorization, value: "Bearer \(apiKey)")
         request.headers.add(name: .contentType, value: "application/json")
-
-        let payload = OpenAIRequest(model: "omni-moderation-latest", input: text)
-        request.body = try .init(data: JSONEncoder().encode(payload))
+        request.body = buffer
 
         let response = try await client.send(request)
-        guard response.status == .ok, let body = response.body else {
-            let errorBody = response.body?.string ?? ""
+        guard response.status == .ok else {
+            let errorBody = response.body.flatMap { buffer -> String in
+                var copy = buffer
+                return copy.readString(length: copy.readableBytes) ?? ""
+            } ?? ""
             throw Abort(.badRequest, reason: "OpenAI moderation error: \(response.status) - \(errorBody)")
         }
 
-        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        guard let body = response.body else {
+            throw Abort(.badRequest, reason: "OpenAI moderation response is empty")
+        }
+
+        let responseData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: responseData)
         guard let result = decoded.results.first else {
             return .init(flagged: false, violations: [])
         }

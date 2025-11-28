@@ -5,7 +5,7 @@ import ZIPFoundation
 struct DatasetBuilder {
     struct Result {
         let datasetPath: String
-        let signedURL: String
+        let publicURL: String
     }
 
     private let storage: SupabaseStorageClient
@@ -49,11 +49,12 @@ struct DatasetBuilder {
 
         let datasetPath = "datasets/\(chatId)/dataset.zip"
         _ = try await storage.upload(path: datasetPath, data: buffer, contentType: "application/zip", upsert: true)
-        let signedURL = try await storage.createSignedURL(path: datasetPath, expiresIn: 3600)
+        let publicURL = storage.publicURL(for: datasetPath)
 
         logger.info("Dataset for chatId=\(chatId) uploaded to Supabase at path=\(datasetPath)")
+        logger.info("Dataset public URL for chatId=\(chatId): \(publicURL)")
 
-        return Result(datasetPath: datasetPath, signedURL: signedURL)
+        return Result(datasetPath: datasetPath, publicURL: publicURL)
     }
 
     func deleteDataset(at path: String) async {

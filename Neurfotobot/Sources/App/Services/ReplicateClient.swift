@@ -27,6 +27,10 @@ struct ReplicateClient {
     private let trainingVersion: String
     private let predictionModel: String
     private let modelOwner: String
+    private let trainingModelOwner: String
+    private let trainingModelName: String
+    private let trainingVersionId: String
+    private let destinationModelSlug: String
     private let httpClient: Client
     private let logger: Logger
 
@@ -43,37 +47,57 @@ struct ReplicateClient {
         guard let owner = Environment.get("REPLICATE_MODEL_OWNER"), !owner.isEmpty else {
             throw Abort(.internalServerError, reason: "REPLICATE_MODEL_OWNER is not set")
         }
+        guard let destinationSlug = Environment.get("REPLICATE_DESTINATION_MODEL_SLUG"), !destinationSlug.isEmpty else {
+            throw Abort(.internalServerError, reason: "REPLICATE_DESTINATION_MODEL_SLUG is not set")
+        }
 
         self.token = token
         self.trainingVersion = trainingVersion
         self.predictionModel = predictionModel
         self.modelOwner = owner
+        self.destinationModelSlug = destinationSlug.lowercased()
         self.httpClient = application.client
         self.logger = logger
+
+        let versionComponents = trainingVersion.split(separator: ":")
+        guard versionComponents.count == 2 else {
+            throw Abort(.internalServerError, reason: "REPLICATE_TRAINING_VERSION must be in owner/model:version format")
+        }
+        let modelSlug = versionComponents[0]
+        self.trainingVersionId = String(versionComponents[1])
+
+        let modelComponents = modelSlug.split(separator: "/")
+        guard modelComponents.count == 2 else {
+            throw Abort(.internalServerError, reason: "REPLICATE_TRAINING_VERSION model slug must be owner/model")
+        }
+        self.trainingModelOwner = String(modelComponents[0])
+        self.trainingModelName = String(modelComponents[1])
     }
 
     func startTraining(destinationModel: String, datasetURL: String, conceptName: String) async throws -> TrainingResponse {
         struct Payload: Encodable {
-            let version: String
             let input: Input
             let destination: String
 
             struct Input: Encodable {
                 let input_images: String
                 let trigger_word: String
-                let steps: Int
+                let training_steps: Int
             }
         }
 
         let payload = Payload(
-            version: trainingVersion,
-            input: .init(input_images: datasetURL, trigger_word: conceptName, steps: 800),
+            input: .init(
+                input_images: datasetURL,
+                trigger_word: conceptName,
+                training_steps: 800
+            ),
             destination: destinationModel
         )
 
         let response = try await request(
             method: .POST,
-            path: "/v1/trainings",
+            path: "/v1/models/\(trainingModelOwner)/\(trainingModelName)/versions/\(trainingVersionId)/trainings",
             body: try JSONEncoder().encode(payload)
         )
 
@@ -146,7 +170,10 @@ struct ReplicateClient {
 
         let response = try await httpClient.send(request)
         if !(200..<300).contains(response.status.code) {
-            let errorBody = response.body?.string ?? ""
+            let errorBody = response.body.flatMap { buffer -> String in
+                var bodyCopy = buffer
+                return bodyCopy.readString(length: bodyCopy.readableBytes) ?? ""
+            } ?? ""
             logger.error("Replicate API error \(response.status): \(errorBody)")
             throw Abort(response.status, reason: errorBody)
         }
@@ -163,11 +190,16 @@ struct ReplicateClient {
 
     func destinationModelName(for chatId: Int64) -> String {
         let sanitizedOwner = modelOwner.lowercased()
-        return "\(sanitizedOwner)/neurfoto-\(chatId)"
+        return "\(sanitizedOwner)/\(destinationModelSlug)"
     }
 
     var defaultPredictionVersion: String {
         predictionModel
+    }
+
+    func deleteModelVersion(id: String) async throws {
+        let path = "/v1/models/\(modelOwner.lowercased())/\(destinationModelSlug)/versions/\(id)"
+        _ = try await request(method: .DELETE, path: path)
     }
 }
 

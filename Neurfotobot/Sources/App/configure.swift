@@ -1,5 +1,7 @@
 import Vapor
 import Foundation
+import Fluent
+import FluentSQLiteDriver
 
 func getPortFromConfig(serviceName: String) -> Int {
     let configPath = "config/services.json"
@@ -35,6 +37,16 @@ public func configure(_ app: Application) async throws {
     } else {
         app.logger.warning("config/.env not found while configuring Neurfotobot — using process environment only")
     }
+
+    // Настройка базы данных SQLite
+    let dbPath = "Neurfotobot/db.sqlite"
+    app.databases.use(.sqlite(.file(dbPath)), as: .sqlite)
+
+    // Добавление миграций
+    app.migrations.add(CreateUserModel())
+
+    // Автоматический запуск миграций
+    try await app.autoMigrate()
 
     // Получаем порт из общего конфига сервисов
     let port = getPortFromConfig(serviceName: "Neurfotobot")

@@ -109,7 +109,7 @@ struct ReplicateClient {
         return try decode(TrainingResponse.self, from: response)
     }
 
-    func generateImages(modelVersion: String, prompt: String, negativePrompt: String? = nil, numOutputs: Int = 4) async throws -> PredictionResponse {
+    func generateImages(modelVersion: String, prompt: String, negativePrompt: String? = nil, numOutputs: Int = 1) async throws -> PredictionResponse {
         struct Payload: Encodable {
             let version: String
             let input: Input
@@ -142,14 +142,29 @@ struct ReplicateClient {
     }
 
     func waitForPrediction(id: String) async throws -> PredictionResponse {
+        var consecutiveErrors = 0
+        let maxConsecutiveErrors = 3
+        
         while true {
-            let response = try await request(method: .GET, path: "/v1/predictions/\(id)")
-            let decoded = try decode(PredictionResponse.self, from: response)
-            switch decoded.status.lowercased() {
-            case "succeeded", "failed", "canceled":
-                return decoded
-            default:
-                try await Task.sleep(nanoseconds: 5_000_000_000)
+            do {
+                let response = try await request(method: .GET, path: "/v1/predictions/\(id)")
+                let decoded = try decode(PredictionResponse.self, from: response)
+                consecutiveErrors = 0 // Сбрасываем счётчик при успехе
+                
+                switch decoded.status.lowercased() {
+                case "succeeded", "failed", "canceled":
+                    return decoded
+                default:
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+            } catch {
+                consecutiveErrors += 1
+                if consecutiveErrors >= maxConsecutiveErrors {
+                    logger.error("Failed to fetch prediction \(id) \(consecutiveErrors) times: \(error)")
+                    throw error
+                }
+                // При ошибке ждём немного дольше перед следующим запросом
+                try await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
     }
@@ -169,12 +184,13 @@ struct ReplicateClient {
         }
 
         let response = try await httpClient.send(request)
+        
         if !(200..<300).contains(response.status.code) {
             let errorBody = response.body.flatMap { buffer -> String in
                 var bodyCopy = buffer
                 return bodyCopy.readString(length: bodyCopy.readableBytes) ?? ""
             } ?? ""
-            logger.error("Replicate API error \(response.status): \(errorBody)")
+            logger.error("Replicate API error \(response.status) \(path): \(errorBody.prefix(200))")
             throw Abort(response.status, reason: errorBody)
         }
         return response
@@ -182,10 +198,25 @@ struct ReplicateClient {
 
     private func decode<T: Decodable>(_ type: T.Type, from response: ClientResponse) throws -> T {
         guard let body = response.body else {
+            logger.error("Replicate API returned empty response body")
             throw Abort(.badRequest, reason: "Empty response body from Replicate")
         }
         let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        return try JSONDecoder().decode(T.self, from: data)
+        
+        guard !data.isEmpty else {
+            logger.error("Replicate API returned empty data")
+            throw Abort(.badRequest, reason: "Empty data from Replicate")
+        }
+        
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            let bodyString = String(data: data, encoding: .utf8) ?? "<unable to decode>"
+            logger.error("Failed to decode Replicate response: \(error)")
+            logger.error("Response body (first 500 chars): \(bodyString.prefix(500))")
+            logger.error("Response body length: \(data.count) bytes")
+            throw Abort(.badRequest, reason: "Invalid JSON from Replicate")
+        }
     }
 
     func destinationModelName(for chatId: Int64) -> String {
@@ -200,6 +231,38 @@ struct ReplicateClient {
     func deleteModelVersion(id: String) async throws {
         let path = "/v1/models/\(modelOwner.lowercased())/\(destinationModelSlug)/versions/\(id)"
         _ = try await request(method: .DELETE, path: path)
+    }
+
+    func findModelVersion(for chatId: Int64) async throws -> String? {
+        struct ModelResponse: Decodable {
+            struct Version: Decodable {
+                let id: String
+                let created_at: String?
+            }
+            let versions: [Version]?
+        }
+
+        let path = "/v1/models/\(modelOwner.lowercased())/\(destinationModelSlug)"
+        
+        do {
+            let response = try await request(method: .GET, path: path)
+            let model = try decode(ModelResponse.self, from: response)
+            
+            // Получаем последнюю версию (версии отсортированы по дате создания, последняя - первая)
+            // ВАЖНО: Это упрощённый подход - берём последнюю версию
+            // Для точного определения нужна версия с trigger word "user{chatId}"
+            // В будущем можно улучшить, сохраняя соответствие версия -> chatId в базе данных
+            guard let versions = model.versions, !versions.isEmpty else {
+                return nil
+            }
+            
+            // Берём последнюю версию (самую новую)
+            // TODO: Улучшить логику - проверять trigger word каждой версии
+            return versions.first?.id
+        } catch {
+            logger.warning("Failed to find model version for chatId=\(chatId): \(error)")
+            return nil
+        }
     }
 }
 

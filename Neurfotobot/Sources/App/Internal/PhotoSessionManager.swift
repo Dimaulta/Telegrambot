@@ -12,13 +12,32 @@ actor PhotoSessionManager {
             case ready
             case failed
         }
+        
+        enum PromptCollectionState: String {
+            case idle // Не собираем промпт
+            case styleSelected // Стиль выбран, ждём пол
+            case genderSelected // Пол выбран, ждём место
+            case locationSelected // Место выбрано, ждём одежду
+            case clothingSelected // Одежда выбрана, ждём дополнительные детали
+            case readyToGenerate // Всё собрано, готово к генерации
+        }
 
         var photos: [PhotoRecord] = []
         var trainingState: TrainingState = .idle
         var datasetPath: String?
         var trainingId: String?
         var modelVersion: String?
+        var triggerWord: String? // Сохраняем trigger word для использования в промптах
         var prompt: String?
+        var selectedStyle: String? // Выбранный стиль генерации
+        var translatedPrompt: String? // Переведённый промпт (чтобы не переводить дважды)
+        
+        // Данные для многошагового сбора промпта
+        var promptCollectionState: PromptCollectionState = .idle
+        var userGender: String? // "male" или "female"
+        var userLocation: String? // Место, где пользователь хочет себя увидеть
+        var userClothing: String? // Одежда и её цвет
+        var additionalDetails: String? // Дополнительные детали от пользователя
     }
 
     static let shared = PhotoSessionManager()
@@ -110,6 +129,96 @@ actor PhotoSessionManager {
 
     func getModelVersion(for chatId: Int64) -> String? {
         sessions[chatId]?.modelVersion
+    }
+
+    func setTriggerWord(_ word: String, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.triggerWord = word
+        sessions[chatId] = session
+    }
+
+    func getTriggerWord(for chatId: Int64) -> String? {
+        sessions[chatId]?.triggerWord
+    }
+
+    func setStyle(_ style: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.selectedStyle = style
+        sessions[chatId] = session
+    }
+
+    func getStyle(for chatId: Int64) -> String? {
+        sessions[chatId]?.selectedStyle
+    }
+    
+    func setPromptCollectionState(_ state: Session.PromptCollectionState, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.promptCollectionState = state
+        sessions[chatId] = session
+    }
+    
+    func getPromptCollectionState(for chatId: Int64) -> Session.PromptCollectionState {
+        sessions[chatId]?.promptCollectionState ?? .idle
+    }
+    
+    func setUserGender(_ gender: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.userGender = gender
+        sessions[chatId] = session
+    }
+    
+    func getUserGender(for chatId: Int64) -> String? {
+        sessions[chatId]?.userGender
+    }
+    
+    func setUserLocation(_ location: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.userLocation = location
+        sessions[chatId] = session
+    }
+    
+    func getUserLocation(for chatId: Int64) -> String? {
+        sessions[chatId]?.userLocation
+    }
+    
+    func setUserClothing(_ clothing: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.userClothing = clothing
+        sessions[chatId] = session
+    }
+    
+    func getUserClothing(for chatId: Int64) -> String? {
+        sessions[chatId]?.userClothing
+    }
+    
+    func setAdditionalDetails(_ details: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.additionalDetails = details
+        sessions[chatId] = session
+    }
+    
+    func getAdditionalDetails(for chatId: Int64) -> String? {
+        sessions[chatId]?.additionalDetails
+    }
+    
+    func clearPromptCollectionData(for chatId: Int64) {
+        guard var session = sessions[chatId] else { return }
+        session.promptCollectionState = .idle
+        session.userGender = nil
+        session.userLocation = nil
+        session.userClothing = nil
+        session.additionalDetails = nil
+        sessions[chatId] = session
+    }
+    
+    func setTranslatedPrompt(_ prompt: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.translatedPrompt = prompt
+        sessions[chatId] = session
+    }
+    
+    func getTranslatedPrompt(for chatId: Int64) -> String? {
+        sessions[chatId]?.translatedPrompt
     }
 }
 

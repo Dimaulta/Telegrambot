@@ -87,7 +87,10 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 ```
 Пополняй остальные поля аналогично, используя плейсхолдеры из примера
 
-> Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_PLAN.md](../gsfortextbot/docs/SETUP_PLAN.md).
+> **Подробные инструкции по настройке сервисов:**
+> - **ContentFabrikaBot:** Подробный план установки, настройки `.env`, OpenAI и вебхука см. в [contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md](../contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md).
+> - **SaluteSpeech (GSForTextBot):** Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
+> - **Neurfotobot:** Полная инструкция по настройке всех сервисов для Neurfotobot (Replicate, Supabase, Yandex Translate, Google Vision, OpenAI) с пошаговыми инструкциями, ссылками на регистрацию и настройку биллинга см. в [Neurfotobot/docs/SETUP_NEURFOTOBOT.md](../Neurfotobot/docs/SETUP_NEURFOTOBOT.md).
 
 
 
@@ -201,17 +204,4 @@ nginx -t
 Если видишь `syntax is ok` и `test is successful`, значит всё ок
 
 
-
-10. Выполнить тестовый запуск GSForTextBot (использует переменные из `config/.env`). Подробный сценарий запуска см. в [QUICK_START.md](./QUICK_START.md):
-
-```bash
-cd /Users/a1111/Desktop/projects/Telegrambot
-set -a; source config/.env; set +a
-swift run GSForTextBot serve
-```
-
-После проверки нажми Ctrl + C, чтобы остановить сервис. Для постоянной работы используй инструкции из QUICK_START.md
-
-
-
-11. Установка завершена. Переходи к [QUICK_START.md](./QUICK_START.md) для запуска сервисов.
+10. Установка завершена. Переходи к [QUICK_START.md](./QUICK_START.md) для запуска сервисов.

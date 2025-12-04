@@ -33,22 +33,22 @@ echo "🌐 BASE_URL: ${BASE_URL}"
 echo ""
 
 # ============================================
-# WMMOVEBOT (Sora Watermark Removal)
+# NOWCONTROLLERBOT (Управление отправкой сообщений в боты NowBots)
 # ============================================
-if [ -z "$WMMOVEBOT_TOKEN" ]; then
-    echo "⚠️ WMMOVEBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$NOWCONTROLLERBOT_TOKEN" ]; then
+    echo "⚠️ NOWCONTROLLERBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для WmmoveBot..."
+    echo "🔧 Настройка webhook для NowControllerBot..."
     echo "📡 URL: ${BASE_URL}/sora/webhook"
     
-    curl -sS -X POST "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${NOWCONTROLLERBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "{\"url\":\"${BASE_URL}/sora/webhook\"}"
     
     echo ""
-    echo "✅ Webhook для WmmoveBot настроен!"
+    echo "✅ Webhook для NowControllerBot настроен!"
     echo "📋 Проверка:"
-    curl -sS "https://api.telegram.org/bot${WMMOVEBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${NOWCONTROLLERBOT_TOKEN}/getWebhookInfo"
     echo ""
     echo ""
 fi

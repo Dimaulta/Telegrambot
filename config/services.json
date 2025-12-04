@@ -24,12 +24,12 @@
       "webhook_url": "${BASE_URL}/webhook",
       "name": "GS For Text Bot"
     },
-    "wmmovebot": {
+    "nowcontrollerbot": {
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
       "enabled": true,
       "webhook_url": "${BASE_URL}/sora/webhook",
-      "name": "Sora Watermark Removal Bot"
+      "name": "NowControllerBot"
     },
     "nowmttbot": {
       "url": "http://localhost:8085",

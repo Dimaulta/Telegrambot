@@ -79,7 +79,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN'
+env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN'
 ./config/set-webhooks.sh
 ```
 
@@ -144,6 +144,13 @@ env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKE
   swift run VeoNowBot
   ```
 
+- NowControllerBot — управление отправкой сообщений в боты NowBots и включение-выключение проверки на подписку каналов-спонсоров (в разработке)
+  ```bash
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
+  swift run NowControllerBot
+  ```
+
 > Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
 ### Дополнение: быстрая настройка GSForTextBot
 
@@ -190,6 +197,7 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 - Девятая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
 - Десятая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
 - Одиннадцатая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)
+- Двенадцатая вкладка (шаг 6): NowControllerBot — управление отправкой сообщений в боты NowBots (в разработке)
 
 Обычно активно несколько вкладок: ngrok (обязательно), сервисы, которые ты запускаешь самостоятельно
 ```

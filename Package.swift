@@ -59,13 +59,13 @@ let package = Package(
             path: "VeoNowBot/Sources/App"
         ),
         .executableTarget(
-            name: "WmmoveBot",
+            name: "NowControllerBot",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
-            path: "wmmovebot/Sources/App"
+            path: "nowcontrollerbot/Sources/App"
         ),
         .executableTarget(
             name: "NowmttBot",

@@ -1,14 +1,7 @@
-# Проверка сервисов
-
-Эти команды выполняются после запуска ботов. Используй отдельную вкладку терминала (Cmd + T) и закрывай её после завершения тестов.
-
-## Через nginx (локальный адрес)
-
-```bash
 # Проверка общего проксирования
 curl -i http://127.0.0.1:8080/sora/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://sora.chatgpt.com/p/TEST"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
 # NowmttBot
 curl -i http://127.0.0.1:8080/nowmtt/webhook \

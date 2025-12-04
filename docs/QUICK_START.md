@@ -116,7 +116,7 @@ env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKE
   swift run ContentFabrikaBot
   ```
 
-- Neurfotobot — бот для нейрофотографий (AI обработка изображений, в разработке)
+- Neurfotobot — бот для нейрофотографий (AI обработка изображений)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
@@ -186,7 +186,7 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 - Пятая вкладка (шаг 6): NowmttBot — загрузка TikTok без водяного знака
 - Шестая вкладка (шаг 6): GSForTextBot — распознавание голосовых через SaluteSpeech
 - Седьмая вкладка (шаг 6): ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
-- Восьмая вкладка (шаг 6): Neurfotobot — нейрофотографии (AI обработка изображений, в разработке)
+- Восьмая вкладка (шаг 6): Neurfotobot — нейрофотографии (AI обработка изображений)
 - Девятая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
 - Десятая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
 - Одиннадцатая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)

@@ -1,6 +1,5 @@
 import Vapor
 import Foundation
-import AsyncHTTPClient
 
 func getPortFromConfig(serviceName: String) -> Int {
     let configPath = "config/services.json"
@@ -17,7 +16,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 }
 
 public func configure(_ app: Application) async throws {
-    // Загружаем config/.env и применяем переменные окружения (для WMMOVEBOT_TOKEN)
+    // Загружаем config/.env и применяем переменные окружения (для NOWCONTROLLERBOT_TOKEN)
     let envPath = "config/.env"
     if let content = try? String(contentsOfFile: envPath) {
         var vars: [String: String] = [:]
@@ -30,30 +29,14 @@ public func configure(_ app: Application) async throws {
             }
         }
         for (k, v) in vars { setenv(k, v, 1) }
-        app.logger.info("Loaded config/.env with \(vars.count) keys for WmmoveBot")
+        app.logger.info("Loaded config/.env with \(vars.count) keys for NowControllerBot")
     }
 
-    let port = getPortFromConfig(serviceName: "wmmovebot")
+    let port = getPortFromConfig(serviceName: "nowcontrollerbot")
     app.http.server.configuration.port = port
     
     // Middleware для логирования всех входящих запросов (для диагностики webhook)
     app.middleware.use(LoggingMiddleware())
-
-    // Опциональная поддержка HTTP-прокси для исходящих запросов (чтобы обойти геоблок)
-    // Задай переменную окружения SORA_HTTP_PROXY в формате: http://host:port
-    if let proxyStr = Environment.get("SORA_HTTP_PROXY"),
-       let proxyURL = URL(string: proxyStr),
-       let host = proxyURL.host, let port = proxyURL.port {
-        var cfg = app.http.client.configuration
-        // Базовая авторизация (опционально): SORA_PROXY_USER / SORA_PROXY_PASS
-        if let user = Environment.get("SORA_PROXY_USER"), let pass = Environment.get("SORA_PROXY_PASS") {
-            cfg.proxy = .server(host: host, port: port, authorization: .basic(username: user, password: pass))
-        } else {
-            cfg.proxy = .server(host: host, port: port)
-        }
-        app.http.client.configuration = cfg
-        app.logger.info("WmmoveBot HTTP proxy enabled: \(host):\(port)")
-    }
 
     try routes(app)
 }

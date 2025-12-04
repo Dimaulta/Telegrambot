@@ -57,12 +57,8 @@ final class NeurfotobotController {
             
             if let modelVersion = modelVersion {
                 // У пользователя есть модель
-                let displayTriggerWord = triggerWord ?? "user\(message.chat.id)"
                 welcomeMessage = """
 Привет! Твоя модель уже обучена и готова к работе! 🎨
-
-Версия модели: \(modelVersion)
-Trigger word: \(displayTriggerWord)
 
 Можешь сразу описать образ или использовать кнопки ниже.
 """
@@ -651,8 +647,7 @@ Trigger word: \(displayTriggerWord)
     private func handleModelCommand(chatId: Int64, token: String, req: Request) async throws {
         let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
         if let modelVersion {
-            let triggerWord = await PhotoSessionManager.shared.getTriggerWord(for: chatId) ?? "user\(chatId)"
-            let message = "Твоя модель готова!\n\nВерсия: \(modelVersion)\nTrigger word: \(triggerWord)\n\nМожешь сгенерировать изображение или удалить модель."
+            let message = "Твоя модель готова к работе! 🎨\n\nМожешь сгенерировать изображение или удалить модель."
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)
             let payload = SendInlineMessagePayload(

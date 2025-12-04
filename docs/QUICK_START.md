@@ -144,7 +144,7 @@ env | grep -E 'NOWMTTBOT_TOKEN|WMMOVEBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKE
   swift run VeoNowBot
   ```
 
-> Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_PLAN.md](../gsfortextbot/docs/SETUP_PLAN.md).
+> Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
 ### Дополнение: быстрая настройка GSForTextBot
 
 Если поднимаешь gsfortextbot впервые, выполни один раз:

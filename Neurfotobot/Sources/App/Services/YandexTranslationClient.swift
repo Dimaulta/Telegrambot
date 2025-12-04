@@ -18,17 +18,15 @@ struct YandexTranslationClient {
         let url = URI(string: "https://translate.api.cloud.yandex.net/translate/v2/translate")
         
         struct TranslationRequest: Encodable {
-            let sourceLanguageCode: String
             let targetLanguageCode: String
             let texts: [String]
-            let format: String
+            let folderId: String?
         }
         
         let payload = TranslationRequest(
-            sourceLanguageCode: "ru",
             targetLanguageCode: "en",
             texts: [text],
-            format: "PLAIN_TEXT"
+            folderId: Environment.get("YANDEX_CLOUD_FOLDER_ID") // Optional, if needed
         )
         
         let data = try JSONEncoder().encode(payload)

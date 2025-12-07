@@ -16,7 +16,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 }
 
 public func configure(_ app: Application) async throws {
-    // Загружаем config/.env и применяем переменные окружения (для NOWCONTROLLERBOT_TOKEN)
+    // Загружаем config/.env и применяем переменные окружения (для NOWCONTROLLERBOT_TOKEN и др.)
     let envPath = "config/.env"
     if let content = try? String(contentsOfFile: envPath) {
         var vars: [String: String] = [:]
@@ -32,9 +32,12 @@ public func configure(_ app: Application) async throws {
         app.logger.info("Loaded config/.env with \(vars.count) keys for NowControllerBot")
     }
 
+    // Гарантируем существование базы монетизации и схемы
+    MonetizationDatabase.ensureDatabase(app: app)
+
     let port = getPortFromConfig(serviceName: "nowcontrollerbot")
     app.http.server.configuration.port = port
-    
+
     // Middleware для логирования всех входящих запросов (для диагностики webhook)
     app.middleware.use(LoggingMiddleware())
 

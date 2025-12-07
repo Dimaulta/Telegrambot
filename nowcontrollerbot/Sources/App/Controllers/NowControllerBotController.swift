@@ -1,68 +1,549 @@
 import Vapor
 import Foundation
 
+// MARK: - Admin session state for пошаговые сценарии
+
+private actor AdminSessionStore {
+    static let shared = AdminSessionStore()
+
+    enum Step {
+        case idle
+        case addSponsorChooseBot
+        case addSponsorWaitChannel(botName: String)
+        case addSponsorWaitDuration(botName: String, channel: String)
+    }
+
+    private var states: [Int64: Step] = [:]
+
+    func state(for chatId: Int64) -> Step {
+        return states[chatId] ?? .idle
+    }
+
+    func setState(_ step: Step, for chatId: Int64) {
+        states[chatId] = step
+    }
+
+    func reset(chatId: Int64) {
+        states[chatId] = .idle
+    }
+}
+
 final class NowControllerBotController {
+    // MARK: - Entry point
+
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("🔔 NowControllerBot webhook hit!")
         req.logger.info("Method: \(req.method), Path: \(req.url.path)")
-        
-        let token = Environment.get("NOWCONTROLLERBOT_TOKEN")
-        guard let token = token, token.isEmpty == false else {
+
+        guard let botToken = Environment.get("NOWCONTROLLERBOT_TOKEN"), botToken.isEmpty == false else {
             req.logger.error("NOWCONTROLLERBOT_TOKEN is missing")
             return Response(status: .internalServerError)
         }
 
         let rawBody = req.body.string ?? ""
         req.logger.info("📦 Raw body length: \(rawBody.count) characters")
-        if rawBody.count > 0 && rawBody.count < 500 {
+        if rawBody.count > 0 && rawBody.count < 1000 {
             req.logger.debug("Raw body: \(rawBody)")
         }
 
         req.logger.info("🔍 Decoding NowControllerBotUpdate...")
         let update = try? req.content.decode(NowControllerBotUpdate.self)
-        if update == nil {
+        guard let safeUpdate = update else {
             req.logger.error("❌ Failed to decode NowControllerBotUpdate - check raw body above")
             return Response(status: .ok)
         }
         req.logger.info("✅ NowControllerBotUpdate decoded successfully")
 
-        guard let message = update?.message else {
-            req.logger.warning("⚠️ No message in update (update_id: \(update?.update_id ?? -1))")
+        guard let message = safeUpdate.message else {
+            req.logger.warning("⚠️ No message in update (update_id: \(safeUpdate.update_id))")
             return Response(status: .ok)
         }
-        
+
         let text = message.text ?? ""
         let chatId = message.chat.id
-        
+
         req.logger.info("📨 Incoming message - chatId=\(chatId), text length=\(text.count)")
         if !text.isEmpty {
             req.logger.info("📝 Message text: \(text.prefix(200))")
         }
 
-        // TODO: Реализовать логику обработки сообщений
-        // Пример: обработка команды /start
-        if text == "/start" {
-            let welcomeText = "Привет! Это NowControllerBot.\n\nФункционал в разработке."
-            _ = try? await sendTelegramMessage(token: token, chatId: chatId, text: welcomeText, client: req.client)
+        // Проверяем, что это админ
+        guard isAdmin(chatId: chatId) else {
+            req.logger.info("Non-admin user tried to use NowControllerBot: chatId=\(chatId)")
+            // Можем молча игнорировать или отправить вежливое сообщение
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: "Этот бот предназначен только для администратора.",
+                client: req.client
+            )
+            return Response(status: .ok)
         }
 
+        // Текущее состояние пошагового сценария
+        let currentStep = await AdminSessionStore.shared.state(for: chatId)
+
+        // Обработка /start: сбрасываем состояние и показываем главное меню
+        if text.hasPrefix("/start") {
+            await AdminSessionStore.shared.reset(chatId: chatId)
+
+            let help = """
+            Привет! Это NowControllerBot — панель управления монетизацией.
+
+            Я помогу:
+            • Смотреть статус по ботам
+            • Включать/выключать обязательную подписку
+            • Управлять спонсорами для Roundsvideobot и других ботов
+
+            Используй кнопки ниже или команды:
+            /status – краткий статус по пользователям и спонсорам
+            /set_require <bot> <on|off> – включить/выключить обязательную подписку
+            /add_sponsor <bot> <@канал|ссылка> <days|0> – добавить спонсора (0 = без срока)
+            /list_sponsors <bot> – показать активных спонсоров для бота
+            """
+
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: [
+                    [KeyboardButton(text: "📊 Статус")],
+                    [KeyboardButton(text: "➕ Добавить спонсора")],
+                    [KeyboardButton(text: "✅ Включить подписку Roundsvideobot"),
+                     KeyboardButton(text: "⛔️ Выключить подписку Roundsvideobot")]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: help,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+        }
+
+        // Обработка шагов сценария добавления спонсора
+        if text == "➕ Добавить спонсора" {
+            await AdminSessionStore.shared.setState(.addSponsorChooseBot, for: chatId)
+
+            let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+            let managedBots = managedBotsEnv
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            if managedBots.isEmpty {
+                let reply = "NOWCONTROLLERBOT_BROADCAST_BOTS не задан — список управляемых ботов пуст. Добавление спонсора невозможно."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let rows = managedBots.map { [KeyboardButton(text: String($0))] }
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: rows + [[KeyboardButton(text: "❌ Отмена")]],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            let prompt = "Выбери бота, для которого нужно добавить спонсора."
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: prompt,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+        }
+
+        // Если мы внутри сценария добавления спонсора — обрабатываем его шаги
+        switch currentStep {
+        case .addSponsorChooseBot:
+            // Пользователь либо выбирает бота, либо отменяет
+            if text == "❌ Отмена" {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Добавление спонсора отменено."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let botName = text.trimmingCharacters(in: .whitespaces)
+            if botName.isEmpty {
+                let reply = "Выбери бота из списка или нажми «❌ Отмена»."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            // Переходим к следующему шагу — ждём канал
+            await AdminSessionStore.shared.setState(.addSponsorWaitChannel(botName: botName), for: chatId)
+
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: [[KeyboardButton(text: "❌ Отмена")]],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+            let prompt = "Пришли @username или ссылку на канал спонсора для бота \(botName)."
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: prompt,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+
+        case .addSponsorWaitChannel(let botName):
+            if text == "❌ Отмена" {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Добавление спонсора отменено."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            guard let normalized = normalizeChannelIdentifier(text) else {
+                let reply = "Не удалось распознать канал из '\(text)'. Пришли @username или ссылку https://t.me/username, либо нажми «❌ Отмена»."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            await AdminSessionStore.shared.setState(.addSponsorWaitDuration(botName: botName, channel: normalized), for: chatId)
+
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: [
+                    [KeyboardButton(text: "7 дней"), KeyboardButton(text: "30 дней")],
+                    [KeyboardButton(text: "90 дней"), KeyboardButton(text: "Без срока")],
+                    [KeyboardButton(text: "❌ Отмена")]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            let prompt = "Выбери срок обязательной подписки для канала @\(normalized) (относительно бота \(botName))."
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: prompt,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+
+        case .addSponsorWaitDuration(let botName, let channel):
+            if text == "❌ Отмена" {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Добавление спонсора отменено."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let days: Int
+            switch text {
+            case "7 дней":
+                days = 7
+            case "30 дней":
+                days = 30
+            case "90 дней":
+                days = 90
+            case "Без срока":
+                days = 0
+            default:
+                let reply = "Выбери один из вариантов: 7 дней, 30 дней, 90 дней или Без срока. Или нажми «❌ Отмена»."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let synthetic = "/add_sponsor \(botName) @\(channel) \(days)"
+            let reply = handleAddSponsorCommand(text: synthetic, logger: req.logger, env: req.application.environment)
+
+            await AdminSessionStore.shared.reset(chatId: chatId)
+
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: [
+                    [KeyboardButton(text: "📊 Статус")],
+                    [KeyboardButton(text: "➕ Добавить спонсора")],
+                    [KeyboardButton(text: "✅ Включить подписку Roundsvideobot"),
+                     KeyboardButton(text: "⛔️ Выключить подписку Roundsvideobot")]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: reply,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+
+        case .idle:
+            break
+        }
+
+        // Кнопка "📊 Статус" обрабатывается как /status
+        if text == "📊 Статус" || text.hasPrefix("/status") {
+            let statusText = buildStatusText(logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: statusText, client: req.client)
+            return Response(status: .ok)
+        }
+
+        // Кнопки для включения/выключения подписки на Roundsvideobot
+        if text == "✅ Включить подписку Roundsvideobot" {
+            let synthetic = "/set_require Roundsvideobot on"
+            let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        if text == "⛔️ Выключить подписку Roundsvideobot" {
+            let synthetic = "/set_require Roundsvideobot off"
+            let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        if text.hasPrefix("/set_require") {
+            let reply = handleSetRequireCommand(text: text, logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        if text.hasPrefix("/add_sponsor") {
+            let reply = handleAddSponsorCommand(text: text, logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        if text.hasPrefix("/list_sponsors") {
+            let reply = handleListSponsorsCommand(text: text, logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        // На любой другой текст показываем краткую подсказку
+        let fallback = "Неизвестная команда. Используй /start, чтобы увидеть список доступных команд."
+        _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: fallback, client: req.client)
+
         return Response(status: .ok)
+    }
+
+    // MARK: - Admin check
+
+    private func isAdmin(chatId: Int64) -> Bool {
+        guard let raw = Environment.get("NOWCONTROLLERBOT_ADMIN_ID"), raw.isEmpty == false else {
+            // Если переменная не задана, считаем, что админ не настроен и никому не даём доступ
+            return false
+        }
+        if let expected = Int64(raw) {
+            return chatId == expected
+        }
+        return false
+    }
+
+    // MARK: - Commands
+
+    private func buildStatusText(logger: Logger, env: Environment) -> String {
+        let userStats = MonetizationDatabase.userStats(logger: logger, env: env)
+        var lines: [String] = []
+        lines.append("📊 Статус монетизации:")
+
+        if userStats.isEmpty {
+            lines.append("- Пока нет записей о пользователях (user_sessions пуст).")
+        } else {
+            lines.append("- Пользователи по ботам:")
+            for (bot, count) in userStats.sorted(by: { $0.key < $1.key }) {
+                lines.append("  • \(bot): \(count)")
+            }
+        }
+
+        // Покажем, для каких ботов включена обязательная подписка
+        let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+        let managedBots = managedBotsEnv
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        if managedBots.isEmpty {
+            lines.append("")
+            lines.append("NOWCONTROLLERBOT_BROADCAST_BOTS не задан — список управляемых ботов пуст.")
+            return lines.joined(separator: "\n")
+        }
+
+        lines.append("")
+        lines.append("⚙️ Настройки обязательной подписки:")
+        for bot in managedBots {
+            if let setting = MonetizationDatabase.botSetting(for: bot, logger: logger, env: env) {
+                let flag = setting.requireSubscription ? "ON" : "OFF"
+                lines.append("  • \(bot): \(flag)")
+            } else {
+                lines.append("  • \(bot): (не настроено, по умолчанию OFF)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func handleSetRequireCommand(text: String, logger: Logger, env: Environment) -> String {
+        // Формат: /set_require <bot> <on|off>
+        let parts = text.split(separator: " ").map { String($0) }
+        guard parts.count >= 3 else {
+            return "Использование: /set_require <bot_name> <on|off>\nНапример: /set_require Roundsvideobot on"
+        }
+
+        let botName = parts[1]
+        let flagRaw = parts[2].lowercased()
+
+        let require: Bool
+        if flagRaw == "on" || flagRaw == "1" || flagRaw == "true" {
+            require = true
+        } else if flagRaw == "off" || flagRaw == "0" || flagRaw == "false" {
+            require = false
+        } else {
+            return "Второй параметр должен быть on или off. Пример: /set_require Roundsvideobot on"
+        }
+
+        MonetizationDatabase.setRequireSubscription(
+            botName: botName,
+            require: require,
+            logger: logger,
+            env: env
+        )
+
+        let statusText = require ? "включена" : "выключена"
+        return "Для бота \(botName) обязательная подписка \(statusText)."
+    }
+
+    private func handleAddSponsorCommand(text: String, logger: Logger, env: Environment) -> String {
+        // Формат: /add_sponsor <bot> <@канал|ссылка> <days|0>
+        let parts = text.split(separator: " ").map { String($0) }
+        guard parts.count >= 4 else {
+            return "Использование: /add_sponsor <bot_name> <@канал|ссылка> <days|0>\nНапример: /add_sponsor Roundsvideobot @mychannel 7"
+        }
+
+        let botName = parts[1]
+        let rawChannel = parts[2]
+        let daysRaw = parts[3]
+
+        guard let normalized = normalizeChannelIdentifier(rawChannel) else {
+            return "Не удалось распознать канал из '\(rawChannel)'. Используй @username или ссылку https://t.me/username"
+        }
+
+        let expiresAt: Int?
+        if let days = Int(daysRaw), days > 0 {
+            let now = Int(Date().timeIntervalSince1970)
+            expiresAt = now + days * 24 * 60 * 60
+        } else {
+            expiresAt = nil
+        }
+
+        MonetizationDatabase.addSponsorCampaign(
+            botName: botName,
+            channelUsername: normalized,
+            expiresAt: expiresAt,
+            logger: logger,
+            env: env
+        )
+
+        if let expires = expiresAt {
+            let days = Int((expires - Int(Date().timeIntervalSince1970)) / (24 * 60 * 60))
+            return "Добавлен спонсор @\(normalized) для бота \(botName) на \(days) дн."
+        } else {
+            return "Добавлен спонсор @\(normalized) для бота \(botName) без срока окончания."
+        }
+    }
+
+    private func handleListSponsorsCommand(text: String, logger: Logger, env: Environment) -> String {
+        // Формат: /list_sponsors <bot>
+        let parts = text.split(separator: " ").map { String($0) }
+        guard parts.count >= 2 else {
+            return "Использование: /list_sponsors <bot_name>\nНапример: /list_sponsors Roundsvideobot"
+        }
+
+        let botName = parts[1]
+        let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: logger, env: env)
+
+        if campaigns.isEmpty {
+            return "Для бота \(botName) нет активных спонсорских кампаний."
+        }
+
+        var lines: [String] = []
+        lines.append("Активные спонсоры для \(botName):")
+
+        let now = Int(Date().timeIntervalSince1970)
+        for campaign in campaigns {
+            let name = campaign.channelUsername
+            if let expires = campaign.expiresAt {
+                let remainingSeconds = max(0, expires - now)
+                let days = remainingSeconds / (24 * 60 * 60)
+                lines.append("- @\(name) (осталось примерно \(days) дн.)")
+            } else {
+                lines.append("- @\(name) (без срока)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Parsing helpers
+
+    /// Принимает @username или ссылку https://t.me/username[/...]
+    /// Возвращает username без @.
+    private func normalizeChannelIdentifier(_ raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("@") {
+            let trimmed = String(value.dropFirst())
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if value.hasPrefix("https://t.me/") || value.hasPrefix("http://t.me/") {
+            // Обрезаем протокол и домен
+            if let range = value.range(of: "t.me/") {
+                let after = value[range.upperBound...]
+                let usernamePart = after.split(separator: "/").first ?? ""
+                let trimmed = String(usernamePart)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+
+        return nil
     }
 }
 
 // MARK: - Helper Functions
 
-private func sendTelegramMessage(token: String, chatId: Int64, text: String, client: Client) async throws -> Bool {
+private func sendTelegramMessage(
+    token: String,
+    chatId: Int64,
+    text: String,
+    client: Client,
+    replyMarkup: ReplyKeyboardMarkup? = nil
+) async throws -> Bool {
     struct Payload: Content {
         let chat_id: Int64
         let text: String
         let disable_web_page_preview: Bool
+        let reply_markup: ReplyKeyboardMarkup?
     }
-    
-    let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false)
+
+    let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false, reply_markup: replyMarkup)
     let url = "https://api.telegram.org/bot\(token)/sendMessage"
     let res = try await client.post(URI(string: url)) { req in
         try req.content.encode(payload, as: .json)
     }
     return res.status == .ok
 }
+
+// MARK: - Telegram Keyboard Models
+
+struct KeyboardButton: Content {
+    let text: String
+}
+
+struct ReplyKeyboardMarkup: Content {
+    let keyboard: [[KeyboardButton]]
+    let resize_keyboard: Bool
+    let one_time_keyboard: Bool
+}
+

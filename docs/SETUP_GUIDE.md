@@ -119,48 +119,8 @@ server {
     listen 8080;
     server_name localhost;
 
-    location /sora/webhook {
-        proxy_pass http://127.0.0.1:8084;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /soranow/webhook {
-        proxy_pass http://127.0.0.1:8086;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /veonow/webhook {
-        proxy_pass http://127.0.0.1:8087;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /banananow/webhook {
-        proxy_pass http://127.0.0.1:8088;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /rounds/webhook {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /gs/text/webhook {
-        proxy_pass http://127.0.0.1:8083;
+    location /nowcontroller/webhook {
+        proxy_pass http://127.0.0.1:8084/nowcontroller/webhook;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -168,23 +128,7 @@ server {
     }
 
     location /nowmtt/webhook {
-        proxy_pass http://127.0.0.1:8085;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /neurfoto/webhook {
-        proxy_pass http://127.0.0.1:8082;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /contentfabrika/webhook {
-        proxy_pass http://127.0.0.1:8089/contentfabrika/webhook;
+        proxy_pass http://127.0.0.1:8085/webhook;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -193,7 +137,9 @@ server {
 }
 ```
 
-9.4. Сохранить файл и закрыть редактор
+9.4. Сохранить файл и закрыть редактор.
+
+> 💡 Полный пример рабочего `nginx.conf` для локальной отладки NowControllerBot и NowmttBot см. в файле [`docs/nginx.conf.example`](./nginx.conf.example). Его можно использовать как основу, если конфигурация сильно отличается от стандартной.
 
 9.5. Проверить конфигурацию nginx:
 

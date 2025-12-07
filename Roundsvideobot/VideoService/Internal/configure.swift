@@ -1,6 +1,7 @@
 import Vapor
 import Foundation
 import Darwin
+// MonetizationService lives in the same module
 
 func getPortFromConfig(serviceName: String) async throws -> Int {
     let configPath = "config/services.json"
@@ -32,6 +33,9 @@ public func configure(_ app: Application) async throws {
         for (k, v) in vars { setenv(k, v, 1) }
         app.logger.info("Loaded config/.env with \(vars.count) keys for VideoService")
     }
+    // Инициализируем базу монетизации (не влияет на основную работу при ошибках)
+    MonetizationService.ensureDatabase(app: app)
+
     // Получаем порт из конфига
     let port = try await getPortFromConfig(serviceName: "video-processing")
     app.http.server.configuration.port = port

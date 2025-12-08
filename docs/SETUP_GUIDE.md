@@ -87,6 +87,12 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 ```
 Пополняй остальные поля аналогично, используя плейсхолдеры из примера
 
+> **Важно:** Обязательно заполни переменную `NOWCONTROLLERBOT_BROADCAST_BOTS` — это список ботов, которыми будет управлять `NowControllerBot` для монетизации. Укажи имена ботов через запятую без пробелов, например:
+> ```env
+> NOWCONTROLLERBOT_BROADCAST_BOTS=Roundsvideobot,nowmttbot,contentfabrikabot,gsfortextbot,Neurfotobot
+> ```
+> Имена ботов должны точно совпадать с теми, что используются в коде (регистр имеет значение). При первом запуске `NowControllerBot` автоматически создаст записи для всех указанных ботов в базе данных монетизации.
+
 > **Подробные инструкции по настройке сервисов:**
 > - **ContentFabrikaBot:** Подробный план установки, настройки `.env`, OpenAI и вебхука см. в [contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md](../contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md).
 > - **SaluteSpeech (GSForTextBot):** Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).

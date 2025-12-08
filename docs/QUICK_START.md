@@ -88,6 +88,9 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
 
 6. Запусти сервисы, которые тебе нужны (каждый запуск выполняй в новой вкладке терминала через Cmd + T). Вкладки держи открытыми, пока сервисы работают. Напоминаю: пример команды разработчика — `cd /Users/a1111/Desktop/projects/Telegrambot`, тебе нужно подставить свой путь!
 
+> ⚠️ **При первом запуске после клонирования репозитория:** 
+> Рекомендуется сначала запустить `NowControllerBot` для автоматической инициализации базы данных монетизации (`config/monetization.sqlite`) и создания записей для всех ботов из `NOWCONTROLLERBOT_BROADCAST_BOTS`. После этого можно запускать остальные сервисы в любом порядке. База данных создастся автоматически при запуске любого сервиса, но инициализация записей для ботов происходит только в `NowControllerBot`.
+
 - VideoServiceRunner — основной обработчик Roundsvideobot
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot

@@ -48,6 +48,14 @@ public func configure(_ app: Application) async throws {
     // Автоматический запуск миграций
     try await app.autoMigrate()
 
+    // Инициализация базы данных монетизации
+    MonetizationService.ensureDatabase(app: app)
+
+    // Запускаем периодическую очистку фото (каждые 6 часов)
+    Task.detached {
+        await PhotoCleanupService.shared.startPeriodicCleanup(application: app, intervalHours: 6)
+    }
+
     // Получаем порт из общего конфига сервисов
     let port = getPortFromConfig(serviceName: "Neurfotobot")
     app.http.server.configuration.port = port

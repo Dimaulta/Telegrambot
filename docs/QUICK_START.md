@@ -91,6 +91,13 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
 > ⚠️ **При первом запуске после клонирования репозитория:** 
 > Рекомендуется сначала запустить `NowControllerBot` для автоматической инициализации базы данных монетизации (`config/monetization.sqlite`) и создания записей для всех ботов из `NOWCONTROLLERBOT_BROADCAST_BOTS`. После этого можно запускать остальные сервисы в любом порядке. База данных создастся автоматически при запуске любого сервиса, но инициализация записей для ботов происходит только в `NowControllerBot`.
 
+- NowControllerBot — управление отправкой сообщений в боты NowBots и включение-выключение проверки на подписку каналов-спонсоров (в разработке)
+  ```bash
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
+  swift run NowControllerBot
+  ```
+
 - VideoServiceRunner — основной обработчик Roundsvideobot
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
@@ -147,12 +154,6 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   swift run VeoNowBot
   ```
 
-- NowControllerBot — управление отправкой сообщений в боты NowBots и включение-выключение проверки на подписку каналов-спонсоров (в разработке)
-  ```bash
-  cd /Users/a1111/Desktop/projects/Telegrambot
-  set -a; source config/.env; set +a
-  swift run NowControllerBot
-  ```
 
 > Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
 ### Дополнение: быстрая настройка GSForTextBot

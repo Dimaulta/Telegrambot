@@ -1,0 +1,164 @@
+# Пример минимальной конфигурации nginx для проекта Telegrambot
+#
+# Файл показывает один сервер на порту 8080, который:
+# - отдаёт статический контент по корню (/)
+# - проксирует вебхуки всех основных ботов:
+#   - Roundsvideobot
+#   - Neurfotobot
+#   - GSForTextBot
+#   - NowControllerBot
+#   - NowmttBot
+#   - SoranowBot
+#   - VeoNowBot
+#   - BananaNowBot
+#   - ContentFabrikaBot
+#
+# Используй этот файл как ориентир, если твой nginx.conf сильно отличается
+
+#user  nobody;
+worker_processes  1;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    # В этом примере мы не подключаем внешние конфиги, чтобы избежать конфликтов
+    # include       servers/*.conf;
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    #log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+    #                  '$status $body_bytes_sent "$http_referer" '
+    #                  '"$http_user_agent" "$http_x_forwarded_for"';
+
+    #access_log  logs/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    #gzip  on;
+
+    server {
+        listen       8080;
+        server_name  localhost;
+
+        #access_log  logs/host.access.log  main;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        #error_page  404              /404.html;
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+
+        # Roundsvideobot (VideoServiceRunner) — /rounds/webhook -> 8081
+        location = /rounds/webhook {
+            proxy_pass http://127.0.0.1:8081/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Neurfotobot — /neurfoto/webhook -> 8082
+        location = /neurfoto/webhook {
+            proxy_pass http://127.0.0.1:8082/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # GSForTextBot — /gs/text/webhook -> 8083
+        location = /gs/text/webhook {
+            proxy_pass http://127.0.0.1:8083/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # NowControllerBot (панель монетизации и управления ботами NowBots)
+        location = /nowcontroller/webhook {
+            proxy_pass http://127.0.0.1:8084/nowcontroller/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # NowmttBot (TikTok без ватермарки)
+        location = /nowmtt/webhook {
+            proxy_pass http://127.0.0.1:8085/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location = /nowmtt/health {
+            proxy_pass http://127.0.0.1:8085/health;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # SoranowBot — /soranow/webhook -> 8086
+        location = /soranow/webhook {
+            proxy_pass http://127.0.0.1:8086/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # VeoNowBot — /veonow/webhook -> 8087
+        location = /veonow/webhook {
+            proxy_pass http://127.0.0.1:8087/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # BananaNowBot — /banananow/webhook -> 8088
+        location = /banananow/webhook {
+            proxy_pass http://127.0.0.1:8088/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # ContentFabrikaBot — /contentfabrika/webhook -> 8089/contentfabrika/webhook
+        location = /contentfabrika/webhook {
+            proxy_pass http://127.0.0.1:8089/contentfabrika/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+    # include servers/*;
+}
+
+

@@ -1,5 +1,5 @@
-# Проверка общего проксирования
-curl -i http://127.0.0.1:8080/sora/webhook \
+# Проверка общего проксирования (NowControllerBot)
+curl -i http://127.0.0.1:8080/nowcontroller/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
@@ -29,10 +29,10 @@ curl -i http://127.0.0.1:8080/contentfabrika/webhook \
 Перед выполнением замени `ВАШ-URL-ОТ-NGROK` на адрес из вкладки с ngrok или с панели http://127.0.0.1:4040.
 
 ```bash
-# SoranowBot
-curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/soranow/webhook \
+# NowControllerBot
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowcontroller/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй видео с мигающим неоном"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
 # NowmttBot
 curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \

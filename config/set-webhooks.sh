@@ -39,11 +39,11 @@ if [ -z "$NOWCONTROLLERBOT_TOKEN" ]; then
     echo "⚠️ NOWCONTROLLERBOT_TOKEN не установлен, пропускаем..."
 else
     echo "🔧 Настройка webhook для NowControllerBot..."
-    echo "📡 URL: ${BASE_URL}/sora/webhook"
+    echo "📡 URL: ${BASE_URL}/nowcontroller/webhook"
     
     curl -sS -X POST "https://api.telegram.org/bot${NOWCONTROLLERBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/sora/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/nowcontroller/webhook\"}"
     
     echo ""
     echo "✅ Webhook для NowControllerBot настроен!"

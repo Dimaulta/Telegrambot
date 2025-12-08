@@ -5,6 +5,11 @@ func routes(_ app: Application) throws {
     app.post("webhook") { req async throws in
         try await NowControllerBotController().handleWebhook(req)
     }
+
+    // Основной путь для NowControllerBot, используется в set-webhooks.sh и nginx
+    app.post("nowcontroller", "webhook") { req async throws in
+        try await NowControllerBotController().handleWebhook(req)
+    }
     
     // Health check endpoint
     app.get("health") { _ in

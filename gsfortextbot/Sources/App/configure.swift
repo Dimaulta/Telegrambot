@@ -20,6 +20,7 @@ public func configure(_ app: Application) async throws {
     let port = getPortFromConfig(serviceName: "gsfortextbot")
     app.http.server.configuration.port = port
     configureSaluteSpeechTLS(app)
+    MonetizationService.ensureDatabase(app: app)
     try routes(app)
 }
 

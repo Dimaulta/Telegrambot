@@ -84,6 +84,44 @@ enum MonetizationDatabase {
             }
         }
 
+        // Инициализируем записи для всех ботов из NOWCONTROLLERBOT_BROADCAST_BOTS
+        // Это гарантирует, что настройки явно видны в БД (require_subscription = 0 по умолчанию)
+        if let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS"), !managedBotsEnv.isEmpty {
+            let managedBots = managedBotsEnv
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            
+            let initSettingsSQL = """
+            INSERT OR IGNORE INTO bot_settings (bot_name, require_subscription)
+            VALUES (?1, 0);
+            """
+            
+            var initStmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, initSettingsSQL, -1, &initStmt, nil) == SQLITE_OK {
+                defer { sqlite3_finalize(initStmt) }
+                
+                for botName in managedBots {
+                    sqlite3_reset(initStmt)
+                    sqlite3_bind_text(initStmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                    
+                    if sqlite3_step(initStmt) == SQLITE_DONE {
+                        app.logger.info("Initialized bot_settings for \(botName) with require_subscription=0")
+                    } else {
+                        if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
+                            app.logger.warning("Failed to initialize bot_settings for \(botName): \(errorMessage)")
+                        }
+                    }
+                }
+            } else {
+                if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
+                    app.logger.warning("Failed to prepare bot_settings init statement: \(errorMessage)")
+                }
+            }
+        } else {
+            app.logger.info("NOWCONTROLLERBOT_BROADCAST_BOTS not set, skipping bot_settings initialization")
+        }
+
         app.logger.info("Monetization DB ensured at path: \(path)")
     }
 
@@ -340,6 +378,45 @@ enum MonetizationDatabase {
         }
 
         return result
+    }
+
+    /// Возвращает список уникальных ботов, у которых есть активные спонсорские кампании.
+    static func botsWithActiveSponsors(logger: Logger, env: Environment) -> [String] {
+        let path = databasePath(env: env)
+        var db: OpaquePointer?
+        var bots: [String] = []
+
+        guard sqlite3_open(path, &db) == SQLITE_OK else {
+            logger.error("Failed to open monetization DB for bots with sponsors")
+            if db != nil { sqlite3_close(db) }
+            return bots
+        }
+        defer { sqlite3_close(db) }
+
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = """
+        SELECT DISTINCT bot_name
+        FROM sponsor_campaigns
+        WHERE active = 1
+          AND (expires_at IS NULL OR expires_at >= ?1)
+        ORDER BY bot_name ASC;
+        """
+
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            logger.error("Failed to prepare bots with sponsors query")
+            return bots
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_int(stmt, 1, Int32(now))
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let botName = String(cString: sqlite3_column_text(stmt, 0))
+            bots.append(botName)
+        }
+
+        return bots
     }
 }
 

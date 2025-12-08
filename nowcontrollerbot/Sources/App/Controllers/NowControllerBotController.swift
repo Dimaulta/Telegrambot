@@ -11,6 +11,8 @@ private actor AdminSessionStore {
         case addSponsorChooseBot
         case addSponsorWaitChannel(botName: String)
         case addSponsorWaitDuration(botName: String, channel: String)
+        case deleteSponsorChooseBot
+        case deleteSponsorChooseChannel(botName: String)
     }
 
     private var states: [Int64: Step] = [:]
@@ -25,6 +27,33 @@ private actor AdminSessionStore {
 
     func reset(chatId: Int64) {
         states[chatId] = .idle
+    }
+}
+
+// Отслеживание обработанных сообщений для предотвращения дублирования
+private actor ProcessedMessagesStore {
+    static let shared = ProcessedMessagesStore()
+    
+    // Храним последние 1000 обработанных сообщений (chatId:messageId)
+    private var processedMessages: Set<String> = []
+    private let maxSize = 1000
+    
+    func isProcessed(chatId: Int64, messageId: Int) -> Bool {
+        let key = "\(chatId):\(messageId)"
+        return processedMessages.contains(key)
+    }
+    
+    func markAsProcessed(chatId: Int64, messageId: Int) {
+        let key = "\(chatId):\(messageId)"
+        processedMessages.insert(key)
+        
+        // Если превысили лимит - удаляем самые старые (просто очищаем половину)
+        if processedMessages.count > maxSize {
+            let toRemove = processedMessages.prefix(maxSize / 2)
+            for item in toRemove {
+                processedMessages.remove(item)
+            }
+        }
     }
 }
 
@@ -61,8 +90,19 @@ final class NowControllerBotController {
 
         let text = message.text ?? ""
         let chatId = message.chat.id
+        let messageId = message.message_id
 
-        req.logger.info("📨 Incoming message - chatId=\(chatId), text length=\(text.count)")
+        // Проверяем, не обрабатывали ли мы уже это сообщение
+        let isAlreadyProcessed = await ProcessedMessagesStore.shared.isProcessed(chatId: chatId, messageId: messageId)
+        if isAlreadyProcessed {
+            req.logger.info("⚠️ Message \(messageId) from chat \(chatId) already processed, skipping duplicate")
+            return Response(status: .ok)
+        }
+        
+        // Помечаем сообщение как обработанное
+        await ProcessedMessagesStore.shared.markAsProcessed(chatId: chatId, messageId: messageId)
+
+        req.logger.info("📨 Incoming message - chatId=\(chatId), messageId=\(messageId), text length=\(text.count)")
         if !text.isEmpty {
             req.logger.info("📝 Message text: \(text.prefix(200))")
         }
@@ -88,35 +128,64 @@ final class NowControllerBotController {
             await AdminSessionStore.shared.reset(chatId: chatId)
 
             let help = """
-            Привет! Это NowControllerBot — панель управления монетизацией.
+            Привет! Это NowControllerBot для управления монетизацией @NowBots
+
+            📱 Твой Telegram ID: \(chatId)
+            (Добавь его на свой VPS в .env как NOWCONTROLLERBOT_ADMIN_ID=<твой_телеграм_id> и перезапусти сервис)
 
             Я помогу:
             • Смотреть статус по ботам
             • Включать/выключать обязательную подписку
-            • Управлять спонсорами для Roundsvideobot и других ботов
+            • Управлять спонсорами для всех ботов
 
-            Используй кнопки ниже или команды:
+            📋 Команды:
             /status – краткий статус по пользователям и спонсорам
             /set_require <bot> <on|off> – включить/выключить обязательную подписку
             /add_sponsor <bot> <@канал|ссылка> <days|0> – добавить спонсора (0 = без срока)
             /list_sponsors <bot> – показать активных спонсоров для бота
+            /delete_sponsor <bot> <@канал> – удалить спонсора для бота
             """
 
-            let keyboard = ReplyKeyboardMarkup(
-                keyboard: [
-                    [KeyboardButton(text: "📊 Статус")],
-                    [KeyboardButton(text: "➕ Добавить спонсора")],
-                    [KeyboardButton(text: "✅ Включить подписку Roundsvideobot"),
-                     KeyboardButton(text: "⛔️ Выключить подписку Roundsvideobot")]
-                ],
-                resize_keyboard: true,
-                one_time_keyboard: false
-            )
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
 
             _ = try? await sendTelegramMessage(
                 token: botToken,
                 chatId: chatId,
                 text: help,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+        }
+
+        // Обработка кнопки "➕ Спонсор" - показываем меню
+        if text == "➕ Спонсор" {
+            let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+            let managedBots = managedBotsEnv
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            if managedBots.isEmpty {
+                let reply = "NOWCONTROLLERBOT_BROADCAST_BOTS не задан — список управляемых ботов пуст."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: [
+                    [KeyboardButton(text: "➕ Добавить спонсора"), KeyboardButton(text: "🗑 Удалить спонсора")],
+                    [KeyboardButton(text: "📊 Статус")]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            let reply = "Выбери действие со спонсорами:"
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: reply,
                 client: req.client,
                 replyMarkup: keyboard
             )
@@ -258,16 +327,7 @@ final class NowControllerBotController {
 
             await AdminSessionStore.shared.reset(chatId: chatId)
 
-            let keyboard = ReplyKeyboardMarkup(
-                keyboard: [
-                    [KeyboardButton(text: "📊 Статус")],
-                    [KeyboardButton(text: "➕ Добавить спонсора")],
-                    [KeyboardButton(text: "✅ Включить подписку Roundsvideobot"),
-                     KeyboardButton(text: "⛔️ Выключить подписку Roundsvideobot")]
-                ],
-                resize_keyboard: true,
-                one_time_keyboard: false
-            )
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
 
             _ = try? await sendTelegramMessage(
                 token: botToken,
@@ -276,6 +336,101 @@ final class NowControllerBotController {
                 client: req.client,
                 replyMarkup: keyboard
             )
+            return Response(status: .ok)
+
+        case .deleteSponsorChooseBot:
+            if text == "❌ Отмена" {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Удаление спонсора отменено."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let botName = text.trimmingCharacters(in: .whitespaces)
+            if botName.isEmpty {
+                let reply = "Выбери бота из списка или нажми «❌ Отмена»."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: req.logger, env: req.application.environment)
+            if campaigns.isEmpty {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Для бота \(botName) нет активных спонсорских кампаний."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            await AdminSessionStore.shared.setState(.deleteSponsorChooseChannel(botName: botName), for: chatId)
+
+            let channelRows = campaigns.map { campaign in
+                [KeyboardButton(text: "@\(campaign.channelUsername)")]
+            }
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: channelRows + [[KeyboardButton(text: "❌ Отмена")]],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            let prompt = "Выбери канал спонсора для удаления у бота \(botName):"
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: prompt,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+
+        case .deleteSponsorChooseChannel(let botName):
+            if text == "❌ Отмена" {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Удаление спонсора отменено."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            guard text.hasPrefix("@") else {
+                let reply = "Выбери канал из списка (начинается с @) или нажми «❌ Отмена»."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let channelUsername = String(text.dropFirst()) // Убираем @
+            let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: req.logger, env: req.application.environment)
+            
+            if let campaign = campaigns.first(where: { $0.channelUsername == channelUsername }) {
+                MonetizationDatabase.deactivateCampaign(id: campaign.id, logger: req.logger, env: req.application.environment)
+                
+                // Проверяем, остались ли еще активные спонсоры у бота
+                let remainingCampaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: req.logger, env: req.application.environment)
+                
+                var reply = "Спонсор @\(channelUsername) удалён для бота \(botName)."
+                
+                // Если не осталось активных спонсоров - автоматически отключаем подписку
+                if remainingCampaigns.isEmpty {
+                    MonetizationDatabase.setRequireSubscription(
+                        botName: botName,
+                        require: false,
+                        logger: req.logger,
+                        env: req.application.environment
+                    )
+                    reply += "\n\n⚠️ У бота не осталось активных спонсоров. Обязательная подписка автоматически отключена."
+                }
+                
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+                _ = try? await sendTelegramMessage(
+                    token: botToken,
+                    chatId: chatId,
+                    text: reply,
+                    client: req.client,
+                    replyMarkup: keyboard
+                )
+            } else {
+                let reply = "Канал @\(channelUsername) не найден среди активных спонсоров для бота \(botName)."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            }
             return Response(status: .ok)
 
         case .idle:
@@ -289,18 +444,65 @@ final class NowControllerBotController {
             return Response(status: .ok)
         }
 
-        // Кнопки для включения/выключения подписки на Roundsvideobot
-        if text == "✅ Включить подписку Roundsvideobot" {
-            let synthetic = "/set_require Roundsvideobot on"
-            let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
-            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+        // Обработка кнопки "🗑 Удалить спонсора"
+        if text == "🗑 Удалить спонсора" {
+            await AdminSessionStore.shared.setState(.deleteSponsorChooseBot, for: chatId)
+
+            let botsWithSponsors = MonetizationDatabase.botsWithActiveSponsors(logger: req.logger, env: req.application.environment)
+            
+            if botsWithSponsors.isEmpty {
+                await AdminSessionStore.shared.reset(chatId: chatId)
+                let reply = "Нет ботов с активными спонсорскими кампаниями."
+                _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+                return Response(status: .ok)
+            }
+
+            let rows = botsWithSponsors.map { [KeyboardButton(text: $0)] }
+            let keyboard = ReplyKeyboardMarkup(
+                keyboard: rows + [[KeyboardButton(text: "❌ Отмена")]],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            )
+
+            let prompt = "Выбери бота, у которого нужно удалить спонсора."
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: prompt,
+                client: req.client,
+                replyMarkup: keyboard
+            )
             return Response(status: .ok)
         }
 
-        if text == "⛔️ Выключить подписку Roundsvideobot" {
-            let synthetic = "/set_require Roundsvideobot off"
+        // Обработка динамических кнопок включения/выключения подписки для всех ботов
+        if text.hasPrefix("✅ Включить подписку ") {
+            let botName = String(text.dropFirst("✅ Включить подписку ".count))
+            let synthetic = "/set_require \(botName) on"
             let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
-            _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: reply,
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return Response(status: .ok)
+        }
+
+        if text.hasPrefix("⛔️ Выключить подписку ") {
+            let botName = String(text.dropFirst("⛔️ Выключить подписку ".count))
+            let synthetic = "/set_require \(botName) off"
+            let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: reply,
+                client: req.client,
+                replyMarkup: keyboard
+            )
             return Response(status: .ok)
         }
 
@@ -319,6 +521,19 @@ final class NowControllerBotController {
         if text.hasPrefix("/list_sponsors") {
             let reply = handleListSponsorsCommand(text: text, logger: req.logger, env: req.application.environment)
             _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
+            return Response(status: .ok)
+        }
+
+        if text.hasPrefix("/delete_sponsor") {
+            let reply = handleDeleteSponsorCommand(text: text, logger: req.logger, env: req.application.environment)
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            _ = try? await sendTelegramMessage(
+                token: botToken,
+                chatId: chatId,
+                text: reply,
+                client: req.client,
+                replyMarkup: keyboard
+            )
             return Response(status: .ok)
         }
 
@@ -344,7 +559,43 @@ final class NowControllerBotController {
 
     // MARK: - Commands
 
+    /// Синхронизирует состояние подписки для всех ботов:
+    /// если у бота нет активных спонсоров, но подписка включена - отключает её.
+    private func syncBotSubscriptionSettings(logger: Logger, env: Environment) {
+        let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+        let managedBots = managedBotsEnv
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        
+        guard !managedBots.isEmpty else {
+            return
+        }
+        
+        for botName in managedBots {
+            // Проверяем, есть ли активные спонсоры у бота
+            let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: logger, env: env)
+            
+            // Если нет активных спонсоров, но подписка включена - отключаем
+            if campaigns.isEmpty {
+                if let setting = MonetizationDatabase.botSetting(for: botName, logger: logger, env: env),
+                   setting.requireSubscription {
+                    MonetizationDatabase.setRequireSubscription(
+                        botName: botName,
+                        require: false,
+                        logger: logger,
+                        env: env
+                    )
+                    logger.info("Синхронизация: у бота \(botName) нет активных спонсоров, подписка автоматически отключена")
+                }
+            }
+        }
+    }
+
     private func buildStatusText(logger: Logger, env: Environment) -> String {
+        // Синхронизируем состояние перед показом статуса
+        syncBotSubscriptionSettings(logger: logger, env: env)
+        
         let userStats = MonetizationDatabase.userStats(logger: logger, env: env)
         var lines: [String] = []
         lines.append("📊 Статус монетизации:")
@@ -484,6 +735,97 @@ final class NowControllerBotController {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func buildMainKeyboard(logger: Logger, env: Environment) -> ReplyKeyboardMarkup {
+        // Синхронизируем состояние перед построением клавиатуры
+        syncBotSubscriptionSettings(logger: logger, env: env)
+        
+        var keyboardRows: [[KeyboardButton]] = []
+        
+        // Первая линия: Статус и Спонсор
+        keyboardRows.append([
+            KeyboardButton(text: "📊 Статус"),
+            KeyboardButton(text: "➕ Спонсор")
+        ])
+        
+        // Получаем список всех управляемых ботов
+        let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+        let managedBots = managedBotsEnv
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        
+        // Получаем список ботов со спонсорами
+        let botsWithSponsors = MonetizationDatabase.botsWithActiveSponsors(logger: logger, env: env)
+        
+        // Показываем кнопки для всех ботов:
+        // - Если есть спонсоры: показываем кнопку включения/выключения в зависимости от статуса
+        // - Если нет спонсоров, но подписка включена: показываем кнопку выключения (для старых случаев)
+        for botName in managedBots {
+            let hasSponsors = botsWithSponsors.contains(botName)
+            if let setting = MonetizationDatabase.botSetting(for: botName, logger: logger, env: env) {
+                if setting.requireSubscription {
+                    // Если включено - показываем кнопку выключения
+                    keyboardRows.append([KeyboardButton(text: "⛔️ Выключить подписку \(botName)")])
+                } else if hasSponsors {
+                    // Если выключено, но есть спонсоры - показываем кнопку включения
+                    keyboardRows.append([KeyboardButton(text: "✅ Включить подписку \(botName)")])
+                }
+            } else if hasSponsors {
+                // Если настройки нет, но есть спонсоры - показываем кнопку включения
+                keyboardRows.append([KeyboardButton(text: "✅ Включить подписку \(botName)")])
+            }
+        }
+        
+        return ReplyKeyboardMarkup(
+            keyboard: keyboardRows,
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+    }
+
+    private func handleDeleteSponsorCommand(text: String, logger: Logger, env: Environment) -> String {
+        // Формат: /delete_sponsor <bot> <@канал>
+        let parts = text.split(separator: " ").map { String($0) }
+        guard parts.count >= 3 else {
+            return "Использование: /delete_sponsor <bot_name> <@канал>\nНапример: /delete_sponsor Roundsvideobot @mychannel"
+        }
+
+        let botName = parts[1]
+        let rawChannel = parts[2]
+        
+        guard rawChannel.hasPrefix("@") else {
+            return "Канал должен начинаться с @. Пример: /delete_sponsor \(botName) @mychannel"
+        }
+        
+        let channelUsername = String(rawChannel.dropFirst())
+        
+        let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: logger, env: env)
+        
+        if let campaign = campaigns.first(where: { $0.channelUsername == channelUsername }) {
+            MonetizationDatabase.deactivateCampaign(id: campaign.id, logger: logger, env: env)
+            
+            // Проверяем, остались ли еще активные спонсоры у бота
+            let remainingCampaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: logger, env: env)
+            
+            var reply = "Спонсор @\(channelUsername) удалён для бота \(botName)."
+            
+            // Если не осталось активных спонсоров - автоматически отключаем подписку
+            if remainingCampaigns.isEmpty {
+                MonetizationDatabase.setRequireSubscription(
+                    botName: botName,
+                    require: false,
+                    logger: logger,
+                    env: env
+                )
+                reply += "\n\n⚠️ У бота не осталось активных спонсоров. Обязательная подписка автоматически отключена."
+            }
+            
+            return reply
+        } else {
+            return "Спонсор @\(channelUsername) не найден среди активных кампаний для бота \(botName)."
+        }
     }
 
     // MARK: - Parsing helpers

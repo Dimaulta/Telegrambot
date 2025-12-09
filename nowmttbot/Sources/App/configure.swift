@@ -36,6 +36,9 @@ public func configure(_ app: Application) async throws {
     let port = getPortFromConfig(serviceName: "nowmttbot")
     app.http.server.configuration.port = port
     
+    // Инициализация базы данных монетизации
+    MonetizationService.ensureDatabase(app: app)
+    
     // Middleware для логирования всех входящих запросов
     app.middleware.use(LoggingMiddleware())
 

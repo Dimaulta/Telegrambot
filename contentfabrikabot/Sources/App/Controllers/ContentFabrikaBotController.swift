@@ -78,6 +78,210 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         // Логируем информацию о сообщении для диагностики
         req.logger.info("💬 Message received: chat.type=\(message.chat.type ?? "nil"), has_forward_from_chat=\(message.forward_from_chat != nil), text_length=\(text.count), user_id=\(userId)")
 
+        // Регистрируем пользователя в общей базе монетизации
+        MonetizationService.registerUser(
+            botName: "contentfabrikabot",
+            chatId: chatId,
+            logger: req.logger,
+            env: req.application.environment
+        )
+        
+        // Если пользователь нажал кнопку "Я подписался, проверить" —
+        // повторно проверяем подписку и либо разблокируем, либо снова показываем требование.
+        if text == "✅ Я подписался, проверить" {
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "contentfabrikabot",
+                userId: userId,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+            
+            struct KeyboardButton: Content {
+                let text: String
+            }
+            
+            struct ReplyKeyboardMarkup: Content {
+                let keyboard: [[KeyboardButton]]
+                let resize_keyboard: Bool
+                let one_time_keyboard: Bool
+            }
+            
+            struct AccessPayloadWithKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardMarkup?
+            }
+            
+            if allowed {
+                // Проверяем, есть ли сохраненная тема
+                if let (savedTopic, savedChannelId) = await TopicSessionManager.shared.getTopic(userId: userId) {
+                    // Есть сохраненная тема - автоматически запускаем генерацию
+                    await TopicSessionManager.shared.clearTopic(userId: userId)
+                    
+                    // Находим канал для генерации
+                    let allChannels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+                    let targetChannel: Channel
+                    
+                    if let savedChannelId = savedChannelId,
+                       let foundChannel = allChannels.first(where: { (try? $0.requireID()) == savedChannelId }) {
+                        targetChannel = foundChannel
+                    } else if allChannels.count == 1 {
+                        targetChannel = allChannels.first!
+                    } else {
+                        // Не можем определить канал - просим ввести тему заново
+                        let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                        let keyboard = ReplyKeyboardMarkup(
+                            keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
+                            resize_keyboard: true,
+                            one_time_keyboard: false
+                        )
+                        let payload = AccessPayloadWithKeyboard(
+                            chat_id: chatId,
+                            text: successText,
+                            disable_web_page_preview: false,
+                            reply_markup: keyboard
+                        )
+                        
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                        _ = try await req.client.post(sendMessageUrl) { sendReq in
+                            try sendReq.content.encode(payload, as: .json)
+                        }.get()
+                        
+                        return Response(status: .ok)
+                    }
+                    
+                    let targetChannelId = try targetChannel.requireID()
+                    guard let styleProfile = try await StyleService.getStyleProfile(channelId: targetChannelId, db: req.db) else {
+                        // Стиль не изучен - просим ввести тему заново
+                        let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                        let keyboard = ReplyKeyboardMarkup(
+                            keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
+                            resize_keyboard: true,
+                            one_time_keyboard: false
+                        )
+                        let payload = AccessPayloadWithKeyboard(
+                            chat_id: chatId,
+                            text: successText,
+                            disable_web_page_preview: false,
+                            reply_markup: keyboard
+                        )
+                        
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                        _ = try await req.client.post(sendMessageUrl) { sendReq in
+                            try sendReq.content.encode(payload, as: .json)
+                        }.get()
+                        
+                        return Response(status: .ok)
+                    }
+                    
+                    // Проверяем rate limit
+                    let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                    guard allowed else {
+                        try await TelegramService.sendMessage(
+                            token: token,
+                            chatId: chatId,
+                            text: "⚠️ Давай не торопиться — можно сгенерировать не больше двух постов в минуту. Попробуй ещё раз чуть позже 💛",
+                            client: req.client
+                        )
+                        return Response(status: .ok)
+                    }
+                    
+                    // Отправляем сообщение о начале генерации
+                    _ = try? await TelegramService.sendMessage(
+                        token: token,
+                        chatId: chatId,
+                        text: "Подписка подтверждена ✅\nГенерирую пост на тему: \"\(savedTopic)\"... ✨",
+                        client: req.client
+                    )
+                    
+                    // Запускаем генерацию в фоне
+                    let client = req.client
+                    let logger = req.logger
+                    let app = req.application
+                    let eventLoop = req.eventLoop
+                    
+                    Task { [token, userId, savedTopic] in
+                        logger.info("🚀 Background task started for post generation (after subscription)")
+                        do {
+                            let backgroundReq = Request(application: app, method: .GET, url: URI(string: "/"), on: eventLoop)
+                            
+                            try await PostGenerationService.generatePostForUser(
+                                topic: savedTopic,
+                                styleProfile: styleProfile,
+                                channel: targetChannel,
+                                userId: userId,
+                                token: token,
+                                req: backgroundReq
+                            )
+                            logger.info("✅ Post generation completed (after subscription)")
+                        } catch {
+                            logger.error("❌ Error in background post generation (after subscription): \(error)")
+                            let errorChatId = TelegramService.getChatIdFromUserId(userId: userId)
+                            _ = try? await TelegramService.sendMessage(
+                                token: token,
+                                chatId: errorChatId,
+                                text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
+                                client: client
+                            )
+                        }
+                    }
+                    
+                    return Response(status: .ok)
+                } else {
+                    // Нет сохраненной темы - показываем обычное сообщение
+                    let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                    let keyboard = ReplyKeyboardMarkup(
+                        keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
+                        resize_keyboard: true,
+                        one_time_keyboard: false
+                    )
+                    let payload = AccessPayloadWithKeyboard(
+                        chat_id: chatId,
+                        text: successText,
+                        disable_web_page_preview: false,
+                        reply_markup: keyboard
+                    )
+                    
+                    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                    _ = try await req.client.post(sendMessageUrl) { sendReq in
+                        try sendReq.content.encode(payload, as: .json)
+                    }.get()
+                    
+                    return Response(status: .ok)
+                }
+            } else {
+                let channelsText: String
+                if channels.isEmpty {
+                    channelsText = ""
+                } else {
+                    let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+                    channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+                }
+                
+                let errorText = "Я всё ещё не вижу активную подписку.\n\nЧтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\(channelsText)"
+                let keyboard = ReplyKeyboardMarkup(
+                    keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                )
+                let payload = AccessPayloadWithKeyboard(
+                    chat_id: chatId,
+                    text: errorText,
+                    disable_web_page_preview: false,
+                    reply_markup: keyboard
+                )
+                
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                _ = try await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(payload, as: .json)
+                }.get()
+                
+                return Response(status: .ok)
+            }
+        }
+
         // Обработка команды /start
         if text == "/start" {
             try await WelcomeService.sendWelcome(userId: userId, chatId: chatId, token: token, req: req)
@@ -191,7 +395,28 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             let channelId = try channel.requireID()
             
             if let styleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) {
-                // Профиль готов - генерируем пост в фоне (чтобы быстро ответить Telegram)
+                // Профиль готов - проверяем подписку перед генерацией
+                let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
+                    botName: "contentfabrikabot",
+                    userId: userId,
+                    logger: req.logger,
+                    env: req.application.environment,
+                    client: req.client
+                )
+                
+                guard subscriptionAllowed else {
+                    // Пользователь не подписан - сохраняем тему и отправляем сообщение с требованием подписки
+                    await TopicSessionManager.shared.saveTopic(userId: userId, topic: text, channelId: channelId)
+                    try await sendSubscriptionRequiredMessage(
+                        chatId: chatId,
+                        channels: channels,
+                        token: token,
+                        req: req
+                    )
+                    return Response(status: .ok)
+                }
+                
+                // Генерируем пост в фоне (чтобы быстро ответить Telegram)
                 let client = req.client
                 let logger = req.logger
                 let app = req.application
@@ -280,7 +505,28 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 }
             }
         } else {
-            // Несколько каналов - просим выбрать канал для генерации поста
+            // Несколько каналов - проверяем подписку перед показом кнопок выбора канала
+            let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
+                botName: "contentfabrikabot",
+                userId: userId,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+            
+            guard subscriptionAllowed else {
+                // Пользователь не подписан - сохраняем тему и отправляем сообщение с требованием подписки
+                await TopicSessionManager.shared.saveTopic(userId: userId, topic: text)
+                try await sendSubscriptionRequiredMessage(
+                    chatId: chatId,
+                    channels: channels,
+                    token: token,
+                    req: req
+                )
+                return Response(status: .ok)
+            }
+            
+            // Просим выбрать канал для генерации поста
             var buttons: [[InlineKeyboardButton]] = []
             for channel in allChannels {
                 let channelId = try channel.requireID()
@@ -322,6 +568,59 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         return Response(status: .ok)
     }
 
+    // MARK: - Вспомогательные функции для монетизации
+    
+    /// Отправляет сообщение с требованием подписки на спонсорские каналы
+    private func sendSubscriptionRequiredMessage(
+        chatId: Int64,
+        channels: [String],
+        token: String,
+        req: Request
+    ) async throws {
+        struct KeyboardButton: Content {
+            let text: String
+        }
+        
+        struct ReplyKeyboardMarkup: Content {
+            let keyboard: [[KeyboardButton]]
+            let resize_keyboard: Bool
+            let one_time_keyboard: Bool
+        }
+        
+        struct AccessPayloadWithKeyboard: Content {
+            let chat_id: Int64
+            let text: String
+            let disable_web_page_preview: Bool
+            let reply_markup: ReplyKeyboardMarkup?
+        }
+        
+        let channelsText: String
+        if channels.isEmpty {
+            channelsText = ""
+        } else {
+            let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+            channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+        }
+        
+        let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+        let keyboard = ReplyKeyboardMarkup(
+            keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+        let payload = AccessPayloadWithKeyboard(
+            chat_id: chatId,
+            text: text,
+            disable_web_page_preview: false,
+            reply_markup: keyboard
+        )
+        
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        _ = try await req.client.post(sendMessageUrl) { sendReq in
+            try sendReq.content.encode(payload, as: .json)
+        }.get()
+    }
+    
     // MARK: - Обработка пересланных сообщений
     
     private func handleChannelMessage(message: ContentFabrikaBotMessage, token: String, userId: Int64, req: Request) async throws {
@@ -572,24 +871,51 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     .filter(\.$ownerUserId == userId)
                     .first(),
                    let styleProfile = try await StyleService.getStyleProfile(channelId: channelUUID, db: req.db) {
+                    
+                    // Проверяем подписку перед генерацией
+                    let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
+                        botName: "contentfabrikabot",
+                        userId: userId,
+                        logger: req.logger,
+                        env: req.application.environment,
+                        client: req.client
+                    )
+                    
+                    guard subscriptionAllowed else {
+                        // Пользователь не подписан - сохраняем тему и отправляем сообщение с требованием подписки
+                        await TopicSessionManager.shared.saveTopic(userId: userId, topic: topic, channelId: channelUUID)
+                        _ = try? await TelegramService.answerCallbackQuery(
+                            token: token,
+                            callbackId: callback.id,
+                            text: "Требуется подписка на спонсорские каналы",
+                            req: req
+                        )
+                        try await sendSubscriptionRequiredMessage(
+                            chatId: chatId,
+                            channels: channels,
+                            token: token,
+                            req: req
+                        )
+                        return
+                    }
                             
-                            let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
-                            guard allowed else {
-                                _ = try? await TelegramService.answerCallbackQuery(
-                                    token: token,
-                                    callbackId: callback.id,
-                                    text: "Подожди немного перед следующей генерацией",
-                                    req: req
-                                )
-                                _ = try? await TelegramService.sendMessage(
-                                    token: token,
-                                    chatId: chatId,
-                                    text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
-                                    client: req.client,
-                                    replyToMessageId: replyToMessageId
-                                )
-                                return
-                            }
+                    let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                    guard allowed else {
+                        _ = try? await TelegramService.answerCallbackQuery(
+                            token: token,
+                            callbackId: callback.id,
+                            text: "Подожди немного перед следующей генерацией",
+                            req: req
+                        )
+                        _ = try? await TelegramService.sendMessage(
+                            token: token,
+                            chatId: chatId,
+                            text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
+                            client: req.client,
+                            replyToMessageId: replyToMessageId
+                        )
+                        return
+                    }
                     
                     _ = try await TelegramService.answerCallbackQuery(
                         token: token,

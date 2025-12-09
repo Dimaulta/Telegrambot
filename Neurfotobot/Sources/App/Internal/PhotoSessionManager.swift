@@ -31,6 +31,7 @@ actor PhotoSessionManager {
         var prompt: String?
         var selectedStyle: String? // Выбранный стиль генерации
         var translatedPrompt: String? // Переведённый промпт (чтобы не переводить дважды)
+        var lastActivityAt: Date? // Время последней активности пользователя
         
         // Данные для многошагового сбора промпта
         var promptCollectionState: PromptCollectionState = .idle
@@ -219,6 +220,21 @@ actor PhotoSessionManager {
     
     func getTranslatedPrompt(for chatId: Int64) -> String? {
         sessions[chatId]?.translatedPrompt
+    }
+    
+    func setLastActivity(for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.lastActivityAt = Date()
+        sessions[chatId] = session
+    }
+    
+    func getLastActivity(for chatId: Int64) -> Date? {
+        sessions[chatId]?.lastActivityAt
+    }
+    
+    /// Возвращает все сессии с их chatId для периодической очистки
+    func getAllSessions() -> [(chatId: Int64, session: Session)] {
+        sessions.map { (chatId: $0.key, session: $0.value) }
     }
 }
 

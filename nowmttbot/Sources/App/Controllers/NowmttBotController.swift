@@ -35,9 +35,158 @@ final class NowmttBotController {
         }
         
         let text = message.text ?? ""
-        req.logger.info("📨 Incoming message - chatId=\(message.chat.id), text length=\(text.count)")
+        let chatId = message.chat.id
+        // В приватных чатах chat.id == user.id
+        let userId = chatId
+        
+        req.logger.info("📨 Incoming message - chatId=\(chatId), text length=\(text.count)")
         if !text.isEmpty {
             req.logger.info("📝 Message text: \(text.prefix(200))")
+        }
+
+        // Регистрируем пользователя в общей базе монетизации
+        MonetizationService.registerUser(
+            botName: "nowmttbot",
+            chatId: chatId,
+            logger: req.logger,
+            env: req.application.environment
+        )
+        
+        // Если пользователь нажал кнопку "Я подписался, проверить" —
+        // повторно проверяем подписку и либо разблокируем, либо снова показываем требование.
+        if text == "✅ Я подписался, проверить" {
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "nowmttbot",
+                userId: userId,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+            
+            struct KeyboardButton: Content {
+                let text: String
+            }
+            
+            struct ReplyKeyboardMarkup: Content {
+                let keyboard: [[KeyboardButton]]
+                let resize_keyboard: Bool
+                let one_time_keyboard: Bool
+            }
+            
+            struct AccessPayloadWithKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardMarkup?
+            }
+            
+            if allowed {
+                // Проверяем, есть ли сохраненная ссылка
+                if let savedUrl = await UrlSessionManager.shared.getUrl(userId: userId) {
+                    // Есть сохраненная ссылка - автоматически обрабатываем её
+                    await UrlSessionManager.shared.clearUrl(userId: userId)
+                    
+                    // Проверяем rate limit
+                    let canProceed = await Self.rateLimiter.checkLimit(for: chatId)
+                    
+                    if !canProceed {
+                        _ = try? await sendTelegramMessage(
+                            token: token,
+                            chatId: chatId,
+                            text: "Ты уже прислал две ссылки за последнюю минуту. Подожди 1 минуту и пришли ссылку снова",
+                            client: req.client
+                        )
+                        return Response(status: .ok)
+                    }
+                    
+                    // Отправляем сообщение о начале обработки
+                    _ = try? await sendTelegramMessage(
+                        token: token,
+                        chatId: chatId,
+                        text: "Подписка подтверждена ✅\nОбрабатываю сохраненную ссылку... 🎬",
+                        client: req.client
+                    )
+                    
+                    // Обрабатываем ссылку
+                    let client = req.client
+                    let logger = req.logger
+                    
+                    do {
+                        logger.info("🚀 Processing saved TikTok URL: \(savedUrl)")
+                        logger.info("🔧 Extracting video URL via resolver...")
+                        let directVideoUrl = try await extractTikTokVideoUrl(from: savedUrl, req: req)
+                        logger.info("✅ Video URL extracted: \(directVideoUrl.prefix(200))...")
+                        
+                        try await sendTelegramVideoByUrl(
+                            token: token,
+                            chatId: chatId,
+                            videoUrl: directVideoUrl,
+                            client: client,
+                            logger: logger
+                        )
+                        logger.info("✅ Video sent successfully")
+                    } catch {
+                        logger.error("❌ Error processing TikTok video: \(error)")
+                        _ = try? await sendTelegramMessage(
+                            token: token,
+                            chatId: chatId,
+                            text: "😔 Произошла ошибка при обработке видео. Попробуй ещё раз 💕",
+                            client: client
+                        )
+                    }
+                    
+                    return Response(status: .ok)
+                } else {
+                    // Нет сохраненной ссылки - показываем обычное сообщение
+                    let successText = "Подписка подтверждена ✅\nМожешь отправить ссылку на TikTok видео, и я верну его без ватермарки."
+                    let keyboard = ReplyKeyboardMarkup(
+                        keyboard: [[KeyboardButton(text: "🎬 Отправить ссылку")]],
+                        resize_keyboard: true,
+                        one_time_keyboard: false
+                    )
+                    let payload = AccessPayloadWithKeyboard(
+                        chat_id: chatId,
+                        text: successText,
+                        disable_web_page_preview: false,
+                        reply_markup: keyboard
+                    )
+                    
+                    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                    _ = try await req.client.post(sendMessageUrl) { sendReq in
+                        try sendReq.content.encode(payload, as: .json)
+                    }.get()
+                    
+                    return Response(status: .ok)
+                }
+            } else {
+                let channelsText: String
+                if channels.isEmpty {
+                    channelsText = ""
+                } else {
+                    let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+                    channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+                }
+                
+                let errorText = "Я всё ещё не вижу активную подписку.\n\nЧтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\(channelsText)"
+                let keyboard = ReplyKeyboardMarkup(
+                    keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                )
+                let payload = AccessPayloadWithKeyboard(
+                    chat_id: chatId,
+                    text: errorText,
+                    disable_web_page_preview: false,
+                    reply_markup: keyboard
+                )
+                
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                _ = try await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(payload, as: .json)
+                }.get()
+                
+                return Response(status: .ok)
+            }
         }
 
         // Обработка команды /start
@@ -70,7 +219,6 @@ final class NowmttBotController {
         req.logger.info("✅ Detected TikTok URL: \(tiktokUrl)")
 
         // Проверка rate limit
-        let chatId = message.chat.id
         let canProceed = await Self.rateLimiter.checkLimit(for: chatId)
         
         if !canProceed {
@@ -80,6 +228,27 @@ final class NowmttBotController {
                 chatId: chatId,
                 text: "Ты уже прислал две ссылки за последнюю минуту. Подожди 1 минуту и пришли ссылку снова",
                 client: req.client
+            )
+            return Response(status: .ok)
+        }
+
+        // Проверяем подписку перед обработкой ссылки
+        let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
+            botName: "nowmttbot",
+            userId: userId,
+            logger: req.logger,
+            env: req.application.environment,
+            client: req.client
+        )
+        
+        guard subscriptionAllowed else {
+            // Пользователь не подписан - сохраняем ссылку и отправляем сообщение с требованием подписки
+            await UrlSessionManager.shared.saveUrl(userId: userId, url: tiktokUrl)
+            try await sendSubscriptionRequiredMessage(
+                chatId: chatId,
+                channels: channels,
+                token: token,
+                req: req
             )
             return Response(status: .ok)
         }
@@ -102,6 +271,9 @@ final class NowmttBotController {
                 logger: logger
             )
             logger.info("✅ Video sent successfully")
+            
+            // Очищаем сохраненную ссылку после успешной обработки
+            await UrlSessionManager.shared.clearUrl(userId: userId)
         } catch {
             logger.error("❌ Error processing TikTok video: \(error)")
             _ = try? await sendTelegramMessage(
@@ -114,6 +286,61 @@ final class NowmttBotController {
         
         return Response(status: .ok)
     }
+    
+    // MARK: - Вспомогательные функции для монетизации
+    
+    /// Отправляет сообщение с требованием подписки на спонсорские каналы
+    private func sendSubscriptionRequiredMessage(
+        chatId: Int64,
+        channels: [String],
+        token: String,
+        req: Request
+    ) async throws {
+        struct KeyboardButton: Content {
+            let text: String
+        }
+        
+        struct ReplyKeyboardMarkup: Content {
+            let keyboard: [[KeyboardButton]]
+            let resize_keyboard: Bool
+            let one_time_keyboard: Bool
+        }
+        
+        struct AccessPayloadWithKeyboard: Content {
+            let chat_id: Int64
+            let text: String
+            let disable_web_page_preview: Bool
+            let reply_markup: ReplyKeyboardMarkup?
+        }
+        
+        let channelsText: String
+        if channels.isEmpty {
+            channelsText = ""
+        } else {
+            let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+            channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+        }
+        
+        let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+        let keyboard = ReplyKeyboardMarkup(
+            keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+        let payload = AccessPayloadWithKeyboard(
+            chat_id: chatId,
+            text: text,
+            disable_web_page_preview: false,
+            reply_markup: keyboard
+        )
+        
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        _ = try await req.client.post(sendMessageUrl) { sendReq in
+            try sendReq.content.encode(payload, as: .json)
+        }.get()
+    }
+    
+    // MARK: - Обработка TikTok ссылок
     
     // Извлечение TikTok URL из текста
     private func extractTikTokURL(from text: String) -> String? {

@@ -68,7 +68,7 @@ struct OpenAIStyleService {
             throw Abort(.badRequest, reason: "OpenAI API error: \(response.status) - \(errorBody)")
         }
         
-        guard let body = response.body else {
+        guard var body = response.body else {
             logger.error("❌ OpenAI API response body is nil")
             throw Abort(.badRequest, reason: "OpenAI API response body is nil")
         }
@@ -81,9 +81,8 @@ struct OpenAIStyleService {
             throw Abort(.badRequest, reason: "OpenAI API response body is empty")
         }
         
-        let data = body.getData(at: 0, length: readableBytes) ?? Data()
-        
-        guard !data.isEmpty else {
+        // Используем readData вместо getData для корректного чтения тела ответа
+        guard let data = body.readData(length: readableBytes) else {
             logger.error("❌ OpenAI API response data is empty after extraction")
             throw Abort(.badRequest, reason: "OpenAI API response data is empty")
         }
@@ -169,7 +168,7 @@ struct OpenAIStyleService {
             throw Abort(.badRequest, reason: "OpenAI API error: \(response.status) - \(errorBody)")
         }
         
-        guard let body = response.body else {
+        guard var body = response.body else {
             logger.error("❌ OpenAI API response body is nil")
             throw Abort(.badRequest, reason: "OpenAI API response body is nil")
         }
@@ -182,9 +181,8 @@ struct OpenAIStyleService {
             throw Abort(.badRequest, reason: "OpenAI API response body is empty")
         }
         
-        let data = body.getData(at: 0, length: readableBytes) ?? Data()
-        
-        guard !data.isEmpty else {
+        // Используем readData вместо getData для корректного чтения тела ответа
+        guard let data = body.readData(length: readableBytes) else {
             logger.error("❌ OpenAI API response data is empty after extraction")
             throw Abort(.badRequest, reason: "OpenAI API response data is empty")
         }

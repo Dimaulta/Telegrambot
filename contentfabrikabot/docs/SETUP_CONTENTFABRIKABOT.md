@@ -19,7 +19,7 @@
 
 1. Создай файл окружения:
    ```bash
-   cp config/env.example config/.env
+   cp docs/env.example config/.env
    ```
 2. Заполни обязательные переменные:
    ```env

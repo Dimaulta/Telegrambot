@@ -16,11 +16,11 @@ VeoNowBot — заготовка Telegram-бота, который будет п
 - `Sources/App/Controllers/VeoNowBotController.swift` — будущая логика обработки обновлений.
 - `Sources/App/Models` — модели Telegram и Veo.
 - `Sources/App/Services/VeoApiClient.swift` — заглушка клиента Veo 3.
-- `config/.env.example` — список переменных окружения.
+- `docs/env.example` — список переменных окружения.
 
 ### Первоначальная настройка
 
-1. Скопируй `config/.env.example` в `config/.env` и заполни значения токенов Telegram и Veo.
+1. Скопируй `docs/env.example` в `config/.env` и заполни значения токенов Telegram и Veo.
 2. Добавь URL вебхука и базовые настройки в `config/services.json`, если используешь общий конфиг.
 3. Зарегистрируй новый исполняемый таргет `VeoNowBot` в корневом `Package.swift`, чтобы собирать и запускать бота.
 

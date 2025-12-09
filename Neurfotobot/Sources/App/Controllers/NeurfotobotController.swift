@@ -18,6 +18,15 @@ final class NeurfotobotController {
         }
 
         if let callback = update.callback_query {
+            // Обновляем время последней активности для callback'ов
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            await PhotoSessionManager.shared.setLastActivity(for: chatId)
+            
             try await handleCallback(callback, token: token, req: req)
             return Response(status: .ok)
         }
@@ -27,7 +36,53 @@ final class NeurfotobotController {
             return Response(status: .ok)
         }
 
+        // Регистрируем пользователя в общей базе монетизации
+        // В личных чатах chat.id равен user.id
+        MonetizationService.registerUser(
+            botName: "Neurfotobot",
+            chatId: message.chat.id,
+            logger: req.logger,
+            env: req.application.environment
+        )
+        
+        // Обновляем время последней активности
+        await PhotoSessionManager.shared.setLastActivity(for: message.chat.id)
+
         let text = message.text ?? ""
+        
+        // Если пользователь нажал кнопку "Я подписался, проверить" —
+        // повторно проверяем подписку и либо разблокируем, либо снова показываем требование.
+        if text == "✅ Я подписался, проверить" {
+            // В личных чатах chat.id равен user.id
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "Neurfotobot",
+                userId: message.chat.id,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+
+            if allowed {
+                let successText = "Подписка подтверждена ✅\n\nМожешь обучить модель нажав /train или добавить ещё фотографии"
+                _ = try? await sendTelegramMessage(
+                    token: token,
+                    chatId: message.chat.id,
+                    text: successText,
+                    client: req.client
+                )
+                return Response(status: .ok)
+            } else {
+                // Подписка всё ещё не подтверждена
+                try await sendSubscriptionRequiredMessage(
+                    token: token,
+                    chatId: message.chat.id,
+                    channels: channels,
+                    client: req.client
+                )
+                return Response(status: .ok)
+            }
+        }
+        
         if text == "/start" {
             // Не сбрасываем сессию при /start, чтобы сохранить модель если она есть
             var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: message.chat.id)
@@ -159,6 +214,51 @@ final class NeurfotobotController {
         _ = try await client.get(url)
     }
 
+    private func sendSubscriptionRequiredMessage(token: String, chatId: Int64, channels: [String], client: Client) async throws {
+        struct KeyboardButton: Content {
+            let text: String
+        }
+
+        struct ReplyKeyboardMarkup: Content {
+            let keyboard: [[KeyboardButton]]
+            let resize_keyboard: Bool
+            let one_time_keyboard: Bool
+        }
+
+        struct AccessPayloadWithKeyboard: Content {
+            let chat_id: Int64
+            let text: String
+            let disable_web_page_preview: Bool
+            let reply_markup: ReplyKeyboardMarkup?
+        }
+
+        let channelsText: String
+        if channels.isEmpty {
+            channelsText = ""
+        } else {
+            let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+            channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+        }
+
+        let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+        let keyboard = ReplyKeyboardMarkup(
+            keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+        let payload = AccessPayloadWithKeyboard(
+            chat_id: chatId,
+            text: text,
+            disable_web_page_preview: false,
+            reply_markup: keyboard
+        )
+
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        _ = try await client.post(sendMessageUrl) { sendReq in
+            try sendReq.content.encode(payload, as: .json)
+        }.get()
+    }
+
     private func handlePhotoMessage(photos: [NeurfotobotPhoto], message: NeurfotobotMessage, token: String, req: Request) async throws {
         let trainingState = await PhotoSessionManager.shared.getTrainingState(for: message.chat.id)
         switch trainingState {
@@ -206,6 +306,8 @@ final class NeurfotobotController {
         let storedPath = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
         req.logger.info("Uploaded photo stored at \(storedPath)")
         let newCount = await PhotoSessionManager.shared.addPhoto(path: storedPath, for: message.chat.id)
+        // Обновляем время последней активности при загрузке фото
+        await PhotoSessionManager.shared.setLastActivity(for: message.chat.id)
         let remaining = max(0, maximumPhotoCount - newCount)
 
         if newCount < minimumPhotoCount {
@@ -223,6 +325,32 @@ final class NeurfotobotController {
                 client: req.client
             )
         } else if newCount == maximumPhotoCount {
+            // Проверка подписки перед автоматическим запуском обучения (до модерации и создания dataset)
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "Neurfotobot",
+                userId: message.chat.id,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+
+            if !allowed {
+                _ = try? await sendTelegramMessage(
+                    token: token,
+                    chatId: message.chat.id,
+                    text: "Все \(maximumPhotoCount) фото получены и сохранены.",
+                    client: req.client
+                )
+                try await sendSubscriptionRequiredMessage(
+                    token: token,
+                    chatId: message.chat.id,
+                    channels: channels,
+                    client: req.client
+                )
+                req.logger.info("Доступ для пользователя \(message.chat.id) ограничен спонсорской подпиской при автоматическом запуске обучения.")
+                return
+            }
+
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: message.chat.id,
@@ -241,6 +369,9 @@ final class NeurfotobotController {
     }
 
     private func handleTrainCommand(chatId: Int64, token: String, req: Request) async throws {
+        // Обновляем время последней активности при попытке обучить модель
+        await PhotoSessionManager.shared.setLastActivity(for: chatId)
+        
         let trainingState = await PhotoSessionManager.shared.getTrainingState(for: chatId)
         switch trainingState {
         case .training:
@@ -279,6 +410,26 @@ final class NeurfotobotController {
                 text: "Пока загружено только \(photos.count) фото. Нужно минимум \(minimumPhotoCount), чтобы начать обучение.",
                 client: req.client
             )
+            return
+        }
+
+        // Проверка подписки перед началом обучения (до модерации и создания dataset)
+        let (allowed, channels) = await MonetizationService.checkAccess(
+            botName: "Neurfotobot",
+            userId: chatId,
+            logger: req.logger,
+            env: req.application.environment,
+            client: req.client
+        )
+
+        if !allowed {
+            try await sendSubscriptionRequiredMessage(
+                token: token,
+                chatId: chatId,
+                channels: channels,
+                client: req.client
+            )
+            req.logger.info("Доступ для пользователя \(chatId) ограничен спонсорской подпиской при попытке обучить модель.")
             return
         }
 
@@ -384,6 +535,9 @@ final class NeurfotobotController {
 
     private func handlePrompt(text: String, message: NeurfotobotMessage, token: String, req: Request) async throws {
         let chatId = message.chat.id
+        // Обновляем время последней активности при обработке промпта
+        await PhotoSessionManager.shared.setLastActivity(for: chatId)
+        
         let promptState = await PhotoSessionManager.shared.getPromptCollectionState(for: chatId)
         
         // Если мы собираем промпт пошагово, обрабатываем текущий шаг

@@ -10,7 +10,7 @@
 - ✅ Токены больше не хранятся в коде
 
 ### Что нужно сделать вам:
-1. **Создайте файл `config/.env`** с вашими токенами. Ориентируйтесь на шаблон [`config/env.example`](../config/env.example)
+1. **Создайте файл `config/.env`** с вашими токенами. Ориентируйтесь на шаблон [`docs/env.example`](./env.example)
 2. **Получите токены в BotFather**, затем заполните `config/.env` по инструкциям из [SETUP_GUIDE.md](./SETUP_GUIDE.md) и [QUICK_START.md](./QUICK_START.md)
 
 

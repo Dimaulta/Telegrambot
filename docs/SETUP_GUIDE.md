@@ -68,7 +68,7 @@ cd Telegrambot
 7. Создать файл конфигурации из примера:
 
 ```bash
-cp config/env.example config/.env
+cp docs/env.example config/.env
 ```
 
 
@@ -81,7 +81,7 @@ cp config/env.example config/.env
 - Создать ботов командой /newbot
 - Скопировать токены для каждого бота
 
-8.2. Заполни `config/.env` своими значениями. Ориентируйся на структуру [`config/env.example`](../config/env.example), например:
+8.2. Заполни `config/.env` своими значениями. Ориентируйся на структуру [`docs/env.example`](./env.example), например:
 ```env
 VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 ```

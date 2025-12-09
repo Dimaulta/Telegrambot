@@ -50,6 +50,9 @@ public func configure(_ app: Application) async throws {
     // Автоматический запуск миграций
     try await app.autoMigrate()
 
+    // Инициализация базы данных монетизации
+    MonetizationService.ensureDatabase(app: app)
+
     // Получаем порт из общего конфига сервисов
     let port = getPortFromConfig(serviceName: "contentfabrikabot")
     app.http.server.configuration.port = port

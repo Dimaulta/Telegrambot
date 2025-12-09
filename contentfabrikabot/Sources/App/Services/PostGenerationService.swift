@@ -37,6 +37,9 @@ struct PostGenerationService {
             keyboard: keyboard,
             client: req.client
         )
+        
+        // Очищаем сохраненную тему после успешной генерации
+        await TopicSessionManager.shared.clearTopic(userId: userId)
     }
 }
 

@@ -360,7 +360,8 @@ struct PereskazService {
         process.arguments = [
             "--extract-audio",
             "--audio-format", "m4a",
-            "--audio-quality", "5", // Качество 5 (вместо 0) для меньшего размера файла
+            "--audio-quality", "7", // Качество 7 (еще более низкое) для меньшего размера файла
+            "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1", // Более агрессивное сжатие через ffmpeg
             "--output", audioFile.path,
             "--no-mtime", // Не сохранять время модификации
             "--no-playlist", // Только одно видео
@@ -498,24 +499,29 @@ struct PereskazService {
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
+        
+        // Используем более агрессивное сжатие для больших файлов
+        // Более низкий битрейт и частота дискретизации для меньшего размера
         process.arguments = [
             "-i", audioFile.path,
-            "-c:a", "aac", // Кодек аудио (современный синтаксис)
-            "-b:a", "48k", // Более низкий битрейт для меньшего размера
+            "-c:a", "aac", // Кодек аудио
+            "-b:a", "24k", // Очень низкий битрейт (24k) для максимального сжатия
             "-ar", "16000", // Частота дискретизации (16kHz достаточно для речи)
             "-ac", "1", // Моно канал
-            "-threads", "2", // Ограничиваем потоки для быстрой обработки
+            "-threads", "4", // Увеличиваем потоки для быстрой обработки
+            "-preset", "fast", // Быстрый пресет для кодирования
+            "-aac_coder", "twoloop", // Более эффективный кодер AAC
             "-y", // Перезаписать файл если существует
             compressedFile.path
         ]
         
-        logger.info("🎵 Compressing audio with ffmpeg (this may take a while for large files)...")
+        logger.info("🎵 Compressing audio with ffmpeg (this may take a while for large files, up to 10 minutes)...")
         
         // Запускаем процесс
         try process.run()
         
-        // Ждем завершения с таймаутом (максимум 2 минуты на сжатие)
-        let timeout: TimeInterval = 120
+        // Увеличиваем таймаут до 10 минут для больших файлов (46 MB может занять время)
+        let timeout: TimeInterval = 600 // 10 минут
         let startTime = Date()
         
         // Проверяем статус процесса асинхронно
@@ -553,6 +559,57 @@ struct PereskazService {
         if compressedData.count >= originalSize {
             logger.warning("⚠️ Compressed file is not smaller (\(compressedData.count) >= \(originalSize)), using original")
             return try Data(contentsOf: audioFile)
+        }
+        
+        // Проверяем, что сжатый файл меньше лимита Whisper API (25MB)
+        let maxSize = 25 * 1024 * 1024 // 25MB
+        if compressedData.count > maxSize {
+            logger.warning("⚠️ Compressed file still too large (\(compressedData.count) bytes, max: \(maxSize)), trying more aggressive compression...")
+            
+            // Пробуем еще более агрессивное сжатие
+            let moreCompressedFile = workDir.appendingPathComponent("audio_compressed2.m4a")
+            let process2 = Process()
+            process2.executableURL = URL(fileURLWithPath: ffmpeg)
+            process2.arguments = [
+                "-i", compressedFile.path,
+                "-c:a", "aac",
+                "-b:a", "16k", // Минимальный битрейт для речи
+                "-ar", "16000",
+                "-ac", "1",
+                "-threads", "4",
+                "-preset", "fast",
+                "-aac_coder", "twoloop", // Более эффективный кодер AAC
+                "-y",
+                moreCompressedFile.path
+            ]
+            
+            try process2.run()
+            
+            // Ждем завершения с таймаутом 5 минут
+            let timeout2: TimeInterval = 300
+            let startTime2 = Date()
+            
+            while process2.isRunning {
+                let elapsed = Date().timeIntervalSince(startTime2)
+                if elapsed > timeout2 {
+                    logger.warning("⚠️ Second compression attempt timed out")
+                    process2.terminate()
+                    // Если вторая попытка не удалась, выбрасываем ошибку
+                    throw Abort(.badRequest, reason: "Аудио файл слишком большой (\(compressedData.count / 1024 / 1024) MB после сжатия). Максимальный размер: 25 MB. Попробуй видео покороче.")
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            
+            if process2.terminationStatus == 0,
+               FileManager.default.fileExists(atPath: moreCompressedFile.path),
+               let moreCompressedData = try? Data(contentsOf: moreCompressedFile),
+               moreCompressedData.count < maxSize {
+                logger.info("✅ Second compression successful: \(compressedData.count) bytes -> \(moreCompressedData.count) bytes")
+                return moreCompressedData
+            }
+            
+            // Если вторая попытка не помогла, выбрасываем ошибку
+            throw Abort(.badRequest, reason: "Аудио файл слишком большой (\(compressedData.count / 1024 / 1024) MB после сжатия). Максимальный размер: 25 MB. Попробуй видео покороче.")
         }
         
         return compressedData

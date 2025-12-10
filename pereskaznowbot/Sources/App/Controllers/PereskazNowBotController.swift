@@ -2,8 +2,8 @@ import Vapor
 import Foundation
 
 final class PereskazNowBotController: @unchecked Sendable {
-    // Rate limiter: 1 запрос в минуту на пользователя
-    private static let rateLimiter = RateLimiter(maxRequests: 1, timeWindow: 60)
+    // Rate limiter: 1 запрос в 2 минуты на пользователя
+    private static let rateLimiter = RateLimiter(maxRequests: 1, timeWindow: 120)
     
     // Daily limiter: 20 видео в день на пользователя
     private static let dailyLimiter = DailyLimiter()
@@ -15,8 +15,8 @@ final class PereskazNowBotController: @unchecked Sendable {
     // Трекер обрабатываемых ссылок (защита от дубликатов)
     private static let processingLinksTracker = ProcessingLinksTracker()
     
-    // Максимальная длительность видео (1 час)
-    private static let maxVideoDurationMinutes = 60
+    // Максимальная длительность видео (30 минут)
+    private static let maxVideoDurationMinutes = 30
     
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("═══════════════════════════════════════════════")
@@ -49,11 +49,13 @@ final class PereskazNowBotController: @unchecked Sendable {
             return Response(status: .ok)
         }
         
+        req.logger.info("🔍 Checking duplicate for update_id=\(updateId)")
         let isDuplicate = await Self.updateDeduplicator.checkAndAdd(updateId: updateId)
         if isDuplicate {
             req.logger.info("⚠️ Duplicate update_id \(updateId) - already processed, ignoring")
             return Response(status: .ok)
         }
+        req.logger.info("✅ Update_id \(updateId) is new, processing...")
 
         guard let message = update?.message else {
             req.logger.warning("⚠️ No message in update (update_id: \(updateId))")
@@ -98,6 +100,10 @@ final class PereskazNowBotController: @unchecked Sendable {
                 let one_time_keyboard: Bool
             }
             
+            struct ReplyKeyboardRemove: Content {
+                let remove_keyboard: Bool
+            }
+            
             struct AccessPayloadWithKeyboard: Content {
                 let chat_id: Int64
                 let text: String
@@ -105,26 +111,66 @@ final class PereskazNowBotController: @unchecked Sendable {
                 let reply_markup: ReplyKeyboardMarkup?
             }
             
+            struct AccessPayloadWithRemoveKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardRemove?
+            }
+            
             if allowed {
-                let successText = "Подписка подтверждена ✅\nМожешь отправить ссылку на YouTube видео, и я верну тебе краткое содержание."
-                let keyboard = ReplyKeyboardMarkup(
-                    keyboard: [[KeyboardButton(text: "🎬 Отправить ссылку")]],
-                    resize_keyboard: true,
-                    one_time_keyboard: false
-                )
-                let payload = AccessPayloadWithKeyboard(
+                // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                let removePayload = AccessPayloadWithRemoveKeyboard(
                     chat_id: chatId,
-                    text: successText,
+                    text: "Подписка подтверждена ✅",
                     disable_web_page_preview: false,
-                    reply_markup: keyboard
+                    reply_markup: removeKeyboard
                 )
                 
                 let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
                 _ = try await req.client.post(sendMessageUrl) { sendReq in
-                    try sendReq.content.encode(payload, as: .json)
+                    try sendReq.content.encode(removePayload, as: .json)
                 }.get()
                 
-                return Response(status: .ok)
+                // Проверяем, есть ли сохраненная ссылка для автоматической обработки
+                if let savedUrl = await VideoUrlSessionManager.shared.getUrl(userId: userId) {
+                    // Есть сохраненная ссылка - автоматически обрабатываем её
+                    req.logger.info("✅ Subscription confirmed, processing saved URL: \(savedUrl)")
+                    
+                    // Очищаем сохраненную ссылку перед обработкой
+                    await VideoUrlSessionManager.shared.clearUrl(userId: userId)
+                    
+                    // Продолжаем обработку сохраненной ссылки
+                    // Выполняем все проверки и обработку для сохраненной ссылки
+                    return try await processVideoUrl(
+                        youtubeUrl: savedUrl,
+                        chatId: chatId,
+                        userId: userId,
+                        token: token,
+                        req: req
+                    )
+                } else {
+                    // Нет сохраненной ссылки - просто сообщаем об успешной подписке
+                    let successText = "Можешь отправить ссылку на YouTube видео, и я верну тебе краткое содержание."
+                    let keyboard = ReplyKeyboardMarkup(
+                        keyboard: [[KeyboardButton(text: "🎬 Отправить ссылку")]],
+                        resize_keyboard: true,
+                        one_time_keyboard: false
+                    )
+                    let payload = AccessPayloadWithKeyboard(
+                        chat_id: chatId,
+                        text: successText,
+                        disable_web_page_preview: false,
+                        reply_markup: keyboard
+                    )
+                    
+                    _ = try await req.client.post(sendMessageUrl) { sendReq in
+                        try sendReq.content.encode(payload, as: .json)
+                    }.get()
+                    
+                    return Response(status: .ok)
+                }
             } else {
                 let channelsText: String
                 if channels.isEmpty {
@@ -156,20 +202,30 @@ final class PereskazNowBotController: @unchecked Sendable {
             }
         }
 
-        // Обработка команды /start
-        if text == "/start" {
-            req.logger.info("✅ Command /start received")
+        // Обработка команды /start (с параметрами или без)
+        if text == "/start" || text.hasPrefix("/start ") {
+            req.logger.info("✅ Command /start received for chatId=\(chatId), update_id=\(updateId)")
+            
+            // Дополнительная проверка по времени (защита от дубликатов с разными update_id)
+            let canProcessStart = await StartCommandTracker.shared.canProcess(chatId: chatId)
+            if !canProcessStart {
+                req.logger.info("⚠️ /start command for chatId=\(chatId) processed too recently (within 5 seconds), ignoring duplicate")
+                return Response(status: .ok)
+            }
+            
             do {
-                let welcomeText = "Привет! 👋\n\nЯ бот для получения расшифровки и саммари YouTube видео! 🎬\n\nПросто отправь мне ссылку на YouTube видео, и я верну тебе краткое содержание.\n\n⚙️ Ограничения:\n• Максимальная длительность видео: \(Self.maxVideoDurationMinutes) минут\n• Не более 1 ссылки в минуту\n• Не более 20 видео в день"
+                let welcomeText = "Привет! 👋\n\nЯ бот для получения расшифровки и саммари YouTube видео! 🎬\n\nПросто отправь мне ссылку на YouTube видео, и я верну тебе краткое содержание.\n\n⚙️ Ограничения:\n• Максимальная длительность видео: \(Self.maxVideoDurationMinutes) минут\n• Не более 1 ссылки в 2 минуты\n• Не более 20 видео в день"
+                req.logger.info("📤 Attempting to send start message to chatId=\(chatId)")
                 try await sendTelegramMessage(
                     token: token,
                     chatId: message.chat.id,
                     text: welcomeText,
                     client: req.client
                 )
-                req.logger.info("✅ Start message sent successfully")
+                req.logger.info("✅ Start message sent successfully to chatId=\(chatId)")
             } catch {
-                req.logger.error("❌ Failed to send start message: \(error)")
+                req.logger.error("❌ Failed to send start message to chatId=\(chatId): \(error)")
+                req.logger.error("❌ Error details: \(String(describing: error))")
             }
             return Response(status: .ok)
         }
@@ -191,7 +247,7 @@ final class PereskazNowBotController: @unchecked Sendable {
         
         req.logger.info("✅ Detected YouTube URL: \(youtubeUrl)")
 
-        // Проверка rate limit (1 запрос в минуту)
+        // Проверка rate limit (1 запрос в 2 минуты)
         let canProceed = await Self.rateLimiter.checkLimit(for: chatId)
         
         if !canProceed {
@@ -199,7 +255,7 @@ final class PereskazNowBotController: @unchecked Sendable {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: chatId,
-                text: "⏱️ Ты уже отправил ссылку в последнюю минуту. Подожди немного и попробуй снова 💕",
+                text: "⏱️ Ты уже отправил ссылку в последние 2 минуты. Подожди немного и попробуй снова 💕",
                 client: req.client
             )
             return Response(status: .ok)
@@ -225,7 +281,7 @@ final class PereskazNowBotController: @unchecked Sendable {
             req.logger.info("ℹ️ User \(chatId) has \(remaining) requests remaining today")
         }
         
-        // Проверка длительности видео (максимум 1 час)
+        // Проверка длительности видео (максимум 30 минут)
         do {
             let durationMinutes = try await getVideoDuration(videoUrl: youtubeUrl, logger: req.logger)
             req.logger.info("📹 Video duration: \(durationMinutes) minutes")
@@ -244,6 +300,9 @@ final class PereskazNowBotController: @unchecked Sendable {
             req.logger.warning("⚠️ Failed to get video duration: \(error), proceeding anyway")
             // Продолжаем обработку, если не удалось получить длительность
         }
+
+        // Сохраняем ссылку перед проверкой подписки (для автоматической обработки после подтверждения)
+        await VideoUrlSessionManager.shared.saveUrl(userId: userId, url: youtubeUrl)
 
         // Проверяем подписку перед обработкой ссылки
         let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
@@ -265,6 +324,26 @@ final class PereskazNowBotController: @unchecked Sendable {
             return Response(status: .ok)
         }
 
+        // Обрабатываем ссылку через вынесенную функцию
+        return try await processVideoUrl(
+            youtubeUrl: youtubeUrl,
+            chatId: chatId,
+            userId: userId,
+            token: token,
+            req: req
+        )
+    }
+    
+    // MARK: - Обработка видео
+    
+    /// Обрабатывает YouTube ссылку (вынесено в отдельную функцию для переиспользования)
+    private func processVideoUrl(
+        youtubeUrl: String,
+        chatId: Int64,
+        userId: Int64,
+        token: String,
+        req: Request
+    ) async throws -> Response {
         // Извлекаем videoId для проверки дубликатов
         guard let videoId = extractVideoIdFromURL(youtubeUrl) else {
             req.logger.error("❌ Could not extract video ID from URL: \(youtubeUrl)")
@@ -307,7 +386,7 @@ final class PereskazNowBotController: @unchecked Sendable {
         _ = try? await sendTelegramMessage(
             token: token,
             chatId: chatId,
-            text: "Обрабатываю ссылку... 🎬\nЭто может занять некоторое время...",
+            text: "Обрабатываю ссылку... 🎬\nЭто может занять 2-3 минуты...",
             client: req.client
         )
 
@@ -360,6 +439,9 @@ final class PereskazNowBotController: @unchecked Sendable {
             )
             
             logger.info("✅ Summary sent successfully")
+            
+            // Очищаем сохраненную ссылку после успешной обработки
+            await VideoUrlSessionManager.shared.clearUrl(userId: userId)
         } catch {
             logger.error("❌ Error processing YouTube video: \(error)")
             
@@ -514,20 +596,26 @@ final class PereskazNowBotController: @unchecked Sendable {
         let payload = TelegramMessagePayload(chat_id: chatId, text: text)
         let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
         
+        do {
         let response = try await client.post(url) { req in
             try req.content.encode(payload, as: .json)
-        }
+            }.get()
         
         guard response.status == .ok else {
             // Логируем ошибку для отладки
+                var errorDetails = "Status: \(response.status)"
             if let body = response.body {
                 let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-                let bodyString = String(data: data, encoding: .utf8) ?? "Unknown error"
-                print("❌ Failed to send Telegram message: \(response.status) - \(bodyString)")
+                    if let bodyString = String(data: data, encoding: .utf8) {
+                        errorDetails += " - \(bodyString)"
+                        print("❌ Failed to send Telegram message: \(errorDetails)")
+                    } else {
+                        print("❌ Failed to send Telegram message: \(errorDetails) - Could not decode body")
+                    }
             } else {
-                print("❌ Failed to send Telegram message: \(response.status) - No response body")
+                    print("❌ Failed to send Telegram message: \(errorDetails) - No response body")
             }
-            throw Abort(.badRequest, reason: "Failed to send message")
+                throw Abort(.badRequest, reason: "Failed to send message: \(errorDetails)")
         }
         
         // Логируем успешную отправку для отладки
@@ -536,6 +624,10 @@ final class PereskazNowBotController: @unchecked Sendable {
             if let bodyString = String(data: data, encoding: .utf8) {
                 print("✅ Telegram message sent successfully: \(bodyString.prefix(200))")
             }
+            }
+        } catch {
+            print("❌ Exception in sendTelegramMessage: \(error)")
+            throw error
         }
     }
     
@@ -549,7 +641,7 @@ final class PereskazNowBotController: @unchecked Sendable {
         let payload = ChatActionPayload(chat_id: chatId, action: "typing")
         _ = try await client.post(url) { req in
             try req.content.encode(payload, as: .json)
-        }
+        }.get()
     }
     
     /// Отправляет саммари с разбиением на части, если сообщение слишком длинное

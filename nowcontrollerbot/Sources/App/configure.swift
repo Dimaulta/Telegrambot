@@ -37,7 +37,7 @@ public func configure(_ app: Application) async throws {
 
     let port = getPortFromConfig(serviceName: "nowcontrollerbot")
     app.http.server.configuration.port = port
-
+    
     // Middleware для логирования всех входящих запросов (для диагностики webhook)
     app.middleware.use(LoggingMiddleware())
 

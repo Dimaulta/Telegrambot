@@ -620,7 +620,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             try sendReq.content.encode(payload, as: .json)
         }.get()
     }
-    
+
     // MARK: - Обработка пересланных сообщений
     
     private func handleChannelMessage(message: ContentFabrikaBotMessage, token: String, userId: Int64, req: Request) async throws {
@@ -899,23 +899,23 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         return
                     }
                             
-                    let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
-                    guard allowed else {
-                        _ = try? await TelegramService.answerCallbackQuery(
-                            token: token,
-                            callbackId: callback.id,
-                            text: "Подожди немного перед следующей генерацией",
-                            req: req
-                        )
-                        _ = try? await TelegramService.sendMessage(
-                            token: token,
-                            chatId: chatId,
-                            text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
-                            client: req.client,
-                            replyToMessageId: replyToMessageId
-                        )
-                        return
-                    }
+                            let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                            guard allowed else {
+                                _ = try? await TelegramService.answerCallbackQuery(
+                                    token: token,
+                                    callbackId: callback.id,
+                                    text: "Подожди немного перед следующей генерацией",
+                                    req: req
+                                )
+                                _ = try? await TelegramService.sendMessage(
+                                    token: token,
+                                    chatId: chatId,
+                                    text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
+                                    client: req.client,
+                                    replyToMessageId: replyToMessageId
+                                )
+                                return
+                            }
                     
                     _ = try await TelegramService.answerCallbackQuery(
                         token: token,

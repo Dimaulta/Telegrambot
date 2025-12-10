@@ -155,7 +155,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         targetChannel = allChannels.first!
                     } else {
                         // Не можем определить канал - просим ввести тему заново
-                        let successText = "Можешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                        let successText = "Можешь отправить тему для поста, и я сгенерирую его в твоём стиле"
                         let keyboard = ReplyKeyboardMarkup(
                             keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
                             resize_keyboard: true,

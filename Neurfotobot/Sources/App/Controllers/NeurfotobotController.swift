@@ -63,7 +63,33 @@ final class NeurfotobotController {
             )
 
             if allowed {
-                let successText = "Подписка подтверждена ✅\n\nМожешь обучить модель нажав /train или добавить ещё фотографии"
+                // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                struct ReplyKeyboardRemove: Content {
+                    let remove_keyboard: Bool
+                }
+                
+                struct RemoveKeyboardPayload: Content {
+                    let chat_id: Int64
+                    let text: String
+                    let disable_web_page_preview: Bool
+                    let reply_markup: ReplyKeyboardRemove?
+                }
+                
+                let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                let removePayload = RemoveKeyboardPayload(
+                    chat_id: message.chat.id,
+                    text: "Подписка подтверждена ✅",
+                    disable_web_page_preview: false,
+                    reply_markup: removeKeyboard
+                )
+                
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                _ = try? await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(removePayload, as: .json)
+                }.get()
+                
+                // Отправляем сообщение с инструкциями
+                let successText = "Можешь обучить модель нажав /train или добавить ещё фотографии"
                 _ = try? await sendTelegramMessage(
                     token: token,
                     chatId: message.chat.id,

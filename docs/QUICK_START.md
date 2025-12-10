@@ -116,7 +116,7 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run GSForTextBot serve
+  swift run GSForTextBot
   ```
 
 - ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
@@ -131,6 +131,13 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
   swift run Neurfotobot
+  ```
+
+- PereskazNowBot - бот для получения расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
+  ```bash
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
+  swift run PereskazNowBot
   ```
 
 - BananaNowBot — бот для использования Nano Banana (в разработке)
@@ -154,12 +161,6 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   swift run VeoNowBot
   ```
 
-- PereskazNowBot - бот для получения расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
-  ```bash
-  cd /Users/a1111/Desktop/projects/Telegrambot
-  set -a; source config/.env; set +a
-  swift run PereskazNowBot
-  ```
   
   **Требования:**
   - `PERESKAZNOWBOT_TOKEN` - токен бота от @BotFather

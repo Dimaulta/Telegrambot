@@ -119,6 +119,15 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation")
             ],
             path: "Neurfotobot/Sources/App"
+        ),
+        .executableTarget(
+            name: "PereskazNowBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "pereskaznowbot/Sources/App"
         )
     ]
 )

@@ -77,6 +77,16 @@
       "enabled": true,
       "webhook_url": "${BASE_URL}/contentfabrika/webhook",
       "name": "ContentFabrikaBot - AI Content Generator"
+    },
+    "pereskaznowbot": {
+      "url": "http://localhost:8090",
+      "routes": [
+        "/webhook",
+        "/pereskaznow/webhook"
+      ],
+      "enabled": true,
+      "webhook_url": "${BASE_URL}/pereskaznow/webhook",
+      "name": "PereskazNowBot - YouTube Video Summary"
     }
   }
 }

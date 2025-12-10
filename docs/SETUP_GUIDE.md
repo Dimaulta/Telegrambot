@@ -19,6 +19,12 @@
 brew install ffmpeg
 ```
 
+2.1. Установить yt-dlp (для PereskazNowBot):
+
+```bash
+brew install yt-dlp
+```
+
 
 
 
@@ -89,7 +95,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 
 > **Важно:** Обязательно заполни переменную `NOWCONTROLLERBOT_BROADCAST_BOTS` — это список ботов, которыми будет управлять `NowControllerBot` для монетизации. Укажи имена ботов через запятую без пробелов, например:
 > ```env
-> NOWCONTROLLERBOT_BROADCAST_BOTS=Roundsvideobot,nowmttbot,contentfabrikabot,gsfortextbot,Neurfotobot
+> NOWCONTROLLERBOT_BROADCAST_BOTS=Roundsvideobot,nowmttbot,contentfabrikabot,gsfortextbot,Neurfotobot,pereskaznowbot
 > ```
 > Имена ботов должны точно совпадать с теми, что используются в коде (регистр имеет значение). При первом запуске `NowControllerBot` автоматически создаст записи для всех указанных ботов в базе данных монетизации.
 
@@ -97,6 +103,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 > - **ContentFabrikaBot:** Подробный план установки, настройки `.env`, OpenAI и вебхука см. в [contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md](../contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md).
 > - **SaluteSpeech (GSForTextBot):** Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
 > - **Neurfotobot:** Полная инструкция по настройке всех сервисов для Neurfotobot (Replicate, Supabase, Yandex Translate, Google Vision, OpenAI) с пошаговыми инструкциями, ссылками на регистрацию и настройку биллинга см. в [Neurfotobot/docs/SETUP_NEURFOTOBOT.md](../Neurfotobot/docs/SETUP_NEURFOTOBOT.md).
+> - **PereskazNowBot:** Бот для получения расшифровки и саммари YouTube видео. Требует `PERESKAZNOWBOT_TOKEN` (токен бота от @BotFather) и `PERESKAZ_OPENAI_SERVICE` (OpenAI API ключ для Whisper API и GPT). Также требуется установленный `yt-dlp` для скачивания аудио с YouTube (см. шаг 2.1).
 
 
 

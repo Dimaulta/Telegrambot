@@ -223,4 +223,25 @@ else
     echo ""
 fi
 
+# ============================================
+# PERESKAZNOWBOT (YouTube Video Summary)
+# ============================================
+if [ -z "$PERESKAZNOWBOT_TOKEN" ]; then
+    echo "⚠️ PERESKAZNOWBOT_TOKEN не установлен, пропускаем..."
+else
+    echo "🔧 Настройка webhook для PereskazNowBot..."
+    echo "📡 URL: ${BASE_URL}/pereskaznow/webhook"
+
+    curl -sS -X POST "https://api.telegram.org/bot${PERESKAZNOWBOT_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "{\"url\":\"${BASE_URL}/pereskaznow/webhook\"}"
+
+    echo ""
+    echo "✅ Webhook для PereskazNowBot настроен!"
+    echo "📋 Проверка:"
+    curl -sS "https://api.telegram.org/bot${PERESKAZNOWBOT_TOKEN}/getWebhookInfo"
+    echo ""
+    echo ""
+fi
+
 echo "🎉 Готово! Все webhook'и настроены."

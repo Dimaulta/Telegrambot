@@ -60,19 +60,39 @@ func routes(_ app: Application) async throws {
                         let disable_web_page_preview: Bool
                         let reply_markup: ReplyKeyboardMarkup?
                     }
+                    
+                    struct ReplyKeyboardRemove: Content {
+                        let remove_keyboard: Bool
+                    }
+                    
+                    struct AccessPayloadWithRemoveKeyboard: Content {
+                        let chat_id: Int64
+                        let text: String
+                        let disable_web_page_preview: Bool
+                        let reply_markup: ReplyKeyboardRemove?
+                    }
 
                     if allowed {
-                        let text = "Подписка подтверждена ✅\nМожешь отправить видео, и я сделаю из него видеокружок"
-                        let keyboard = ReplyKeyboardMarkup(
-                            keyboard: [[KeyboardButton(text: "📷 Отправить видео ещё раз")]],
-                            resize_keyboard: true,
-                            one_time_keyboard: false
+                        // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                        let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                        let removePayload = AccessPayloadWithRemoveKeyboard(
+                            chat_id: message.chat.id,
+                            text: "Подписка подтверждена ✅",
+                            disable_web_page_preview: false,
+                            reply_markup: removeKeyboard
                         )
+                        
+                        _ = try await req.client.post(sendMessageUrl) { sendReq in
+                            try sendReq.content.encode(removePayload, as: .json)
+                        }.get()
+                        
+                        // Отправляем только текстовое сообщение без клавиатуры
+                        let text = "Можешь отправить видео, и я сделаю из него видеокружок"
                         let payload = AccessPayloadWithKeyboard(
                             chat_id: message.chat.id,
                             text: text,
                             disable_web_page_preview: false,
-                            reply_markup: keyboard
+                            reply_markup: nil
                         )
 
                         _ = try await req.client.post(sendMessageUrl) { sendReq in
@@ -110,64 +130,7 @@ func routes(_ app: Application) async throws {
                     }
                 }
 
-                // Обычная проверка доступа по спонсорской подписке
-                let (allowed, channels) = await MonetizationService.checkAccess(
-                    botName: "Roundsvideobot",
-                    userId: message.from.id,
-                    logger: req.logger,
-                    env: req.application.environment,
-                    client: req.client
-                )
-
-                if !allowed {
-                    let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
-                    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-
-                    struct KeyboardButton: Content {
-                        let text: String
-                    }
-
-                    struct ReplyKeyboardMarkup: Content {
-                        let keyboard: [[KeyboardButton]]
-                        let resize_keyboard: Bool
-                        let one_time_keyboard: Bool
-                    }
-
-                    struct AccessPayloadWithKeyboard: Content {
-                        let chat_id: Int64
-                        let text: String
-                        let disable_web_page_preview: Bool
-                        let reply_markup: ReplyKeyboardMarkup?
-                    }
-
-                    let channelsText: String
-                    if channels.isEmpty {
-                        channelsText = ""
-                    } else {
-                        let listed = channels.map { "@\($0)" }.joined(separator: "\n")
-                        channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
-                    }
-
-                    let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
-                    let keyboard = ReplyKeyboardMarkup(
-                        keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
-                        resize_keyboard: true,
-                        one_time_keyboard: false
-                    )
-                    let payload = AccessPayloadWithKeyboard(
-                        chat_id: message.chat.id,
-                        text: text,
-                        disable_web_page_preview: false,
-                        reply_markup: keyboard
-                    )
-
-                    _ = try await req.client.post(sendMessageUrl) { sendReq in
-                        try sendReq.content.encode(payload, as: .json)
-                    }.get()
-
-                    req.logger.info("Доступ для пользователя \(message.from.id) ограничен спонсорской подпиской.")
-                    return .ok
-                }
+                // Важно: Проверку подписки переносим на момент, когда пользователь отправляет видео
                 
                 // Обрабатываем /start отдельно
                 if let text = message.text, text == "/start" {
@@ -195,8 +158,64 @@ func routes(_ app: Application) async throws {
                     return .ok
                 }
 
-                // Обработка видео
+                // Обработка видео (здесь выполняем проверку подписки)
                 if let video = message.video {
+                    // Проверка доступа по спонсорской подписке прямо перед обработкой видео
+                    do {
+                        let (allowed, channels) = await MonetizationService.checkAccess(
+                            botName: "Roundsvideobot",
+                            userId: message.from.id,
+                            logger: req.logger,
+                            env: req.application.environment,
+                            client: req.client
+                        )
+                        if !allowed {
+                            let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+                            let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+
+                            struct KeyboardButton: Content { let text: String }
+                            struct ReplyKeyboardMarkup: Content {
+                                let keyboard: [[KeyboardButton]]
+                                let resize_keyboard: Bool
+                                let one_time_keyboard: Bool
+                            }
+                            struct AccessPayloadWithKeyboard: Content {
+                                let chat_id: Int64
+                                let text: String
+                                let disable_web_page_preview: Bool
+                                let reply_markup: ReplyKeyboardMarkup?
+                            }
+
+                            let channelsText: String
+                            if channels.isEmpty {
+                                channelsText = ""
+                            } else {
+                                let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+                                channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+                            }
+
+                            let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+                            let keyboard = ReplyKeyboardMarkup(
+                                keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+                                resize_keyboard: true,
+                                one_time_keyboard: false
+                            )
+                            let payload = AccessPayloadWithKeyboard(
+                                chat_id: message.chat.id,
+                                text: text,
+                                disable_web_page_preview: false,
+                                reply_markup: keyboard
+                            )
+
+                            _ = try await req.client.post(sendMessageUrl) { sendReq in
+                                try sendReq.content.encode(payload, as: .json)
+                            }.get()
+
+                            req.logger.info("Доступ для пользователя \(message.from.id) ограничен спонсорской подпиской (перед обработкой видео).")
+                            return .ok
+                        }
+                    }
+                    
                     // Лимит: не более 2 видео в минуту на пользователя
                     let chatIdStr = String(message.chat.id)
                     if await !RateLimiter.shared.allow(key: chatIdStr) {
@@ -375,6 +394,63 @@ func routes(_ app: Application) async throws {
         let chatId = upload.chatId
         req.logger.info("Получен файл: \(file.filename), размер: \(file.data.readableBytes) байт")
         
+        // Проверка подписки перед обработкой из мини-аппы
+        if let userId = Int64(chatId) {
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "Roundsvideobot",
+                userId: userId,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+            if !allowed {
+                let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                
+                struct KeyboardButton: Content { let text: String }
+                struct ReplyKeyboardMarkup: Content {
+                    let keyboard: [[KeyboardButton]]
+                    let resize_keyboard: Bool
+                    let one_time_keyboard: Bool
+                }
+                struct AccessPayloadWithKeyboard: Content {
+                    let chat_id: Int64
+                    let text: String
+                    let disable_web_page_preview: Bool
+                    let reply_markup: ReplyKeyboardMarkup?
+                }
+                
+                let channelsText: String
+                if channels.isEmpty {
+                    channelsText = ""
+                } else {
+                    let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+                    channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+                }
+                
+                let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+                let keyboard = ReplyKeyboardMarkup(
+                    keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                )
+                let payload = AccessPayloadWithKeyboard(
+                    chat_id: userId,
+                    text: text,
+                    disable_web_page_preview: false,
+                    reply_markup: keyboard
+                )
+                
+                _ = try await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(payload, as: .json)
+                }.get()
+                
+                let resp = Response(status: .forbidden)
+                resp.body = .init(string: "Требуется подписка на спонсорские каналы")
+                return resp
+            }
+        }
+        
         // Лимит: не более 2 видео в минуту на пользователя
         if await !RateLimiter.shared.allow(key: chatId) {
             let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
@@ -397,7 +473,7 @@ func routes(_ app: Application) async throws {
                 post.body = body
             }.get()
             
-            var resp = Response(status: .tooManyRequests)
+            let resp = Response(status: .tooManyRequests)
             resp.body = .init(string: "Подождите 1 минуту")
             return resp
         }
@@ -462,7 +538,7 @@ func routes(_ app: Application) async throws {
             throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
         }
 
-        var okResp = Response(status: .ok)
+        let okResp = Response(status: .ok)
         okResp.body = .init(string: "Видео успешно обработано и отправлено!")
         return okResp
     }

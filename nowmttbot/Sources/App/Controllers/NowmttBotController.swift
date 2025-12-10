@@ -80,7 +80,31 @@ final class NowmttBotController {
                 let reply_markup: ReplyKeyboardMarkup?
             }
             
+            struct ReplyKeyboardRemove: Content {
+                let remove_keyboard: Bool
+            }
+            
+            struct AccessPayloadWithRemoveKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardRemove?
+            }
+            
             if allowed {
+                // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                let removePayload = AccessPayloadWithRemoveKeyboard(
+                    chat_id: chatId,
+                    text: "Подписка подтверждена ✅",
+                    disable_web_page_preview: false,
+                    reply_markup: removeKeyboard
+                )
+                
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                _ = try await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(removePayload, as: .json)
+                }.get()
                 // Проверяем, есть ли сохраненная ссылка
                 if let savedUrl = await UrlSessionManager.shared.getUrl(userId: userId) {
                     // Есть сохраненная ссылка - автоматически обрабатываем её
@@ -103,7 +127,7 @@ final class NowmttBotController {
                     _ = try? await sendTelegramMessage(
                         token: token,
                         chatId: chatId,
-                        text: "Подписка подтверждена ✅\nОбрабатываю сохраненную ссылку... 🎬",
+                        text: "Обрабатываю сохраненную ссылку... 🎬",
                         client: req.client
                     )
                     
@@ -138,7 +162,7 @@ final class NowmttBotController {
                     return Response(status: .ok)
                 } else {
                     // Нет сохраненной ссылки - показываем обычное сообщение
-                    let successText = "Подписка подтверждена ✅\nМожешь отправить ссылку на TikTok видео, и я верну его без ватермарки."
+                    let successText = "Можешь отправить ссылку на TikTok видео, и я верну его без ватермарки."
                     let keyboard = ReplyKeyboardMarkup(
                         keyboard: [[KeyboardButton(text: "🎬 Отправить ссылку")]],
                         resize_keyboard: true,

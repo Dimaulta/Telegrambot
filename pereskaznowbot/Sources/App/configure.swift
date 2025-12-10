@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import AsyncHTTPClient
 
 func getPortFromConfig(serviceName: String) -> Int {
     let configPath = "config/services.json"
@@ -10,13 +11,13 @@ func getPortFromConfig(serviceName: String) -> Int {
           let urlString = service["url"] as? String,
           let url = URL(string: urlString),
           let port = url.port else {
-        return 8084 // fallback
+        return 8090 // fallback
     }
     return port
 }
 
 public func configure(_ app: Application) async throws {
-    // Загружаем config/.env и применяем переменные окружения (для NOWCONTROLLERBOT_TOKEN и др.)
+    // Загружаем config/.env и применяем переменные окружения
     let envPath = "config/.env"
     if let content = try? String(contentsOfFile: envPath) {
         var vars: [String: String] = [:]
@@ -29,17 +30,14 @@ public func configure(_ app: Application) async throws {
             }
         }
         for (k, v) in vars { setenv(k, v, 1) }
-        app.logger.info("Loaded config/.env with \(vars.count) keys for NowControllerBot")
+        app.logger.info("Loaded config/.env with \(vars.count) keys for PereskazNowBot")
     }
 
-    // Гарантируем существование базы монетизации и схемы
-    MonetizationDatabase.ensureDatabase(app: app)
-
-    let port = getPortFromConfig(serviceName: "nowcontrollerbot")
+    let port = getPortFromConfig(serviceName: "pereskaznowbot")
     app.http.server.configuration.port = port
     
-    // Middleware для логирования всех входящих запросов (для диагностики webhook)
-    app.middleware.use(LoggingMiddleware())
-
+    // Инициализация базы данных монетизации
+    MonetizationService.ensureDatabase(app: app)
+    
     try routes(app)
 }

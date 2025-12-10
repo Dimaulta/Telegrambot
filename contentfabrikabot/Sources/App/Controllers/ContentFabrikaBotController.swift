@@ -114,7 +114,31 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 let reply_markup: ReplyKeyboardMarkup?
             }
             
+            struct ReplyKeyboardRemove: Content {
+                let remove_keyboard: Bool
+            }
+            
+            struct AccessPayloadWithRemoveKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardRemove?
+            }
+            
             if allowed {
+                // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                let removePayload = AccessPayloadWithRemoveKeyboard(
+                    chat_id: chatId,
+                    text: "Подписка подтверждена ✅",
+                    disable_web_page_preview: false,
+                    reply_markup: removeKeyboard
+                )
+                
+                let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+                _ = try await req.client.post(sendMessageUrl) { sendReq in
+                    try sendReq.content.encode(removePayload, as: .json)
+                }.get()
                 // Проверяем, есть ли сохраненная тема
                 if let (savedTopic, savedChannelId) = await TopicSessionManager.shared.getTopic(userId: userId) {
                     // Есть сохраненная тема - автоматически запускаем генерацию
@@ -131,7 +155,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         targetChannel = allChannels.first!
                     } else {
                         // Не можем определить канал - просим ввести тему заново
-                        let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                        let successText = "Можешь отправить тему для поста, и я сгенерирую его в твоём стиле."
                         let keyboard = ReplyKeyboardMarkup(
                             keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
                             resize_keyboard: true,
@@ -155,7 +179,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     let targetChannelId = try targetChannel.requireID()
                     guard let styleProfile = try await StyleService.getStyleProfile(channelId: targetChannelId, db: req.db) else {
                         // Стиль не изучен - просим ввести тему заново
-                        let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                        let successText = "Можешь отправить тему для поста, и я сгенерирую его в твоём стиле."
                         let keyboard = ReplyKeyboardMarkup(
                             keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
                             resize_keyboard: true,
@@ -192,7 +216,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     _ = try? await TelegramService.sendMessage(
                         token: token,
                         chatId: chatId,
-                        text: "Подписка подтверждена ✅\nГенерирую пост на тему: \"\(savedTopic)\"... ✨",
+                        text: "Генерирую пост на тему: \"\(savedTopic)\"... ✨",
                         client: req.client
                     )
                     
@@ -231,7 +255,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     return Response(status: .ok)
                 } else {
                     // Нет сохраненной темы - показываем обычное сообщение
-                    let successText = "Подписка подтверждена ✅\nМожешь отправить тему для поста, и я сгенерирую его в твоём стиле."
+                    let successText = "Можешь отправить тему для поста, и я сгенерирую его в твоём стиле."
                     let keyboard = ReplyKeyboardMarkup(
                         keyboard: [[KeyboardButton(text: "📝 Сгенерировать пост")]],
                         resize_keyboard: true,
@@ -620,7 +644,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             try sendReq.content.encode(payload, as: .json)
         }.get()
     }
-    
+
     // MARK: - Обработка пересланных сообщений
     
     private func handleChannelMessage(message: ContentFabrikaBotMessage, token: String, userId: Int64, req: Request) async throws {
@@ -899,23 +923,23 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         return
                     }
                             
-                    let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
-                    guard allowed else {
-                        _ = try? await TelegramService.answerCallbackQuery(
-                            token: token,
-                            callbackId: callback.id,
-                            text: "Подожди немного перед следующей генерацией",
-                            req: req
-                        )
-                        _ = try? await TelegramService.sendMessage(
-                            token: token,
-                            chatId: chatId,
-                            text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
-                            client: req.client,
-                            replyToMessageId: replyToMessageId
-                        )
-                        return
-                    }
+                            let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                            guard allowed else {
+                                _ = try? await TelegramService.answerCallbackQuery(
+                                    token: token,
+                                    callbackId: callback.id,
+                                    text: "Подожди немного перед следующей генерацией",
+                                    req: req
+                                )
+                                _ = try? await TelegramService.sendMessage(
+                                    token: token,
+                                    chatId: chatId,
+                                    text: "⚠️ Можно генерировать не больше двух постов в минуту. Подожди чуть-чуть и попробуй снова 💛",
+                                    client: req.client,
+                                    replyToMessageId: replyToMessageId
+                                )
+                                return
+                            }
                     
                     _ = try await TelegramService.answerCallbackQuery(
                         token: token,

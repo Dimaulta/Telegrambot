@@ -98,23 +98,30 @@ final class GSForTextBotController {
                 let reply_markup: ReplyKeyboardMarkup?
             }
             
+            struct ReplyKeyboardRemove: Content {
+                let remove_keyboard: Bool
+            }
+            
+            struct AccessPayloadWithRemoveKeyboard: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardRemove?
+            }
+            
             if allowed {
-                let text = "Подписка подтверждена ✅\nМожешь отправить голосовое или аудио, и я пришлю текстовую расшифровку"
-                let keyboard = ReplyKeyboardMarkup(
-                    keyboard: [[KeyboardButton(text: "🎤 Отправить голосовое")]],
-                    resize_keyboard: true,
-                    one_time_keyboard: false
-                )
-                let payload = AccessPayloadWithKeyboard(
+                // Удаляем клавиатуру "✅ Я подписался, проверить" после успешной проверки
+                let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
+                let removePayload = AccessPayloadWithRemoveKeyboard(
                     chat_id: message.chat.id,
-                    text: text,
+                    text: "Подписка подтверждена ✅\n\nМожешь отправить голосовое или аудио, и я пришлю текстовую расшифровку",
                     disable_web_page_preview: false,
-                    reply_markup: keyboard
+                    reply_markup: removeKeyboard
                 )
                 
                 let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
                 _ = try await req.client.post(sendMessageUrl) { sendReq in
-                    try sendReq.content.encode(payload, as: .json)
+                    try sendReq.content.encode(removePayload, as: .json)
                 }.get()
                 
                 return Response(status: .ok)
@@ -149,75 +156,20 @@ final class GSForTextBotController {
             }
         }
         
-        // Обычная проверка доступа по спонсорской подписке
-        let (allowed, channels) = await MonetizationService.checkAccess(
-            botName: "gsfortextbot",
-            userId: from.id,
-            logger: req.logger,
-            env: req.application.environment,
-            client: req.client
-        )
-        
-        if !allowed {
-            struct KeyboardButton: Content {
-                let text: String
-            }
-            
-            struct ReplyKeyboardMarkup: Content {
-                let keyboard: [[KeyboardButton]]
-                let resize_keyboard: Bool
-                let one_time_keyboard: Bool
-            }
-            
-            struct AccessPayloadWithKeyboard: Content {
-                let chat_id: Int64
-                let text: String
-                let disable_web_page_preview: Bool
-                let reply_markup: ReplyKeyboardMarkup?
-            }
-            
-            let channelsText: String
-            if channels.isEmpty {
-                channelsText = ""
-            } else {
-                let listed = channels.map { "@\($0)" }.joined(separator: "\n")
-                channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
-            }
-            
-            let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
-            let keyboard = ReplyKeyboardMarkup(
-                keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
-                resize_keyboard: true,
-                one_time_keyboard: false
-            )
-            let payload = AccessPayloadWithKeyboard(
-                chat_id: message.chat.id,
-                text: text,
-                disable_web_page_preview: false,
-                reply_markup: keyboard
-            )
-            
-            let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-            _ = try await req.client.post(sendMessageUrl) { sendReq in
-                try sendReq.content.encode(payload, as: .json)
-            }.get()
-            
-            req.logger.info("Доступ для пользователя \(from.id) ограничен спонсорской подпиской.")
-            return Response(status: .ok)
-        }
-        
+        // Обработка команды /start - приветствие без проверки подписки
         if let text = message.text, text.trimmingCharacters(in: .whitespacesAndNewlines) == "/start" {
             try await sendWelcomeMessage(on: req, chatId: message.chat.id)
             return Response(status: .ok)
         }
         
+        // Проверка подписки только при отправке голосовых/аудио сообщений
         if let voice = message.voice {
-            try await processVoiceMessage(on: req, voice: voice, chatId: message.chat.id)
+            try await processVoiceMessage(on: req, voice: voice, chatId: message.chat.id, userId: from.id)
             return Response(status: .ok)
         }
         
         if let audio = message.audio {
-            try await processAudioMessage(on: req, audio: audio, chatId: message.chat.id)
+            try await processAudioMessage(on: req, audio: audio, chatId: message.chat.id, userId: from.id)
             return Response(status: .ok)
         }
         
@@ -228,15 +180,29 @@ final class GSForTextBotController {
         return Response(status: .ok)
     }
     
-    private func processVoiceMessage(on req: Request, voice: TelegramVoice, chatId: Int64) async throws {
+    private func processVoiceMessage(on req: Request, voice: TelegramVoice, chatId: Int64, userId: Int64) async throws {
+        // Проверка подписки перед обработкой голосового
+        let (allowed, channels) = await MonetizationService.checkAccess(
+            botName: "gsfortextbot",
+            userId: userId,
+            logger: req.logger,
+            env: req.application.environment,
+            client: req.client
+        )
+        
+        if !allowed {
+            try await sendSubscriptionRequest(on: req, chatId: chatId, channels: channels)
+            return
+        }
+        
         if let duration = voice.duration, duration > Self.maxVoiceDurationSeconds {
             try await sendMessage(on: req,
                                   chatId: chatId,
                                   text: "Голосовое длиннее 2 минут. Пожалуйста, отправь запись до двух минут")
             return
         }
-        let allowed = await Self.voiceRateLimiter.consume(for: chatId)
-        if allowed == false {
+        let rateLimitAllowed = await Self.voiceRateLimiter.consume(for: chatId)
+        if rateLimitAllowed == false {
             try await sendMessage(on: req,
                                   chatId: chatId,
                                   text: "Я могу обрабатывать по одному голосовому в минуту. Подожди чуть-чуть и попробуй снова")
@@ -263,15 +229,29 @@ final class GSForTextBotController {
         }
     }
     
-    private func processAudioMessage(on req: Request, audio: TelegramAudio, chatId: Int64) async throws {
+    private func processAudioMessage(on req: Request, audio: TelegramAudio, chatId: Int64, userId: Int64) async throws {
+        // Проверка подписки перед обработкой аудио
+        let (allowed, channels) = await MonetizationService.checkAccess(
+            botName: "gsfortextbot",
+            userId: userId,
+            logger: req.logger,
+            env: req.application.environment,
+            client: req.client
+        )
+        
+        if !allowed {
+            try await sendSubscriptionRequest(on: req, chatId: chatId, channels: channels)
+            return
+        }
+        
         if let duration = audio.duration, duration > Self.maxVoiceDurationSeconds {
             try await sendMessage(on: req,
                                   chatId: chatId,
                                   text: "Аудиофайл длиннее 2 минут. Присылай записи до двух минут, пожалуйста 💕")
             return
         }
-        let allowed = await Self.voiceRateLimiter.consume(for: chatId)
-        if allowed == false {
+        let rateLimitAllowed = await Self.voiceRateLimiter.consume(for: chatId)
+        if rateLimitAllowed == false {
             try await sendMessage(on: req,
                                   chatId: chatId,
                                   text: "У меня лимит — одно голосовое в минуту. Давай чуть позже 💕")
@@ -379,6 +359,51 @@ final class GSForTextBotController {
         Я превращаю голосовые и аудио в текст. Просто перешли мне голосовое из любого чата или отправь своё — и через пару секунд я пришлю расшифровку.
         """
         try await sendMessage(on: req, chatId: chatId, text: hello)
+    }
+    
+    private func sendSubscriptionRequest(on req: Request, chatId: Int64, channels: [String]) async throws {
+        struct KeyboardButton: Content {
+            let text: String
+        }
+        
+        struct ReplyKeyboardMarkup: Content {
+            let keyboard: [[KeyboardButton]]
+            let resize_keyboard: Bool
+            let one_time_keyboard: Bool
+        }
+        
+        struct AccessPayloadWithKeyboard: Content {
+            let chat_id: Int64
+            let text: String
+            let disable_web_page_preview: Bool
+            let reply_markup: ReplyKeyboardMarkup?
+        }
+        
+        let channelsText: String
+        if channels.isEmpty {
+            channelsText = ""
+        } else {
+            let listed = channels.map { "@\($0)" }.joined(separator: "\n")
+            channelsText = "\n\nПодпишись, пожалуйста, на спонсорские каналы:\n\(listed)"
+        }
+        
+        let text = "Чтобы воспользоваться ботом, нужна подписка на спонсорские каналы.\nПосле подписки нажми кнопку «✅ Я подписался, проверить».\(channelsText)"
+        let keyboard = ReplyKeyboardMarkup(
+            keyboard: [[KeyboardButton(text: "✅ Я подписался, проверить")]],
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+        let payload = AccessPayloadWithKeyboard(
+            chat_id: chatId,
+            text: text,
+            disable_web_page_preview: false,
+            reply_markup: keyboard
+        )
+        
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+        _ = try await req.client.post(sendMessageUrl) { sendReq in
+            try sendReq.content.encode(payload, as: .json)
+        }.get()
     }
     
     private func sendMessage(on req: Request, chatId: Int64, text: String) async throws {

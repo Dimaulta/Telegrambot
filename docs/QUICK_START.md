@@ -79,7 +79,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN'
+env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
 ./config/set-webhooks.sh
 ```
 
@@ -116,7 +116,7 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run GSForTextBot serve
+  swift run GSForTextBot
   ```
 
 - ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
@@ -131,6 +131,13 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
   swift run Neurfotobot
+  ```
+
+- PereskazNowBot - бот для получения расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
+  ```bash
+  cd /Users/a1111/Desktop/projects/Telegrambot
+  set -a; source config/.env; set +a
+  swift run PereskazNowBot
   ```
 
 - BananaNowBot — бот для использования Nano Banana (в разработке)
@@ -153,6 +160,18 @@ env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTB
   set -a; source config/.env; set +a
   swift run VeoNowBot
   ```
+
+  
+  **Требования:**
+  - `PERESKAZNOWBOT_TOKEN` - токен бота от @BotFather
+  - `PERESKAZ_OPENAI_SERVICE` - OpenAI API ключ для Whisper API и GPT
+  - `yt-dlp` - установлен через `brew install yt-dlp`
+  - `ffmpeg` - установлен через `brew install ffmpeg` (для сжатия больших аудио файлов)
+  
+  **Ограничения:**
+  - Максимальная длительность видео: 1 час
+  - Не более 1 ссылки в минуту
+  - Не более 20 видео в день на пользователя
 
 
 > Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
@@ -201,7 +220,8 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 - Девятая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
 - Десятая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
 - Одиннадцатая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)
-- Двенадцатая вкладка (шаг 6): NowControllerBot — управление отправкой сообщений в боты NowBots (MVP)
+- Двенадцатая вкладка (шаг 6): PereskazNowBot — получение расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
+- Тринадцатая вкладка (шаг 6): NowControllerBot — управление отправкой сообщений в боты NowBots (MVP)
 
 Обычно активно несколько вкладок: ngrok (обязательно), NowControllerBot (тоже обязательно), сервисы, которые ты запускаешь самостоятельно
 ```

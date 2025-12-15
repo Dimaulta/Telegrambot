@@ -64,6 +64,15 @@
 3. Настрой политики доступа для bucket (публичное чтение и загрузка)
 4. Скопируй `Project URL` и `service_role` ключ из [Settings → API](https://app.supabase.com/project/_/settings/api)
 
+> ⚠️ **Важно: Автоматическая пауза на фриплане**
+> 
+> Supabase автоматически ставит проект на паузу после 7 дней неактивности. Чтобы избежать этого:
+> - Запускай Neurfotobot хотя бы раз в неделю (любой запрос к Supabase снимает паузу)
+> - Или переходи на Pro тариф в [Billing Settings](https://app.supabase.com/project/_/settings/billing)
+> - Или снимай проект с паузы вручную через [Dashboard](https://app.supabase.com/) (доступно в течение 90 дней)
+> 
+> После паузы проект нужно снять с паузы вручную — бот не сможет работать, пока проект на паузе
+
 ---
 
 ## Yandex Translate API

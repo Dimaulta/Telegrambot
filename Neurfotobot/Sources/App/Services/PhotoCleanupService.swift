@@ -124,37 +124,30 @@ actor PhotoCleanupService {
         // Если require_subscription включен и есть активные спонсоры, проверяем подписку
         // Но если проверка не работает (fail-open), всё равно разрешаем очистку
         // Если подписка не требуется - удаляем по таймауту как обычно
-        do {
-            let (allowed, channels) = await MonetizationService.checkAccess(
-                botName: "Neurfotobot",
-                userId: chatId,
-                logger: logger,
-                env: application.environment,
-                client: application.client
-            )
-            
-            // Если channels пустой - значит либо подписка не требуется, либо нет активных спонсоров
-            // В этом случае удаляем по таймауту как обычно
-            if channels.isEmpty {
-                logger.debug("PhotoCleanupService: chatId=\(chatId) - подписка не требуется или нет активных спонсоров, удаляем по таймауту")
-                return true
-            }
-            
-            // Если есть активные спонсоры и подписка подтверждена - пользователь активен, не удаляем
-            if allowed {
-                logger.debug("PhotoCleanupService: пропускаем chatId=\(chatId) - пользователь подписан на спонсоров")
-                return false
-            }
-            
-            // Если подписка требуется, но не подтверждена - удаляем (пользователь не использует сервис)
-            logger.info("PhotoCleanupService: chatId=\(chatId) не подписан на спонсоров, удаляем фото")
-            return true
-        } catch {
-            // При ошибке проверки подписки (fail-open) - разрешаем очистку
-            // Это гарантирует, что сервис работает даже если nowcontrollerbot упал
-            logger.warning("PhotoCleanupService: ошибка проверки подписки для chatId=\(chatId): \(error). Разрешаем очистку (fail-open стратегия)")
+        let (allowed, channels) = await MonetizationService.checkAccess(
+            botName: "Neurfotobot",
+            userId: chatId,
+            logger: logger,
+            env: application.environment,
+            client: application.client
+        )
+        
+        // Если channels пустой - значит либо подписка не требуется, либо нет активных спонсоров
+        // В этом случае удаляем по таймауту как обычно
+        if channels.isEmpty {
+            logger.debug("PhotoCleanupService: chatId=\(chatId) - подписка не требуется или нет активных спонсоров, удаляем по таймауту")
             return true
         }
+        
+        // Если есть активные спонсоры и подписка подтверждена - пользователь активен, не удаляем
+        if allowed {
+            logger.debug("PhotoCleanupService: пропускаем chatId=\(chatId) - пользователь подписан на спонсоров")
+            return false
+        }
+        
+        // Если подписка требуется, но не подтверждена - удаляем (пользователь не использует сервис)
+        logger.info("PhotoCleanupService: chatId=\(chatId) не подписан на спонсоров, удаляем фото")
+        return true
     }
     
     /// Отправляет сообщение пользователю об истечении фото

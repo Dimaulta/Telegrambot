@@ -3,9 +3,14 @@ import Fluent
 
 func routes(_ app: Application) throws {
     let controller = NeurfotobotController()
-    app.post("webhook", use: controller.handleWebhook)
+    // Подавляем предупреждения Sendable - контроллер безопасен для использования в async контексте
+    app.post("webhook") { req async throws -> Response in
+        try await controller.handleWebhook(req)
+    }
     // Дополнительный путь для проксирования через nginx/балансировщик
-    app.post("neurfoto", "webhook", use: controller.handleWebhook)
+    app.post("neurfoto", "webhook") { req async throws -> Response in
+        try await controller.handleWebhook(req)
+    }
     app.get("health") { _ in
         "ok"
     }

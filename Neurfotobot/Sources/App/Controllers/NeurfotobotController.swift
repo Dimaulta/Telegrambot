@@ -2,7 +2,7 @@ import Vapor
 import Foundation
 import Fluent
 
-final class NeurfotobotController {
+final class NeurfotobotController: Sendable {
     private let minimumPhotoCount = 5
     private let maximumPhotoCount = 10
 
@@ -112,7 +112,6 @@ final class NeurfotobotController {
         if text == "/start" {
             // Не сбрасываем сессию при /start, чтобы сохранить модель если она есть
             var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: message.chat.id)
-            var triggerWord = await PhotoSessionManager.shared.getTriggerWord(for: message.chat.id)
             let photosCount = await PhotoSessionManager.shared.getPhotos(for: message.chat.id).count
             
             // Если модели нет в памяти, проверяем базу данных
@@ -122,7 +121,6 @@ final class NeurfotobotController {
                         .filter(\.$chatId == message.chat.id)
                         .first() {
                         modelVersion = userModel.modelVersion
-                        triggerWord = userModel.triggerWord
                         await PhotoSessionManager.shared.setModelVersion(userModel.modelVersion, for: message.chat.id)
                         await PhotoSessionManager.shared.setTriggerWord(userModel.triggerWord, for: message.chat.id)
                         await PhotoSessionManager.shared.setTrainingState(.ready, for: message.chat.id)
@@ -136,7 +134,7 @@ final class NeurfotobotController {
             let welcomeMessage: String
             let keyboard: [[InlineKeyboardButton]]
             
-            if let modelVersion = modelVersion {
+            if modelVersion != nil {
                 // У пользователя есть модель
                 welcomeMessage = """
 Привет! Твоя модель уже обучена и готова к работе! 🎨
@@ -329,8 +327,21 @@ final class NeurfotobotController {
         let storage = try SupabaseStorageClient(request: req)
         let objectPath = "\(message.chat.id)/\(UUID().uuidString).\(finalExt)"
 
-        let storedPath = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
-        req.logger.info("Uploaded photo stored at \(storedPath)")
+        let storedPath: String
+        do {
+            storedPath = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
+            req.logger.info("Uploaded photo stored at \(storedPath)")
+        } catch {
+            req.logger.error("Failed to upload photo to Supabase after retries: \(error)")
+            // Отправляем аккуратное сообщение пользователю
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: message.chat.id,
+                text: "Обрабатываю твой запрос, это может занять немного больше времени. Подожди, пожалуйста, и попробуй отправить фото ещё раз через минуту.",
+                client: req.client
+            )
+            return
+        }
         let newCount = await PhotoSessionManager.shared.addPhoto(path: storedPath, for: message.chat.id)
         // Обновляем время последней активности при загрузке фото
         await PhotoSessionManager.shared.setLastActivity(for: message.chat.id)
@@ -826,7 +837,7 @@ final class NeurfotobotController {
 
     private func handleModelCommand(chatId: Int64, token: String, req: Request) async throws {
         let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
-        if let modelVersion {
+        if modelVersion != nil {
             let message = "Твоя модель готова к работе! 🎨\n\nМожешь сгенерировать изображение или удалить модель."
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)

@@ -35,8 +35,11 @@ struct DatasetBuilder {
         }
 
         let archiveURL = tempDirectory.appendingPathComponent("dataset.zip")
-        guard let archive = Archive(url: archiveURL, accessMode: .create) else {
-            throw Abort(.internalServerError, reason: "Failed to create archive")
+        let archive: Archive
+        do {
+            archive = try Archive(url: archiveURL, accessMode: .create)
+        } catch {
+            throw Abort(.internalServerError, reason: "Failed to create archive: \(error)")
         }
 
         for file in localFiles {

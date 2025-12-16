@@ -74,19 +74,22 @@ struct SupabaseStorageClient {
 
     @discardableResult
     func upload(path: String, data: ByteBuffer, contentType: String, upsert: Bool = true) async throws -> String {
-        let encodedPath = encodePath(path)
-        var uri = config.url
-        uri.path = "/storage/v1/object/\(config.bucket)/\(encodedPath)"
+        return try await executeWithRetry {
+            let encodedPath = encodePath(path)
+            var uri = config.url
+            uri.path = "/storage/v1/object/\(config.bucket)/\(encodedPath)"
 
-        var request = ClientRequest(method: .POST, url: uri)
-        request.headers = authorizedHeaders(contentType: contentType, upsert: upsert)
-        request.body = data
+            var request = ClientRequest(method: .POST, url: uri)
+            request.headers = authorizedHeaders(contentType: contentType, upsert: upsert)
+            request.body = data
+            request.timeout = .seconds(30) // Таймаут 30 секунд для upload
 
-        let response = try await client.send(request)
-        guard response.status == .ok || response.status == .created else {
-            throw Abort(.badRequest, reason: "Supabase upload failed: \(response.status) - \(bodyString(from: response.body))")
+            let response = try await client.send(request)
+            guard response.status == .ok || response.status == .created else {
+                throw Abort(.badRequest, reason: "Supabase upload failed: \(response.status) - \(bodyString(from: response.body))")
+            }
+            return normalizePath(path)
         }
-        return normalizePath(path)
     }
 
     private func normalizePath(_ rawPath: String) -> String {
@@ -121,18 +124,69 @@ struct SupabaseStorageClient {
     }
 
     func download(path: String) async throws -> Data {
-        let urlString = publicURL(for: path)
-        guard let url = URL(string: urlString) else {
-            throw Abort(.badRequest, reason: "Public URL is invalid")
+        return try await executeWithRetry {
+            let urlString = publicURL(for: path)
+            guard let url = URL(string: urlString) else {
+                throw Abort(.badRequest, reason: "Public URL is invalid")
+            }
+            var request = ClientRequest(method: .GET, url: URI(string: url.absoluteString))
+            request.timeout = .seconds(30) // Таймаут 30 секунд для download
+            
+            let response = try await client.send(request)
+            guard response.status == .ok else {
+                throw Abort(.badRequest, reason: "Supabase download failed: \(response.status) - \(bodyString(from: response.body))")
+            }
+            guard var body = response.body else {
+                throw Abort(.badRequest, reason: "Supabase download response is empty")
+            }
+            return body.readData(length: body.readableBytes) ?? Data()
         }
-        let response = try await client.get(URI(string: url.absoluteString))
-        guard response.status == .ok else {
-            throw Abort(.badRequest, reason: "Supabase download failed: \(response.status) - \(bodyString(from: response.body))")
+    }
+    
+    /// Легкий запрос для keep-alive (предотвращает паузу проекта)
+    /// Возвращает true если запрос успешен, false при ошибке
+    func ping() async -> Bool {
+        var uri = config.url
+        uri.path = "/storage/v1/bucket/\(config.bucket)"
+        
+        var request = ClientRequest(method: .GET, url: uri)
+        request.headers = authorizedHeaders()
+        request.timeout = .seconds(15) // Таймаут 15 секунд
+        
+        do {
+            let response = try await client.send(request)
+            return response.status == .ok
+        } catch {
+            return false
         }
-        guard var body = response.body else {
-            throw Abort(.badRequest, reason: "Supabase download response is empty")
+    }
+    
+    /// Выполняет операцию с автоматическим retry при ошибках
+    func executeWithRetry<T>(
+        maxRetries: Int = 3,
+        retryDelays: [TimeInterval] = [1.0, 3.0, 5.0],
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        var lastError: Error?
+        
+        for attempt in 0..<maxRetries {
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+                
+                // Если это последняя попытка, выбрасываем ошибку
+                if attempt == maxRetries - 1 {
+                    throw error
+                }
+                
+                // Ждём перед следующей попыткой
+                let delay = retryDelays[min(attempt, retryDelays.count - 1)]
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
         }
-        return body.readData(length: body.readableBytes) ?? Data()
+        
+        throw lastError ?? Abort(.internalServerError, reason: "Retry failed")
     }
 }
 

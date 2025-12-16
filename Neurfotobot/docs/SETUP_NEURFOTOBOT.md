@@ -11,7 +11,7 @@
 | Сервис | Что получить | Обязательность | Ссылка |
 |--------|--------------|----------------|--------|
 | **Replicate** | API токен, модель для обучения, модель для генерации | ✅ Обязательно | [replicate.com](https://replicate.com/) |
-| **Supabase** | URL проекта, Service Role Key, имя bucket | ✅ Обязательно | [supabase.com](https://supabase.com/) |
+| **Локальное хранилище + BASE_URL** | Путь к временной директории и публичный URL сервера | ✅ Обязательно | — |
 | **Yandex Translate API** | API ключ | ✅ Обязательно | [console.cloud.yandex.ru](https://console.cloud.yandex.ru/) |
 | **Google Vision API** | API ключ | ⚠️ Опционально | [console.cloud.google.com](https://console.cloud.google.com/) |
 | **OpenAI Moderation API** | API ключ | ⚠️ Опционально | [platform.openai.com](https://platform.openai.com/) |
@@ -45,35 +45,44 @@
 
 ---
 
-## Supabase
+## Локальное хранение файлов и BASE_URL
 
-**Что нужно получить:**
-- `SUPABASE_URL` — URL проекта (формат: `https://xxxxx.supabase.co`)
-- `SUPABASE_SERVICE_KEY` — Service Role Key (секретный ключ)
-- `SUPABASE_BUCKET` — имя bucket в Storage
+Neurfotobot больше **не использует Supabase** для хранения фото и датасетов.  
+Все пользовательские фото и архивы `dataset.zip` хранятся **локально** в директории, заданной переменной:
 
-**Ссылки:**
-- [Регистрация и создание проекта](https://supabase.com/)
-- [Dashboard](https://app.supabase.com/)
-- [Settings → API](https://app.supabase.com/project/_/settings/api)
-- [Storage](https://app.supabase.com/project/_/storage/buckets)
+- `NEURFOTOBOT_TEMP_DIR` — базовая папка для временных файлов Neurfotobot (например: `Neurfotobot/tmp` или `/var/neurfotobot/tmp`)
 
-**Краткая инструкция:**
-1. Создай проект на [Supabase.com](https://supabase.com/)
-2. Создай публичный bucket в Storage (например: `neurfoto-uploads`)
-3. Настрой политики доступа для bucket (публичное чтение и загрузка)
-4. Скопируй `Project URL` и `service_role` ключ из [Settings → API](https://app.supabase.com/project/_/settings/api)
+Структура внутри:
 
-> ⚠️ **Важно: Автоматическая пауза на фриплане**
-> 
-> Supabase автоматически ставит проект на паузу после 7 дней неактивности. Чтобы избежать этого:
-> - Запускай Neurfotobot хотя бы раз в неделю (любой запрос к Supabase снимает паузу)
-> - Или переходи на Pro тариф в [Billing Settings](https://app.supabase.com/project/_/settings/billing)
-> - Или снимай проект с паузы вручную через [Dashboard](https://app.supabase.com/) (доступно в течение 90 дней)
-> 
-> После паузы проект нужно снять с паузы вручную — бот не сможет работать, пока проект на паузе
+- `NEURFOTOBOT_TEMP_DIR/photos/{chatId}/...` — загруженные фото пользователя
+- `NEURFOTOBOT_TEMP_DIR/datasets/{chatId}/dataset.zip` — архив с датасетом для Replicate
 
----
+Для обучения Replicate требуется публичный URL на `dataset.zip`.  
+Neurfotobot отдаёт архив по HTTP через свой роут:
+
+- `GET /neurfotobot/datasets/{chatId}/dataset.zip`
+
+Поэтому важно настроить:
+
+- `BASE_URL` — публичный URL для доступа к боту:
+  - локально: URL от ngrok (например: `https://xxxxx-xxxxx.ngrok-free.app`)
+  - на VPS: твой домен, например `https://nowbots.ru`
+
+Итоговый URL, который получит Replicate:
+
+- `https://<BASE_URL>/neurfotobot/datasets/{chatId}/dataset.zip`
+
+### Настройка nginx для Neurfotobot
+
+Для локальной отладки через ngrok и для продакшн‑сервера на VPS с одним доменом (`BASE_URL`) важно, чтобы nginx проксировал:
+
+- вебхук Neurfotobot:
+  - `location = /neurfoto/webhook { ... -> http://127.0.0.1:8082/webhook }`
+- и раздачу датасетов:
+  - `location /neurfotobot/datasets/ { ... -> http://127.0.0.1:8082/neurfotobot/datasets/ }`
+
+Пример полной конфигурации см. в [`docs/nginx.conf.example`](../../docs/nginx.conf.example).  
+На VPS схема остаётся такой же: один домен (`BASE_URL`), один nginx и несколько `location` для разных ботов.
 
 ## Yandex Translate API
 
@@ -164,10 +173,9 @@ REPLICATE_MODEL_OWNER=your-username
 REPLICATE_MODEL_VERSION=black-forest-labs/flux-1.1-pro:latest
 REPLICATE_DESTINATION_MODEL_SLUG=neurfoto-models
 
-# Supabase Storage
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_BUCKET=neurfoto-uploads
+# Локальное хранилище Neurfotobot
+# Базовая директория для временных файлов (фото и dataset.zip)
+NEURFOTOBOT_TEMP_DIR=Neurfotobot/tmp
 
 # Yandex Translate API
 YANDEX_TRANSLATE_API_KEY=AQVNxxxxxxxxxxxxx
@@ -201,9 +209,7 @@ KEEP_DATASETS_ON_FAILURE=false     # Оставлять датасеты при 
 | `REPLICATE_MODEL_OWNER` | Твой username на Replicate |
 | `REPLICATE_MODEL_VERSION` | Формат: `owner/model:version` (например: `black-forest-labs/flux-1.1-pro:latest`) |
 | `REPLICATE_DESTINATION_MODEL_SLUG` | Имя модели, созданной в Replicate (без owner/) |
-| `SUPABASE_URL` | [Supabase Settings → API](https://app.supabase.com/project/_/settings/api) |
-| `SUPABASE_SERVICE_KEY` | [Supabase Settings → API](https://app.supabase.com/project/_/settings/api) |
-| `SUPABASE_BUCKET` | Имя bucket, созданного в Supabase Storage |
+| `NEURFOTOBOT_TEMP_DIR` | Локальный путь для временных файлов (на сервере/VPS) |
 | `YANDEX_TRANSLATE_API_KEY` | [Yandex Cloud → Service Accounts → API Keys](https://console.cloud.yandex.ru/iam/service-accounts) |
 
 ### Опциональные переменные
@@ -223,7 +229,6 @@ KEEP_DATASETS_ON_FAILURE=false     # Оставлять датасеты при 
 ## Дополнительные ресурсы
 
 - [Документация Replicate API](https://replicate.com/docs)
-- [Документация Supabase](https://supabase.com/docs)
 - [Документация Yandex Translate API](https://yandex.cloud/ru/docs/translate/)
 - [Документация Google Vision API](https://cloud.google.com/vision/docs)
 - [Документация OpenAI Moderation API](https://platform.openai.com/docs/guides/moderation)

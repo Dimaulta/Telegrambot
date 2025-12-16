@@ -230,7 +230,18 @@ struct ReplicateClient {
 
     func deleteModelVersion(id: String) async throws {
         let path = "/v1/models/\(modelOwner.lowercased())/\(destinationModelSlug)/versions/\(id)"
-        _ = try await request(method: .DELETE, path: path)
+        do {
+            _ = try await request(method: .DELETE, path: path)
+        } catch let error as AbortError {
+            // Если модель уже удалена на стороне Replicate (404), считаем это успешным удалением
+            if error.status == .notFound {
+                logger.warning("Replicate model version \(id) not found during delete; treating as already deleted.")
+                return
+            }
+            throw error
+        } catch {
+            throw error
+        }
     }
 
     func findModelVersion(for chatId: Int64) async throws -> String? {

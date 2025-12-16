@@ -102,7 +102,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 > **Подробные инструкции по настройке сервисов:**
 > - **ContentFabrikaBot:** Подробный план установки, настройки `.env`, OpenAI и вебхука см. в [contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md](../contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md).
 > - **SaluteSpeech (GSForTextBot):** Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
-> - **Neurfotobot:** Полная инструкция по настройке всех сервисов для Neurfotobot (Replicate, Supabase, Yandex Translate, Google Vision, OpenAI) с пошаговыми инструкциями, ссылками на регистрацию и настройку биллинга см. в [Neurfotobot/docs/SETUP_NEURFOTOBOT.md](../Neurfotobot/docs/SETUP_NEURFOTOBOT.md).
+> - **Neurfotobot:** Полная инструкция по настройке всех сервисов для Neurfotobot (Replicate, локальное хранилище + BASE_URL, Yandex Translate, Google Vision, OpenAI) с пошаговыми инструкциями, ссылками на регистрацию и настройку биллинга см. в [Neurfotobot/docs/SETUP_NEURFOTOBOT.md](../Neurfotobot/docs/SETUP_NEURFOTOBOT.md).
 > - **PereskazNowBot:** Бот для получения расшифровки и саммари YouTube видео. Требует `PERESKAZNOWBOT_TOKEN` (токен бота от @BotFather) и `PERESKAZ_OPENAI_SERVICE` (OpenAI API ключ для Whisper API и GPT). Также требуется установленный `yt-dlp` для скачивания аудио с YouTube (см. шаг 2.1).
 
 

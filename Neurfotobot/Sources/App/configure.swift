@@ -56,11 +56,6 @@ public func configure(_ app: Application) async throws {
         await PhotoCleanupService.shared.startPeriodicCleanup(application: app, intervalHours: 6)
     }
     
-    // Запускаем keep-alive для Supabase (ping при старте и каждые 5 дней)
-    Task.detached {
-        await SupabaseKeepAliveService.shared.startKeepAlive(application: app)
-    }
-
     // Получаем порт из общего конфига сервисов
     let port = getPortFromConfig(serviceName: "Neurfotobot")
     app.http.server.configuration.port = port

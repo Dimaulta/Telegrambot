@@ -2,6 +2,8 @@ import Foundation
 
 actor PhotoSessionManager {
     struct PhotoRecord {
+        /// Относительный путь к файлу относительно NEURFOTOBOT_TEMP_DIR,
+        /// например: "photos/{chatId}/{uuid}.jpg"
         let path: String
     }
 

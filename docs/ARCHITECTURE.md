@@ -170,7 +170,7 @@
 - Обработка изображений через Replicate API
 - Автоматический перевод промптов с русского на английский через Yandex Translate API
 - Модерация контента через Google Vision API
-- Хранение данных пользователей в Supabase
+- Локальное хранение фото и датасетов (через NEURFOTOBOT_TEMP_DIR)
 - Генерация нейрофото с лицом пользователя по обученной модели
 
 #### 3.8. PereskazNowBot (Порт 8090) ✅ **MVP**
@@ -268,7 +268,7 @@ Telegram → core-server/webhook → video-processing/webhook
 - `BANANANOWBOT_TOKEN`, `BANANANOWBOT_PORT`, `BANANANOWBOT_NANO_API_KEY` — BananaNowBot 🛠️
 - `SORANOWBOT_TOKEN`, `SORANOWBOT_API_URL`, `SORANOWBOT_API_KEY`, `SORANOWBOT_HTTP_PROXY`, `SORANOWBOT_PROXY_*` — SoranowBot 🛠️
 - `VEONOWBOT_TOKEN`, `VEONOWBOT_WEBHOOK_SECRET`, `VEO3_API_KEY`, `VEO3_WORKFLOW_ID`, `VEO3_BASE_URL`, `VEONOWBOT_PORT` — VeoNowBot 🛠️
-- `NEURFOTOBOT_TOKEN` и связанные ключи (Replicate, Supabase, Yandex Translate, Google Vision, OpenAI) — Neurfotobot ✅
+- `NEURFOTOBOT_TOKEN` и связанные ключи (Replicate, Yandex Translate, Google Vision, OpenAI) — Neurfotobot ✅
 - `NOWCONTROLLERBOT_TOKEN` — NowControllerBot (MVP)
 
 ### Файлы конфигурации

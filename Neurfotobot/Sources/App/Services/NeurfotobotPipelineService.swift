@@ -104,7 +104,13 @@ actor NeurfotobotPipelineService {
                         try? await deleteOriginalPhotos(chatId: chatId, application: application, logger: logger)
                         await PhotoSessionManager.shared.clearPhotos(for: chatId)
                         
-                        try await sendMessage(token: botToken, chatId: chatId, text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".", application: application)
+                        try await sendMessage(
+                            token: botToken,
+                            chatId: chatId,
+                            text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".",
+                            application: application,
+                            replyMarkup: ReplyMarkup(inline_keyboard: [[InlineKeyboardButton(text: "📝 Составить промпт", callback_data: "start_generate")]])
+                        )
                         return
                     case "failed", "canceled":
                         await PhotoSessionManager.shared.setTrainingState(.failed, for: chatId)
@@ -251,7 +257,16 @@ actor NeurfotobotPipelineService {
             
             try await deleteOriginalPhotos(chatId: chatId, application: application, logger: logger)
             await PhotoSessionManager.shared.reset(for: chatId)
-            try await sendMessage(token: botToken, chatId: chatId, text: "Модель и все связанные данные удалены. Если захочешь — можем обучить новую.", application: application)
+            // После удаления предлагаем сразу начать новый флоу загрузки фото
+            let button = InlineKeyboardButton(text: "📸 Начать загрузку фото", callback_data: "start_upload")
+            let markup = ReplyMarkup(inline_keyboard: [[button]])
+            try await sendMessage(
+                token: botToken,
+                chatId: chatId,
+                text: "Модель и все связанные данные удалены. Если захочешь можем обучить новую",
+                application: application,
+                replyMarkup: markup
+            )
         } catch {
             logger.error("Failed to delete model for chatId=\(chatId): \(error)")
             try? await sendMessage(token: botToken, chatId: chatId, text: "Не удалось удалить модель. Попробуй позже.", application: application)
@@ -261,11 +276,16 @@ actor NeurfotobotPipelineService {
     private func deleteOriginalPhotos(chatId: Int64, application: Application, logger: Logger) async throws {
         let photos = await PhotoSessionManager.shared.getPhotos(for: chatId)
         guard !photos.isEmpty else { return }
-        let storage = try SupabaseStorageClient(application: application)
         for photo in photos {
-            try? await storage.delete(path: photo.path)
+            do {
+                let url = try NeurfotobotTempDirectory.fileURL(relativePath: photo.path)
+                try FileManager.default.removeItem(at: url)
+                logger.info("Deleted local photo \(photo.path) for chatId=\(chatId)")
+            } catch {
+                logger.warning("Failed to delete local photo \(photo.path) for chatId=\(chatId): \(error)")
+            }
         }
-        logger.info("Deleted original photos for chatId=\(chatId)")
+        logger.info("Deleted original local photos for chatId=\(chatId)")
     }
 
     private func sendMessage(token: String, chatId: Int64, text: String, application: Application, replyMarkup: ReplyMarkup? = nil) async throws {

@@ -5,6 +5,16 @@ import Fluent
 final class NeurfotobotController: Sendable {
     private let minimumPhotoCount = 5
     private let maximumPhotoCount = 10
+    
+    // Rate limiters для защиты от злоупотребления
+    // 1. Обучение модели: не больше 1 в час на пользователя
+    private static let trainingRateLimiter = RateLimiter(maxRequests: 1, timeWindow: 3600) // 1 час
+    
+    // 2. Генерация фото: не больше 2 в минуту на пользователя
+    private static let generationRateLimiter = RateLimiter(maxRequests: 2, timeWindow: 60) // 1 минута
+    
+    // 3. Генерация фото: не больше 50 в сутки на пользователя
+    private static let generationDailyLimiter = DailyLimiter()
 
     func handleWebhook(_ req: Request) async throws -> Response {
         guard let token = Environment.get("NEURFOTOBOT_TOKEN"), !token.isEmpty else {
@@ -318,31 +328,47 @@ final class NeurfotobotController: Sendable {
         }
 
         let fileData = try await downloadTelegramFile(token: token, filePath: filePath, client: req.client)
-        var buffer = ByteBufferAllocator().buffer(capacity: fileData.count)
-        buffer.writeBytes(fileData)
+
+        // SafeSearch модерация перед сохранением (если включена)
+        let safeSearchDisabled = Environment.get("DISABLE_SAFESEARCH")?.lowercased() == "true"
+        let riskyLevels: Set<String> = ["LIKELY", "VERY_LIKELY"]
+        if !safeSearchDisabled {
+            do {
+                let vision = try GoogleVisionClient(request: req)
+                let annotation = try await vision.analyzeSafeSearch(data: fileData)
+                if riskyLevels.contains(annotation.adult) ||
+                    riskyLevels.contains(annotation.violence ?? "") ||
+                    riskyLevels.contains(annotation.racy ?? "") ||
+                    riskyLevels.contains(annotation.medical ?? "") {
+                    req.logger.warning("SafeSearch blocked photo for chatId=\(message.chat.id)")
+                    _ = try? await sendTelegramMessage(
+                        token: token,
+                        chatId: message.chat.id,
+                        text: "Не могу сохранить это фото: оно не прошло модерацию SafeSearch. Попробуй другие снимки, пожалуйста.",
+                        client: req.client
+                    )
+                    return
+                }
+            } catch {
+                // Fail-open стратегия: при ошибке модерации продолжаем обработку
+                req.logger.warning("SafeSearch check failed for chatId=\(message.chat.id): \(error). Proceeding without blocking the photo.")
+            }
+        } else {
+            req.logger.warning("SafeSearch is disabled via DISABLE_SAFESEARCH env flag; skipping moderation for chat \(message.chat.id)")
+        }
 
         let ext = (filePath as NSString).pathExtension.lowercased()
         let finalExt = ext.isEmpty ? "jpg" : ext
-        let contentType = mimeType(for: finalExt)
-        let storage = try SupabaseStorageClient(request: req)
-        let objectPath = "\(message.chat.id)/\(UUID().uuidString).\(finalExt)"
 
-        let storedPath: String
-        do {
-            storedPath = try await storage.upload(path: objectPath, data: buffer, contentType: contentType)
-            req.logger.info("Uploaded photo stored at \(storedPath)")
-        } catch {
-            req.logger.error("Failed to upload photo to Supabase after retries: \(error)")
-            // Отправляем аккуратное сообщение пользователю
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: message.chat.id,
-                text: "Обрабатываю твой запрос, это может занять немного больше времени. Подожди, пожалуйста, и попробуй отправить фото ещё раз через минуту.",
-                client: req.client
-            )
-            return
-        }
-        let newCount = await PhotoSessionManager.shared.addPhoto(path: storedPath, for: message.chat.id)
+        // Сохраняем фото локально в NEURFOTOBOT_TEMP_DIR/photos/{chatId}/{uuid}.ext
+        let relativePath = "photos/\(message.chat.id)/\(UUID().uuidString).\(finalExt)"
+        let fileURL = try NeurfotobotTempDirectory.fileURL(relativePath: relativePath)
+        let directoryURL = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try fileData.write(to: fileURL)
+        req.logger.info("Saved local photo for chatId=\(message.chat.id) at \(relativePath)")
+
+        let newCount = await PhotoSessionManager.shared.addPhoto(path: relativePath, for: message.chat.id)
         // Обновляем время последней активности при загрузке фото
         await PhotoSessionManager.shared.setLastActivity(for: message.chat.id)
         let remaining = max(0, maximumPhotoCount - newCount)
@@ -470,6 +496,19 @@ final class NeurfotobotController: Sendable {
             return
         }
 
+        // Проверка rate limit: не больше 1 обучения в час на пользователя
+        let trainingAllowed = await NeurfotobotController.trainingRateLimiter.checkLimit(for: chatId)
+        if !trainingAllowed {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Обучение модели можно запускать не чаще одного раза в час. Подожди немного, пожалуйста.",
+                client: req.client
+            )
+            req.logger.info("Rate limit: пользователь \(chatId) попытался запустить обучение слишком часто")
+            return
+        }
+        
         _ = try? await sendTelegramMessage(
             token: token,
             chatId: chatId,
@@ -513,36 +552,8 @@ final class NeurfotobotController: Sendable {
     }
 
     private func validatePhotos(chatId: Int64, token: String, req: Request) async throws {
-        let storage = try SupabaseStorageClient(request: req)
-        let photos = await PhotoSessionManager.shared.getPhotos(for: chatId)
-        let riskyLevels: Set<String> = ["LIKELY", "VERY_LIKELY"]
-        let safeSearchDisabled = Environment.get("DISABLE_SAFESEARCH")?.lowercased() == "true"
-
-        if !safeSearchDisabled {
-            let vision = try GoogleVisionClient(request: req)
-
-            for photo in photos {
-                do {
-                    req.logger.info("Validating photo at path \(photo.path)")
-                    let data = try await storage.download(path: photo.path)
-                    let annotation = try await vision.analyzeSafeSearch(data: data)
-                    if riskyLevels.contains(annotation.adult) ||
-                        riskyLevels.contains(annotation.violence ?? "") ||
-                        riskyLevels.contains(annotation.racy ?? "") ||
-                        riskyLevels.contains(annotation.medical ?? "") {
-                        try await handleModerationFail(chatId: chatId, token: token, storage: storage, photos: photos, req: req)
-                        return
-                    }
-                } catch {
-                    req.logger.error("SafeSearch check failed for \(photo.path): \(error)")
-                    try await handleModerationFail(chatId: chatId, token: token, storage: storage, photos: photos, req: req)
-                    return
-                }
-            }
-        } else {
-            req.logger.warning("SafeSearch is disabled via DISABLE_SAFESEARCH env flag; skipping moderation for chat \(chatId)")
-        }
-
+        // На этом этапе считаем, что SafeSearch уже был выполнен при загрузке фото (или отключён флагом),
+        // поэтому здесь просто запускаем обучение.
         _ = try? await sendTelegramMessage(
             token: token,
             chatId: chatId,
@@ -557,9 +568,15 @@ final class NeurfotobotController: Sendable {
         }
     }
 
-    private func handleModerationFail(chatId: Int64, token: String, storage: SupabaseStorageClient, photos: [PhotoSessionManager.PhotoRecord], req: Request) async throws {
+    private func handleModerationFail(chatId: Int64, token: String, photos: [PhotoSessionManager.PhotoRecord], req: Request) async throws {
+        // Удаляем все локальные фото для этой сессии
         for photo in photos {
-            try? await storage.delete(path: photo.path)
+            do {
+                let url = try NeurfotobotTempDirectory.fileURL(relativePath: photo.path)
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                req.logger.warning("Failed to delete local photo at \(photo.path) for chatId=\(chatId): \(error)")
+            }
         }
         await PhotoSessionManager.shared.reset(for: chatId)
         _ = try? await sendTelegramMessage(
@@ -611,7 +628,10 @@ final class NeurfotobotController: Sendable {
                 chat_id: chatId,
                 text: "Одежда сохранена! 👔\n\nХочешь добавить дополнительные детали?",
                 reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "➕ Дополнительный промпт", callback_data: "ask_additional")]
+                    [
+                        InlineKeyboardButton(text: "➕ Дополнительный промпт", callback_data: "ask_additional"),
+                        InlineKeyboardButton(text: "⏭ Пропустить", callback_data: "skip_additional")
+                    ]
                 ])
             )
             request.headers.add(name: .contentType, value: "application/json")
@@ -703,16 +723,27 @@ final class NeurfotobotController: Sendable {
             _ = try await req.client.send(request)
             return
             
-        case .idle, .styleSelected, .readyToGenerate:
-            // Если пользователь просто отправил текст без выбора стиля, напоминаем о процессе
-            if promptState == .idle {
-                _ = try? await sendTelegramMessage(
-                    token: token,
-                    chatId: chatId,
-                    text: "Сначала выбери стиль генерации, нажав кнопку \"📝 Составить промпт\"",
-                    client: req.client
-                )
-            }
+        case .idle:
+            // Если пользователь просто отправил текст без выбора стиля, показываем кнопки выбора стиля
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
+                reply_markup: ReplyMarkup(inline_keyboard: [
+                    [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
+                    [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
+                    [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
+                    [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
+                ])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            return
+            
+        case .styleSelected, .readyToGenerate:
+            // Если уже выбран стиль или готово к генерации, просто возвращаемся
             return
         }
     }
@@ -813,6 +844,34 @@ final class NeurfotobotController: Sendable {
                 req.logger.warning("Translation failed for chatId=\(chatId): \(error). Using original Russian prompt.")
                 translatedPrompt = finalPrompt
             }
+        }
+        
+        // Проверка rate limit: не больше 2 генераций в минуту на пользователя
+        let generationAllowed = await NeurfotobotController.generationRateLimiter.checkLimit(for: chatId)
+        if !generationAllowed {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Генерацию можно запускать не чаще двух раз в минуту. Подожди немного, пожалуйста.",
+                client: req.client
+            )
+            req.logger.info("Rate limit: пользователь \(chatId) попытался сгенерировать фото слишком часто (минутный лимит)")
+            await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+            return
+        }
+        
+        // Проверка дневного лимита: не больше 50 генераций в сутки на пользователя
+        let dailyAllowed = await NeurfotobotController.generationDailyLimiter.checkLimit(for: chatId)
+        if !dailyAllowed {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Дневной лимит генераций исчерпан (максимум 50 фото в сутки). Попробуй завтра.",
+                client: req.client
+            )
+            req.logger.info("Daily limit: пользователь \(chatId) исчерпал дневной лимит генераций")
+            await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+            return
         }
         
         // Сохраняем пол для использования в промпте (чтобы модель знала пол)
@@ -1103,12 +1162,102 @@ final class NeurfotobotController: Sendable {
             }
             
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "Хочешь добавить что-то ещё? Опиши дополнительные детали или отправь \"готово\", чтобы начать генерацию.",
-                client: req.client
+            
+            // Показываем текст и кнопку, чтобы можно было пропустить дополнительные детали
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "Хочешь добавить что-то ещё? Опиши дополнительные детали сообщением.\n\nЕсли ничего добавлять не нужно — нажми \"⏭ Пропустить\".",
+                reply_markup: ReplyMarkup(inline_keyboard: [
+                    [InlineKeyboardButton(text: "⏭ Пропустить", callback_data: "skip_additional")]
+                ])
             )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+
+        case "skip_additional":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Пропускаю дополнительные детали", req: req)
+            
+            // Сбрасываем дополнительные детали и помечаем состояние как готовое к генерации
+            await PhotoSessionManager.shared.setAdditionalDetails("", for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            
+            // Собираем составной промпт из уже сохранённых частей (место + одежда)
+            let location = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
+            let clothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
+            
+            var promptParts: [String] = []
+            if !location.isEmpty {
+                promptParts.append("в \(location)")
+            }
+            if !clothing.isEmpty {
+                promptParts.append("в \(clothing)")
+            }
+            let russianPrompt = promptParts.joined(separator: ", ")
+            
+            // Переводим на английский (или используем русский, если перевод отключён)
+            let translationDisabled = Environment.get("DISABLE_TRANSLATION")?.lowercased() == "true"
+            let englishPrompt: String
+            if !translationDisabled {
+                do {
+                    let translator = try YandexTranslationClient(request: req)
+                    englishPrompt = try await translator.translateToEnglish(russianPrompt)
+                    await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+                } catch {
+                    req.logger.warning("Translation failed for skip_additional chatId=\(chatId): \(error). Using Russian.")
+                    englishPrompt = russianPrompt
+                    await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+                }
+            } else {
+                req.logger.warning("Translation is disabled via DISABLE_TRANSLATION env flag; using Russian prompt for chatId=\(chatId) in skip_additional")
+                englishPrompt = russianPrompt
+                await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+            }
+            
+            // Показываем превью промпта и кнопку генерации
+            let preview: String
+            if translationDisabled {
+                preview = """
+Дополнительные детали пропущены. ✨
+
+Вот составной промпт:
+🇷🇺 \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
+
+Готов сгенерировать изображение?
+"""
+            } else {
+                preview = """
+Дополнительные детали пропущены. ✨
+
+Вот составной промпт:
+🇷🇺 Русский: \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
+🇬🇧 English: \(englishPrompt.isEmpty ? "(empty)" : englishPrompt)
+
+Готов сгенерировать изображение?
+"""
+            }
+            
+            let previewURL = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var previewRequest = ClientRequest(method: .POST, url: previewURL)
+            let previewPayload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: preview,
+                reply_markup: ReplyMarkup(inline_keyboard: [
+                    [InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")]
+                ])
+            )
+            previewRequest.headers.add(name: .contentType, value: "application/json")
+            previewRequest.body = try .init(data: JSONEncoder().encode(previewPayload))
+            _ = try await req.client.send(previewRequest)
         default:
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
         }

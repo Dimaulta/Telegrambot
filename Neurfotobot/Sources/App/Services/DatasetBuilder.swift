@@ -8,11 +8,9 @@ struct DatasetBuilder {
         let publicURL: String
     }
 
-    private let storage: SupabaseStorageClient
     private let logger: Logger
 
     init(application: Application, logger: Logger) throws {
-        self.storage = try SupabaseStorageClient(application: application)
         self.logger = logger
     }
 
@@ -26,12 +24,17 @@ struct DatasetBuilder {
 
         var localFiles: [URL] = []
         for (index, photo) in photos.enumerated() {
-            let data = try await storage.download(path: photo.path)
+            let sourceURL = try NeurfotobotTempDirectory.fileURL(relativePath: photo.path)
             let ext = (photo.path as NSString).pathExtension
             let filename = String(format: "%02d.%@", index + 1, ext.isEmpty ? "jpg" : ext)
             let localURL = tempDirectory.appendingPathComponent(filename)
-            try data.write(to: localURL)
-            localFiles.append(localURL)
+            do {
+                let data = try Data(contentsOf: sourceURL)
+                try data.write(to: localURL)
+                localFiles.append(localURL)
+            } catch {
+                logger.warning("Failed to copy photo \(photo.path) for dataset of chatId=\(chatId): \(error)")
+            }
         }
 
         let archiveURL = tempDirectory.appendingPathComponent("dataset.zip")
@@ -46,25 +49,39 @@ struct DatasetBuilder {
             try archive.addEntry(with: file.lastPathComponent, fileURL: file, compressionMethod: .deflate)
         }
 
+        // Сохраняем архив в локальной директории NEURFOTOBOT_TEMP_DIR/datasets/{chatId}/dataset.zip
+        let relativeDatasetPath = "datasets/\(chatId)/dataset.zip"
+        let datasetURL = try NeurfotobotTempDirectory.fileURL(relativePath: relativeDatasetPath)
+        let datasetDir = datasetURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: datasetDir, withIntermediateDirectories: true)
+
         let archiveData = try Data(contentsOf: archiveURL)
-        var buffer = ByteBufferAllocator().buffer(capacity: archiveData.count)
-        buffer.writeBytes(archiveData)
+        try archiveData.write(to: datasetURL)
 
-        let datasetPath = "datasets/\(chatId)/dataset.zip"
-        _ = try await storage.upload(path: datasetPath, data: buffer, contentType: "application/zip", upsert: true)
-        let publicURL = storage.publicURL(for: datasetPath)
+        // Формируем публичный URL через BASE_URL
+        guard let baseURLRaw = Environment.get("BASE_URL"), !baseURLRaw.isEmpty else {
+            throw Abort(.internalServerError, reason: "BASE_URL is not set")
+        }
+        var base = baseURLRaw
+        if base.hasSuffix("/") {
+            base.removeLast()
+        }
+        // Путь сервинга: /neurfotobot/datasets/{chatId}/dataset.zip
+        let publicURL = "\(base)/neurfotobot/\(relativeDatasetPath)"
 
-        logger.info("Dataset for chatId=\(chatId) uploaded to Supabase at path=\(datasetPath)")
+        logger.info("Dataset for chatId=\(chatId) built at local path=\(relativeDatasetPath)")
         logger.info("Dataset public URL for chatId=\(chatId): \(publicURL)")
 
-        return Result(datasetPath: datasetPath, publicURL: publicURL)
+        return Result(datasetPath: relativeDatasetPath, publicURL: publicURL)
     }
 
     func deleteDataset(at path: String) async {
         do {
-            try await storage.delete(path: path)
+            let url = try NeurfotobotTempDirectory.fileURL(relativePath: path)
+            try FileManager.default.removeItem(at: url)
+            logger.info("Deleted local dataset at \(path)")
         } catch {
-            logger.warning("Failed to delete dataset at \(path): \(error)")
+            logger.warning("Failed to delete local dataset at \(path): \(error)")
         }
     }
 }

@@ -55,33 +55,28 @@ actor PhotoCleanupService {
                 continue
             }
             
-            // Удаляем фото из Supabase Storage
-            do {
-                let storage = try SupabaseStorageClient(application: application)
-                for photo in session.photos {
-                    do {
-                        try await storage.delete(path: photo.path)
-                        logger.info("PhotoCleanupService: удалено фото \(photo.path) для chatId=\(chatId)")
-                    } catch {
-                        logger.warning("PhotoCleanupService: не удалось удалить фото \(photo.path) для chatId=\(chatId): \(error)")
-                        errorCount += 1
-                    }
+            // Удаляем фото из локального хранилища
+            for photo in session.photos {
+                do {
+                    let url = try NeurfotobotTempDirectory.fileURL(relativePath: photo.path)
+                    try FileManager.default.removeItem(at: url)
+                    logger.info("PhotoCleanupService: удалено локальное фото \(photo.path) для chatId=\(chatId)")
+                } catch {
+                    logger.warning("PhotoCleanupService: не удалось удалить локальное фото \(photo.path) для chatId=\(chatId): \(error)")
+                    errorCount += 1
                 }
-                
-                // Очищаем сессию в PhotoSessionManager
-                await PhotoSessionManager.shared.reset(for: chatId)
-                cleanedCount += 1
-                
-                // Отправляем сообщение пользователю
-                if let token = Environment.get("NEURFOTOBOT_TOKEN"), !token.isEmpty {
-                    let sent = await sendExpirationMessage(chatId: chatId, token: token, application: application)
-                    if sent {
-                        messageSentCount += 1
-                    }
+            }
+            
+            // Очищаем сессию в PhotoSessionManager
+            await PhotoSessionManager.shared.reset(for: chatId)
+            cleanedCount += 1
+            
+            // Отправляем сообщение пользователю
+            if let token = Environment.get("NEURFOTOBOT_TOKEN"), !token.isEmpty {
+                let sent = await sendExpirationMessage(chatId: chatId, token: token, application: application)
+                if sent {
+                    messageSentCount += 1
                 }
-            } catch {
-                logger.error("PhotoCleanupService: ошибка при очистке для chatId=\(chatId): \(error)")
-                errorCount += 1
             }
         }
         

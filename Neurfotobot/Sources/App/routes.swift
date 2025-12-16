@@ -14,6 +14,30 @@ func routes(_ app: Application) throws {
     app.get("health") { _ in
         "ok"
     }
+
+    // Отдача локального датасета для Replicate через BASE_URL
+    app.get("neurfotobot", "datasets", ":chatId", "dataset.zip") { req async throws -> Response in
+        guard let chatIdParam = req.parameters.get("chatId"),
+              let chatId = Int64(chatIdParam) else {
+            throw Abort(.badRequest, reason: "Invalid chatId")
+        }
+
+        let relativePath = "datasets/\(chatId)/dataset.zip"
+        let fileURL = try NeurfotobotTempDirectory.fileURL(relativePath: relativePath)
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw Abort(.notFound, reason: "Dataset not found for chatId=\(chatId)")
+        }
+
+        let data = try Data(contentsOf: fileURL)
+        var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+        buffer.writeBytes(data)
+
+        var headers = HTTPHeaders()
+        headers.add(name: .contentType, value: "application/zip")
+
+        return Response(status: .ok, headers: headers, body: .init(buffer: buffer))
+    }
     
     // Временный роут для добавления записи модели в БД (удалить после использования)
     app.post("admin", "add-model") { req async throws -> String in

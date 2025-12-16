@@ -329,6 +329,30 @@ final class NeurfotobotController: Sendable {
 
         let fileData = try await downloadTelegramFile(token: token, filePath: filePath, client: req.client)
 
+        // Проверка размера файла: максимум 5 МБ
+        let maxFileSize = 5 * 1024 * 1024 // 5 МБ в байтах
+        if fileData.count > maxFileSize {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: message.chat.id,
+                text: "Фото слишком большое (максимум 5 МБ)\n\nВыбери другое фото или уменьши его размер. Мне нужно от 5 до 10 фотографий для обучения модели",
+                client: req.client
+            )
+            // Показываем кнопку для начала загрузки фото
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: message.chat.id,
+                text: "Начни загрузку фото заново:",
+                reply_markup: ReplyMarkup(inline_keyboard: [[InlineKeyboardButton(text: "📸 Начать загрузку фото", callback_data: "start_upload")]])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            req.logger.info("File size limit exceeded for chatId=\(message.chat.id): \(fileData.count) bytes (max: \(maxFileSize) bytes)")
+            return
+        }
+
         // SafeSearch модерация перед сохранением (если включена)
         let safeSearchDisabled = Environment.get("DISABLE_SAFESEARCH")?.lowercased() == "true"
         let riskyLevels: Set<String> = ["LIKELY", "VERY_LIKELY"]

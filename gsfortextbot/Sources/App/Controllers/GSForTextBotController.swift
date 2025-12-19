@@ -114,7 +114,7 @@ final class GSForTextBotController {
                 let removeKeyboard = ReplyKeyboardRemove(remove_keyboard: true)
                 let removePayload = AccessPayloadWithRemoveKeyboard(
                     chat_id: message.chat.id,
-                    text: "Подписка подтверждена ✅\n\nМожешь отправить голосовое или аудио, и я пришлю текстовую расшифровку",
+                    text: "Подписка подтверждена ✅",
                     disable_web_page_preview: false,
                     reply_markup: removeKeyboard
                 )
@@ -124,7 +124,35 @@ final class GSForTextBotController {
                     try sendReq.content.encode(removePayload, as: .json)
                 }.get()
                 
-                return Response(status: .ok)
+                // Проверяем, есть ли сохраненное голосовое/аудио для автоматической обработки
+                if let savedMedia = await VoiceAudioSessionManager.shared.getMedia(userId: from.id) {
+                    // Есть сохраненное медиа - автоматически обрабатываем его
+                    await VoiceAudioSessionManager.shared.clearMedia(userId: from.id)
+                    
+                    req.logger.info("✅ Subscription confirmed, processing saved media file_id: \(savedMedia.fileId), type: \(savedMedia.type)")
+                    
+                    // Обрабатываем сохраненное медиа
+                    do {
+                        try await processMediaByFileId(
+                            fileId: savedMedia.fileId,
+                            type: savedMedia.type,
+                            duration: savedMedia.duration,
+                            mimeType: savedMedia.mimeType,
+                            chatId: message.chat.id,
+                            userId: from.id,
+                            req: req
+                        )
+                    } catch {
+                        req.logger.error("❌ Error processing saved media: \(error)")
+                        _ = try? await sendMessage(on: req, chatId: message.chat.id, text: "😔 Произошла ошибка при обработке. Попробуй отправить голосовое или аудио ещё раз.")
+                    }
+                    
+                    return Response(status: .ok)
+                } else {
+                    // Нет сохраненного медиа - отправляем обычное сообщение
+                    _ = try? await sendMessage(on: req, chatId: message.chat.id, text: "Можешь отправить голосовое или аудио, и я пришлю текстовую расшифровку")
+                    return Response(status: .ok)
+                }
             } else {
                 let channelsText: String
                 if channels.isEmpty {
@@ -191,6 +219,14 @@ final class GSForTextBotController {
         )
         
         if !allowed {
+            // Сохраняем file_id, тип, длительность и MIME тип перед отправкой сообщения о подписке
+            await VoiceAudioSessionManager.shared.saveMedia(
+                userId: userId,
+                fileId: voice.file_id,
+                type: .voice,
+                duration: voice.duration,
+                mimeType: voice.mime_type
+            )
             try await sendSubscriptionRequest(on: req, chatId: chatId, channels: channels)
             return
         }
@@ -240,6 +276,14 @@ final class GSForTextBotController {
         )
         
         if !allowed {
+            // Сохраняем file_id, тип, длительность и MIME тип перед отправкой сообщения о подписке
+            await VoiceAudioSessionManager.shared.saveMedia(
+                userId: userId,
+                fileId: audio.file_id,
+                type: .audio,
+                duration: audio.duration,
+                mimeType: audio.mime_type
+            )
             try await sendSubscriptionRequest(on: req, chatId: chatId, channels: channels)
             return
         }
@@ -457,6 +501,75 @@ final class GSForTextBotController {
             return "audio/x-pcm;bit=16;rate=16000"
         default:
             return "audio/ogg;codecs=opus"
+        }
+    }
+    
+    /// Обрабатывает голосовое/аудио по file_id (используется после успешной проверки подписки)
+    private func processMediaByFileId(
+        fileId: String,
+        type: VoiceAudioSessionManager.MediaType,
+        duration: Int?,
+        mimeType: String?,
+        chatId: Int64,
+        userId: Int64,
+        req: Request
+    ) async throws {
+        // Проверяем длительность, если она была сохранена
+        if let duration = duration, duration > Self.maxVoiceDurationSeconds {
+            try await sendMessage(
+                on: req,
+                chatId: chatId,
+                text: type == .voice
+                    ? "Голосовое длиннее 2 минут. Пожалуйста, отправь запись до двух минут"
+                    : "Аудиофайл длиннее 2 минут. Присылай записи до двух минут, пожалуйста 💕"
+            )
+            return
+        }
+        
+        // Проверяем rate limit
+        let rateLimitAllowed = await Self.voiceRateLimiter.consume(for: chatId)
+        if rateLimitAllowed == false {
+            try await sendMessage(
+                on: req,
+                chatId: chatId,
+                text: type == .voice
+                    ? "Я могу обрабатывать по одному голосовому в минуту. Подожди чуть-чуть и попробуй снова"
+                    : "У меня лимит — одно голосовое в минуту. Давай чуть позже 💕"
+            )
+            return
+        }
+        
+        let description = type == .voice ? "voice file \(fileId)" : "audio file \(fileId)"
+        try await sendChatAction(on: req, chatId: chatId, action: "typing")
+        
+        do {
+            let file = try await fetchTelegramFile(on: req, fileId: fileId, description: description)
+            let contentType = resolvedContentType(primary: mimeType, filePath: file.file_path)
+            try await transcribeAndReply(
+                on: req,
+                chatId: chatId,
+                filePath: file.file_path,
+                contentType: contentType,
+                description: description
+            )
+        } catch let abort as AbortError {
+            req.logger.error("GSForTextBotController: media processing aborted: \(abort.reason)")
+            try await sendMessage(
+                on: req,
+                chatId: chatId,
+                text: type == .voice
+                    ? "Не смогла обработать голосовое 😔 Попробуй ещё раз."
+                    : "Не получилось обработать аудио 😔 Попробуем ещё раз?"
+            )
+        } catch {
+            req.logger.error("GSForTextBotController: media processing error: \(error)")
+            try await sendMessage(
+                on: req,
+                chatId: chatId,
+                text: type == .voice
+                    ? "Произошла ошибка при расшифровке голосового, мой хороший. Попробуй ещё раз чуть позже 💕"
+                    : "Что-то пошло не так при расшифровке аудио. Попробуй ещё раз, мой милый 💕"
+            )
         }
     }
 }

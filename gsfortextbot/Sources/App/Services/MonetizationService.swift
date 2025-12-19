@@ -150,7 +150,7 @@ enum MonetizationService {
 
         // 1. Смотрим, включена ли вообще обязательная подписка для этого бота
         let settingSQL = """
-        SELECT require_subscription
+        SELECT require_subscription, COALESCE(require_all_channels, 1) as require_all_channels
         FROM bot_settings
         WHERE bot_name = ?1;
         """
@@ -165,11 +165,13 @@ enum MonetizationService {
         sqlite3_bind_text(settingStmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         var requireSubscription = false
+        var requireAllChannels = true // По умолчанию требуем подписку на все каналы
         if sqlite3_step(settingStmt) == SQLITE_ROW {
             requireSubscription = sqlite3_column_int(settingStmt, 0) != 0
+            requireAllChannels = sqlite3_column_int(settingStmt, 1) != 0
         }
 
-        logger.info("checkAccess for \(botName): require_subscription = \(requireSubscription)")
+        logger.info("checkAccess for \(botName): require_subscription = \(requireSubscription), require_all_channels = \(requireAllChannels)")
 
         if requireSubscription == false {
             // Подписка не обязательна — пропускаем
@@ -225,30 +227,97 @@ enum MonetizationService {
 
         let channels = campaigns.map { $0.channelUsername }
 
-        do {
-            // Стратегия: достаточно быть подписанным хотя бы на один из каналов
+        if requireAllChannels {
+            // Стратегия: требуется подписка на ВСЕ каналы
+            var allSubscribed = true
+            var checkedChannels = 0
+            var accessibleChannels = 0
+            
             for channel in channels {
-                let isMember = try await isUserMember(
-                    userId: userId,
-                    channelUsername: channel,
-                    botToken: checkerToken,
-                    client: client,
-                    logger: logger
-                )
-                logger.info("checkAccess for \(botName): пользователь \(userId) на канале @\(channel): \(isMember ? "подписан" : "не подписан")")
-                if isMember {
-                    logger.info("checkAccess for \(botName): пользователь \(userId) подписан хотя бы на один канал, доступ разрешён")
-                    return (true, channels)
+                do {
+                    let isMember = try await isUserMember(
+                        userId: userId,
+                        channelUsername: channel,
+                        botToken: checkerToken,
+                        client: client,
+                        logger: logger
+                    )
+                    checkedChannels += 1
+                    logger.info("checkAccess for \(botName): пользователь \(userId) на канале @\(channel): \(isMember ? "подписан" : "не подписан")")
+                    if !isMember {
+                        allSubscribed = false
+                    }
+                } catch {
+                    // Ошибка при проверке одного канала - логируем, но продолжаем проверку других
+                    accessibleChannels += 1
+                    logger.warning("checkAccess for \(botName): ошибка при проверке канала @\(channel): \(error.localizedDescription)")
                 }
             }
-            // Не нашли ни одного канала, где пользователь подписан
-            logger.info("checkAccess for \(botName): пользователь \(userId) не подписан ни на один из каналов, доступ запрещён")
+            
+            // Если все каналы недоступны для проверки (все вернули ошибку) - применяем fail-open
+            if checkedChannels == 0 && accessibleChannels == channels.count {
+                logger.error("checkAccess for \(botName): все каналы недоступны для проверки, применяем fail-open стратегию")
+                logger.warning("checkAccess for \(botName): из-за ошибки применяем fail-open стратегию, доступ разрешён")
+                return (true, [])
+            }
+            
+            // Если хотя бы один канал был проверен успешно
+            if checkedChannels > 0 {
+                if allSubscribed {
+                    logger.info("checkAccess for \(botName): пользователь \(userId) подписан на все доступные каналы (\(checkedChannels) из \(channels.count)), доступ разрешён")
+                    return (true, channels)
+                } else {
+                    logger.info("checkAccess for \(botName): пользователь \(userId) не подписан на все каналы (\(checkedChannels) из \(channels.count) проверено), доступ запрещён")
+                    return (false, channels)
+                }
+            }
+            
+            // Если часть каналов недоступна, но ни на один доступный не подписан - запрещаем доступ
+            logger.info("checkAccess for \(botName): пользователь \(userId) не подписан на все каналы (\(checkedChannels) из \(channels.count) проверено, \(accessibleChannels) недоступно), доступ запрещён")
             return (false, channels)
-        } catch {
-            logger.error("checkAccess for \(botName): Error while checking sponsor subscriptions: \(error.localizedDescription)")
-            // При любой ошибке даём доступ, чтобы не ломать сервис
-            logger.warning("checkAccess for \(botName): из-за ошибки применяем fail-open стратегию, доступ разрешён")
-            return (true, [])
+        } else {
+            // Стратегия: достаточно быть подписанным хотя бы на один из каналов
+            var checkedChannels = 0
+            var accessibleChannels = 0
+            
+            for channel in channels {
+                do {
+                    let isMember = try await isUserMember(
+                        userId: userId,
+                        channelUsername: channel,
+                        botToken: checkerToken,
+                        client: client,
+                        logger: logger
+                    )
+                    checkedChannels += 1
+                    logger.info("checkAccess for \(botName): пользователь \(userId) на канале @\(channel): \(isMember ? "подписан" : "не подписан")")
+                    if isMember {
+                        logger.info("checkAccess for \(botName): пользователь \(userId) подписан хотя бы на один канал, доступ разрешён")
+                        return (true, channels)
+                    }
+                } catch {
+                    // Ошибка при проверке одного канала - логируем, но продолжаем проверку других
+                    accessibleChannels += 1
+                    logger.warning("checkAccess for \(botName): ошибка при проверке канала @\(channel): \(error.localizedDescription)")
+                }
+            }
+            
+            // Если все каналы недоступны для проверки (все вернули ошибку) - применяем fail-open
+            if checkedChannels == 0 && accessibleChannels == channels.count {
+                logger.error("checkAccess for \(botName): все каналы недоступны для проверки, применяем fail-open стратегию")
+                logger.warning("checkAccess for \(botName): из-за ошибки применяем fail-open стратегию, доступ разрешён")
+                return (true, [])
+            }
+            
+            // Если хотя бы один канал был проверен успешно, но пользователь не подписан - запрещаем доступ
+            if checkedChannels > 0 {
+                logger.info("checkAccess for \(botName): пользователь \(userId) не подписан ни на один из доступных каналов (\(checkedChannels) из \(channels.count) проверено), доступ запрещён")
+                return (false, channels)
+            }
+            
+            // Если часть каналов недоступна, но ни на один доступный не подписан - запрещаем доступ
+            logger.info("checkAccess for \(botName): пользователь \(userId) не подписан ни на один из каналов (\(checkedChannels) из \(channels.count) проверено, \(accessibleChannels) недоступно), доступ запрещён")
+            return (false, channels)
         }
     }
 

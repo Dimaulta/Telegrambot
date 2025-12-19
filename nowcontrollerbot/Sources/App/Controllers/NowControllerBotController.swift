@@ -625,11 +625,12 @@ final class NowControllerBotController {
         lines.append("")
         lines.append("⚙️ Настройки обязательной подписки:")
         for bot in managedBots {
+            let sponsorCount = MonetizationDatabase.sponsorCount(for: bot, logger: logger, env: env)
             if let setting = MonetizationDatabase.botSetting(for: bot, logger: logger, env: env) {
                 let flag = setting.requireSubscription ? "ON" : "OFF"
-                lines.append("  • \(bot): \(flag)")
+                lines.append("  • \(bot): \(flag) (спонсоров: \(sponsorCount))")
             } else {
-                lines.append("  • \(bot): (не настроено, по умолчанию OFF)")
+                lines.append("  • \(bot): (не настроено, по умолчанию OFF) (спонсоров: \(sponsorCount))")
             }
         }
 

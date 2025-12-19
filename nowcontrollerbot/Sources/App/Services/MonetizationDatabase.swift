@@ -69,7 +69,8 @@ enum MonetizationDatabase {
         let createBotSettingsSQL = """
         CREATE TABLE IF NOT EXISTS bot_settings (
             bot_name TEXT PRIMARY KEY,
-            require_subscription INTEGER NOT NULL DEFAULT 0
+            require_subscription INTEGER NOT NULL DEFAULT 0,
+            require_all_channels INTEGER NOT NULL DEFAULT 1
         );
         """
 
@@ -83,6 +84,13 @@ enum MonetizationDatabase {
                 // Не кидаем ошибку наружу: база монетизации не должна ломать сервис
             }
         }
+        
+        // Миграция: добавляем поле require_all_channels если его нет
+        let migrationSQL = """
+        ALTER TABLE bot_settings ADD COLUMN require_all_channels INTEGER NOT NULL DEFAULT 1;
+        """
+        // Игнорируем ошибку если колонка уже существует
+        sqlite3_exec(db, migrationSQL, nil, nil, nil)
 
         // Инициализируем записи для всех ботов из NOWCONTROLLERBOT_BROADCAST_BOTS
         // Это гарантирует, что настройки явно видны в БД (require_subscription = 0 по умолчанию)
@@ -93,8 +101,8 @@ enum MonetizationDatabase {
                 .filter { !$0.isEmpty }
             
             let initSettingsSQL = """
-            INSERT OR IGNORE INTO bot_settings (bot_name, require_subscription)
-            VALUES (?1, 0);
+            INSERT OR IGNORE INTO bot_settings (bot_name, require_subscription, require_all_channels)
+            VALUES (?1, 0, 1);
             """
             
             var initStmt: OpaquePointer?
@@ -139,6 +147,7 @@ enum MonetizationDatabase {
     struct BotSetting {
         let botName: String
         let requireSubscription: Bool
+        let requireAllChannels: Bool
     }
 
     /// Возвращает список активных и неистёкших кампаний для указанного бота.
@@ -208,7 +217,7 @@ enum MonetizationDatabase {
         defer { sqlite3_close(db) }
 
         let sql = """
-        SELECT bot_name, require_subscription
+        SELECT bot_name, require_subscription, COALESCE(require_all_channels, 1) as require_all_channels
         FROM bot_settings
         WHERE bot_name = ?1;
         """
@@ -225,7 +234,8 @@ enum MonetizationDatabase {
         if sqlite3_step(stmt) == SQLITE_ROW {
             let nameValue = String(cString: sqlite3_column_text(stmt, 0))
             let requireValue = sqlite3_column_int(stmt, 1) != 0
-            return BotSetting(botName: nameValue, requireSubscription: requireValue)
+            let requireAllChannelsValue = sqlite3_column_int(stmt, 2) != 0
+            return BotSetting(botName: nameValue, requireSubscription: requireValue, requireAllChannels: requireAllChannelsValue)
         }
 
         return nil
@@ -380,6 +390,44 @@ enum MonetizationDatabase {
         return result
     }
 
+    /// Возвращает количество активных спонсоров для указанного бота.
+    static func sponsorCount(for botName: String, logger: Logger, env: Environment) -> Int {
+        let path = databasePath(env: env)
+        var db: OpaquePointer?
+        
+        guard sqlite3_open(path, &db) == SQLITE_OK else {
+            logger.error("Failed to open monetization DB for sponsor count")
+            if db != nil { sqlite3_close(db) }
+            return 0
+        }
+        defer { sqlite3_close(db) }
+        
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = """
+        SELECT COUNT(*) 
+        FROM sponsor_campaigns
+        WHERE bot_name = ?1
+          AND active = 1
+          AND (expires_at IS NULL OR expires_at >= ?2);
+        """
+        
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("Failed to prepare sponsor count query")
+            return 0
+        }
+        defer { sqlite3_finalize(stmt) }
+        
+        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_int(stmt, 2, Int32(now))
+        
+        if sqlite3_step(stmt) == SQLITE_ROW {
+            return Int(sqlite3_column_int(stmt, 0))
+        }
+        
+        return 0
+    }
+    
     /// Возвращает список уникальных ботов, у которых есть активные спонсорские кампании.
     static func botsWithActiveSponsors(logger: Logger, env: Environment) -> [String] {
         let path = databasePath(env: env)

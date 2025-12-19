@@ -86,20 +86,51 @@ func routes(_ app: Application) async throws {
                             try sendReq.content.encode(removePayload, as: .json)
                         }.get()
                         
-                        // Отправляем только текстовое сообщение без клавиатуры
-                        let text = "Можешь отправить видео, и я сделаю из него видеокружок"
-                        let payload = AccessPayloadWithKeyboard(
-                            chat_id: message.chat.id,
-                            text: text,
-                            disable_web_page_preview: false,
-                            reply_markup: nil
-                        )
+                        // Проверяем, есть ли сохраненное видео для автоматической обработки
+                        if let savedVideo = await VideoSessionManager.shared.getVideo(userId: message.from.id) {
+                            // Есть сохраненное видео - автоматически обрабатываем его
+                            await VideoSessionManager.shared.clearVideo(userId: message.from.id)
+                            
+                            req.logger.info("✅ Subscription confirmed, processing saved video file_id: \(savedVideo.fileId)")
+                            
+                            // Обрабатываем сохраненное видео
+                            do {
+                                try await processVideoByFileId(
+                                    fileId: savedVideo.fileId,
+                                    duration: savedVideo.duration,
+                                    chatId: message.chat.id,
+                                    req: req
+                                )
+                            } catch {
+                                req.logger.error("❌ Error processing saved video: \(error)")
+                                let errorPayload = AccessPayloadWithKeyboard(
+                                    chat_id: message.chat.id,
+                                    text: "😔 Произошла ошибка при обработке видео. Попробуй отправить видео ещё раз.",
+                                    disable_web_page_preview: false,
+                                    reply_markup: nil
+                                )
+                                _ = try? await req.client.post(sendMessageUrl) { sendReq in
+                                    try sendReq.content.encode(errorPayload, as: .json)
+                                }.get()
+                            }
+                            
+                            return .ok
+                        } else {
+                            // Нет сохраненного видео - отправляем обычное сообщение
+                            let text = "Можешь отправить видео, и я сделаю из него видеокружок"
+                            let payload = AccessPayloadWithKeyboard(
+                                chat_id: message.chat.id,
+                                text: text,
+                                disable_web_page_preview: false,
+                                reply_markup: nil
+                            )
 
-                        _ = try await req.client.post(sendMessageUrl) { sendReq in
-                            try sendReq.content.encode(payload, as: .json)
-                        }.get()
+                            _ = try await req.client.post(sendMessageUrl) { sendReq in
+                                try sendReq.content.encode(payload, as: .json)
+                            }.get()
 
-                        return .ok
+                            return .ok
+                        }
                     } else {
                         let channelsText: String
                         if channels.isEmpty {
@@ -170,6 +201,9 @@ func routes(_ app: Application) async throws {
                             client: req.client
                         )
                         if !allowed {
+                            // Сохраняем file_id и длительность видео перед отправкой сообщения о подписке
+                            await VideoSessionManager.shared.saveVideo(userId: message.from.id, fileId: video.file_id, duration: video.duration)
+                            
                             let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
                             let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
 
@@ -211,7 +245,7 @@ func routes(_ app: Application) async throws {
                                 try sendReq.content.encode(payload, as: .json)
                             }.get()
 
-                            req.logger.info("Доступ для пользователя \(message.from.id) ограничен спонсорской подпиской (перед обработкой видео).")
+                            req.logger.info("Доступ для пользователя \(message.from.id) ограничен спонсорской подпиской (перед обработкой видео). File_id сохранен: \(video.file_id)")
                             return .ok
                         }
                     }
@@ -548,4 +582,118 @@ func routes(_ app: Application) async throws {
         let filePath = app.directory.publicDirectory + "index.html"
         return req.fileio.streamFile(at: filePath)
     }
+}
+
+/// Обрабатывает видео по file_id (используется после успешной проверки подписки)
+func processVideoByFileId(fileId: String, duration: Int, chatId: Int64, req: Request) async throws {
+    // Проверяем длительность видео
+    if duration > 60 {
+        req.logger.info("Видео слишком длинное (\(duration) секунд), максимум 60 секунд")
+        
+        let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+        let errorBoundary = UUID().uuidString
+        var errorBody = ByteBufferAllocator().buffer(capacity: 0)
+        
+        errorBody.writeString("--\(errorBoundary)\r\n")
+        errorBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        errorBody.writeString("\(chatId)\r\n")
+        errorBody.writeString("--\(errorBoundary)\r\n")
+        errorBody.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+        errorBody.writeString("Видео слишком длинное (\(duration) секунд). Максимальная длительность для видеокружка — 60 секунд.\r\n")
+        errorBody.writeString("--\(errorBoundary)--\r\n")
+        
+        var errorHeaders = HTTPHeaders()
+        errorHeaders.add(name: "Content-Type", value: "multipart/form-data; boundary=\(errorBoundary)")
+        
+        _ = try await req.client.post(sendMessageUrl, headers: errorHeaders) { post in
+            post.body = errorBody
+        }.get()
+        
+        throw Abort(.badRequest, reason: "Видео слишком длинное")
+    }
+    
+    // Проверяем rate limit
+    let chatIdStr = String(chatId)
+    if await !RateLimiter.shared.allow(key: chatIdStr) {
+        let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+        let boundary = UUID().uuidString
+        var body = ByteBufferAllocator().buffer(capacity: 0)
+        
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        body.writeString("\(chatId)\r\n")
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+        body.writeString("Подождите 1 минуту\r\n")
+        body.writeString("--\(boundary)--\r\n")
+        
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+        
+        _ = try await req.client.post(sendMessageUrl, headers: headers) { post in
+            post.body = body
+        }.get()
+        
+        req.logger.info("Превышен лимит отправок для чата \(chatIdStr). Сообщение об ожидании отправлено.")
+        return
+    }
+    
+    req.logger.info("Обрабатываем сохраненное видео с file_id: \(fileId)")
+    
+    // Получаем информацию о файле
+    let getFileUrl = URI(string: "https://api.telegram.org/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/getFile?file_id=\(fileId)")
+    let fileResponse = try await req.client.get(getFileUrl).flatMapThrowing { res -> TelegramFileResponse in
+        guard res.status == HTTPStatus.ok, let body = res.body else {
+            throw Abort(.badRequest, reason: "Не удалось получить информацию о файле")
+        }
+        let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
+        return try JSONDecoder().decode(TelegramFileResponse.self, from: data)
+    }.get()
+
+    let filePath = fileResponse.result.file_path
+    let downloadUrl = URI(string: "https://api.telegram.org/file/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/\(filePath)")
+    
+    // Скачиваем видео
+    let downloadResponse = try await req.client.get(downloadUrl).get()
+    guard downloadResponse.status == HTTPStatus.ok, let body = downloadResponse.body else {
+        throw Abort(.badRequest, reason: "Не удалось скачать видео")
+    }
+
+    let videoData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+    let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+    let uniqueId = UUID().uuidString.prefix(8)
+    let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
+    let inputUrl = URL(fileURLWithPath: "Roundsvideobot/Resources/temporaryvideoFiles/").appendingPathComponent(inputFileName)
+    
+    try videoData.write(to: inputUrl)
+    
+    // Отправляем сообщение "Видео получено, ожидайте..."
+    let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+    let statusMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+    let statusBoundary = UUID().uuidString
+    var statusBody = ByteBufferAllocator().buffer(capacity: 0)
+    
+    statusBody.writeString("--\(statusBoundary)\r\n")
+    statusBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+    statusBody.writeString("\(chatId)\r\n")
+    statusBody.writeString("--\(statusBoundary)\r\n")
+    statusBody.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
+    statusBody.writeString("🎬 Видео получено, ожидайте...\r\n")
+    statusBody.writeString("--\(statusBoundary)--\r\n")
+    
+    var statusHeaders = HTTPHeaders()
+    statusHeaders.add(name: "Content-Type", value: "multipart/form-data; boundary=\(statusBoundary)")
+    
+    _ = try await req.client.post(statusMessageUrl, headers: statusHeaders) { post in
+        post.body = statusBody
+    }.get()
+    
+    // Обрабатываем видео и отправляем кружочек
+    let processor = VideoProcessor(req: req)
+    try await processor.processAndSendCircleVideo(inputPath: inputUrl.path, chatId: String(chatId))
+    
+    // Удаляем входной файл
+    try? FileManager.default.removeItem(at: inputUrl)
 } 

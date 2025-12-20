@@ -1,0 +1,37 @@
+# Traefik конфигурация для автоматического HTTPS через Let's Encrypt
+
+api:
+  dashboard: true
+  insecure: false  # Отключим insecure доступ, используем только через HTTPS
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: lightpaintru@gmail.com  # Замени на свой email для уведомлений Let's Encrypt
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false  # Только сервисы с labels будут доступны
+    network: telegrambot_network
+
+log:
+  level: INFO
+
+accessLog: {}
+

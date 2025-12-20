@@ -1,0 +1,267 @@
+version: '3.8'
+
+# Production Docker Compose для Telegram Bot Services
+# Использование: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # NowControllerBot - запускается первым для инициализации БД
+  nowcontrollerbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: NowControllerBot
+        PORT: 8084
+    container_name: telegrambot_nowcontrollerbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./config:/app/config
+    networks:
+      - telegrambot_network
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8084"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nowcontrollerbot.rule=Host(`nowbots.ru`) && PathPrefix(`/nowcontroller/webhook`)"
+      - "traefik.http.routers.nowcontrollerbot.entrypoints=websecure"
+      - "traefik.http.routers.nowcontrollerbot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nowcontrollerbot.loadbalancer.server.port=8084"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # VideoServiceRunner (RoundsvideoBot)
+  roundsvideobot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: VideoServiceRunner
+        PORT: 8081
+    container_name: telegrambot_roundsvideobot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    volumes:
+      - ./Roundsvideobot/Resources/temporaryvideoFiles:/app/Roundsvideobot/Resources/temporaryvideoFiles
+      - ./Roundsvideobot/VideoService/Public:/app/Roundsvideobot/VideoService/Public:ro
+      - ./config:/app/config # Добавлено для доступа к общей базе monetization.sqlite
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8081"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      # Роутер для webhook (высокий приоритет, чтобы обрабатывался первым)
+      - "traefik.http.routers.roundsvideobot-webhook.rule=Host(`nowbots.ru`) && PathPrefix(`/rounds/webhook`)"
+      - "traefik.http.routers.roundsvideobot-webhook.entrypoints=websecure"
+      - "traefik.http.routers.roundsvideobot-webhook.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.roundsvideobot-webhook.middlewares=roundsvideobot-strip"
+      - "traefik.http.routers.roundsvideobot-webhook.service=roundsvideobot"
+      - "traefik.http.routers.roundsvideobot-webhook.priority=20"
+      - "traefik.http.middlewares.roundsvideobot-strip.stripprefix.prefixes=/rounds"
+      # Роутер для мини-приложения и всех остальных запросов к /rounds/ (включая /rounds/api/upload)
+      - "traefik.http.routers.roundsvideobot.rule=Host(`nowbots.ru`) && PathPrefix(`/rounds/`)"
+      - "traefik.http.routers.roundsvideobot.entrypoints=websecure"
+      - "traefik.http.routers.roundsvideobot.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.roundsvideobot.middlewares=roundsvideobot-strip"
+      - "traefik.http.routers.roundsvideobot.service=roundsvideobot"
+      - "traefik.http.routers.roundsvideobot.priority=10"
+      - "traefik.http.middlewares.roundsvideobot-strip.stripprefix.prefixes=/rounds"
+      - "traefik.http.services.roundsvideobot.loadbalancer.server.port=8081"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # NowmttBot
+  nowmttbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: NowmttBot
+        PORT: 8085
+    container_name: telegrambot_nowmttbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./config:/app/config # Добавлено для доступа к общей базе monetization.sqlite
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8085"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nowmttbot.rule=Host(`nowbots.ru`) && PathPrefix(`/nowmtt/webhook`)"
+      - "traefik.http.routers.nowmttbot.entrypoints=websecure"
+      - "traefik.http.routers.nowmttbot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nowmttbot.loadbalancer.server.port=8085"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # GSForTextBot
+  gsfortextbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: GSForTextBot
+        PORT: 8083
+    container_name: telegrambot_gsfortextbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./config:/app/config
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8083"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gsfortextbot.rule=Host(`nowbots.ru`) && PathPrefix(`/gs/text/webhook`)"
+      - "traefik.http.routers.gsfortextbot.entrypoints=websecure"
+      - "traefik.http.routers.gsfortextbot.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.gsfortextbot.middlewares=gsfortextbot-strip"
+      - "traefik.http.middlewares.gsfortextbot-strip.stripprefix.prefixes=/gs/text"
+      - "traefik.http.services.gsfortextbot.loadbalancer.server.port=8083"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # ContentFabrikaBot
+  contentfabrikabot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: ContentFabrikaBot
+        PORT: 8089
+    container_name: telegrambot_contentfabrikabot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./contentfabrikabot:/app/contentfabrikabot
+      - ./config:/app/config # Добавлено для доступа к общей базе monetization.sqlite
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8089"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.contentfabrikabot.rule=Host(`nowbots.ru`) && PathPrefix(`/contentfabrika/webhook`)"
+      - "traefik.http.routers.contentfabrikabot.entrypoints=websecure"
+      - "traefik.http.routers.contentfabrikabot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.contentfabrikabot.loadbalancer.server.port=8089"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # Neurfotobot
+  neurfotobot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: Neurfotobot
+        PORT: 8082
+    container_name: telegrambot_neurfotobot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./Neurfotobot:/app/Neurfotobot
+      - ./config:/app/config # Добавлено для доступа к общей базе monetization.sqlite
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8082"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.neurfotobot.rule=Host(`nowbots.ru`) && PathPrefix(`/neurfoto/webhook`)"
+      - "traefik.http.routers.neurfotobot.entrypoints=websecure"
+      - "traefik.http.routers.neurfotobot.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.neurfotobot.middlewares=neurfotobot-strip"
+      - "traefik.http.middlewares.neurfotobot-strip.stripprefix.prefixes=/neurfoto"
+      - "traefik.http.services.neurfotobot.loadbalancer.server.port=8082"
+      - "traefik.http.routers.neurfotobot-datasets.rule=Host(`nowbots.ru`) && PathPrefix(`/neurfotobot/datasets/`)"
+      - "traefik.http.routers.neurfotobot-datasets.entrypoints=websecure"
+      - "traefik.http.routers.neurfotobot-datasets.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.neurfotobot-datasets.middlewares=neurfotobot-datasets-strip"
+      - "traefik.http.middlewares.neurfotobot-datasets-strip.stripprefix.prefixes=/neurfotobot"
+      - "traefik.http.services.neurfotobot.loadbalancer.server.port=8082"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # PereskazNowBot
+  pereskaznowbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        PRODUCT: PereskazNowBot
+        PORT: 8090
+    container_name: telegrambot_pereskaznowbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./config:/app/config # Добавлено для доступа к общей базе monetization.sqlite
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8090"]
+    networks:
+      - telegrambot_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pereskaznowbot.rule=Host(`nowbots.ru`) && PathPrefix(`/pereskaznow/webhook`)"
+      - "traefik.http.routers.pereskaznowbot.entrypoints=websecure"
+      - "traefik.http.routers.pereskaznowbot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pereskaznowbot.loadbalancer.server.port=8090"
+    depends_on:
+      nowcontrollerbot:
+        condition: service_healthy
+
+  # Traefik reverse proxy с автоматическим SSL через Let's Encrypt
+  traefik:
+    image: traefik:v2.11
+    container_name: telegrambot_traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/traefik.yml:/traefik.yml:ro
+      - ./config/traefik/letsencrypt:/letsencrypt
+    networks:
+      - telegrambot_network
+    command:
+      - "--configfile=/traefik.yml"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.nowbots.ru`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/" # admin:admin (измени пароль!)
+
+networks:
+  telegrambot_network:
+    driver: bridge

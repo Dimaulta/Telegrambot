@@ -1,6 +1,8 @@
 import Foundation
 import Vapor
+#if canImport(Darwin)
 import Darwin
+#endif
 
 struct Service: Codable {
     let url: String

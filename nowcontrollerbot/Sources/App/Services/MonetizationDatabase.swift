@@ -1,6 +1,62 @@
 import Foundation
 import Vapor
+#if canImport(SQLite3)
 import SQLite3
+#elseif canImport(CSQLite)
+import CSQLite
+// На Linux через CSQLite функции доступны, но нужно использовать их через правильный namespace
+// Используем функции напрямую из libsqlite3
+@_silgen_name("sqlite3_open")
+func sqlite3_open(_ filename: UnsafePointer<CChar>, _ ppDb: UnsafeMutablePointer<OpaquePointer?>) -> Int32
+
+@_silgen_name("sqlite3_close")
+func sqlite3_close(_ db: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_errmsg")
+func sqlite3_errmsg(_ db: OpaquePointer?) -> UnsafePointer<CChar>?
+
+@_silgen_name("sqlite3_exec")
+func sqlite3_exec(_ db: OpaquePointer?, _ sql: UnsafePointer<CChar>?, _ callback: (@convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32)?, _ arg: UnsafeMutableRawPointer?, _ errmsg: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+
+@_silgen_name("sqlite3_prepare_v2")
+func sqlite3_prepare_v2(_ db: OpaquePointer?, _ zSql: UnsafePointer<CChar>?, _ nByte: Int32, _ ppStmt: UnsafeMutablePointer<OpaquePointer?>?, _ pzTail: UnsafeMutablePointer<UnsafePointer<CChar>?>?) -> Int32
+
+@_silgen_name("sqlite3_finalize")
+func sqlite3_finalize(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_bind_text")
+func sqlite3_bind_text(_ pStmt: OpaquePointer?, _ i: Int32, _ zData: UnsafePointer<CChar>?, _ nData: Int32, _ xDel: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?) -> Int32
+
+@_silgen_name("sqlite3_bind_int")
+func sqlite3_bind_int(_ pStmt: OpaquePointer?, _ i: Int32, _ value: Int32) -> Int32
+
+@_silgen_name("sqlite3_bind_null")
+func sqlite3_bind_null(_ pStmt: OpaquePointer?, _ i: Int32) -> Int32
+
+@_silgen_name("sqlite3_step")
+func sqlite3_step(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_column_text")
+func sqlite3_column_text(_ pStmt: OpaquePointer?, _ iCol: Int32) -> UnsafePointer<CChar>?
+
+@_silgen_name("sqlite3_column_int")
+func sqlite3_column_int(_ pStmt: OpaquePointer?, _ iCol: Int32) -> Int32
+
+let SQLITE_OK: Int32 = 0
+let SQLITE_DONE: Int32 = 101
+let SQLITE_ROW: Int32 = 100
+let SQLITE_NULL: Int32 = 5
+
+@_silgen_name("sqlite3_reset")
+func sqlite3_reset(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_column_type")
+func sqlite3_column_type(_ pStmt: OpaquePointer?, _ iCol: Int32) -> Int32
+
+typealias sqlite3_destructor_type = @convention(c) (UnsafeMutableRawPointer?) -> Void
+let SQLITE_STATIC: sqlite3_destructor_type? = unsafeBitCast(0, to: sqlite3_destructor_type?.self)
+let SQLITE_TRANSIENT: sqlite3_destructor_type? = unsafeBitCast(-1, to: sqlite3_destructor_type?.self)
+#endif
 
 /// Небольшой сервис для работы с базой монетизации (SQLite).
 /// Используем минимальный набор функций и простой SQL без Fluent.
@@ -29,7 +85,10 @@ enum MonetizationDatabase {
         }
 
         var db: OpaquePointer?
-        if sqlite3_open(path, &db) != SQLITE_OK {
+        let result = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        if result != SQLITE_OK {
             if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
                 app.logger.error("Failed to open monetization DB at \(path): \(errorMessage)")
             } else {
@@ -75,7 +134,10 @@ enum MonetizationDatabase {
         """
 
         for sql in [createUserSessionsSQL, createSponsorCampaignsSQL, createBotSettingsSQL] {
-            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+            let execResult = sql.withCString { cSql in
+                sqlite3_exec(db, cSql, nil, nil, nil)
+            }
+            if execResult != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
                     app.logger.error("Failed to run schema SQL: \(errorMessage)")
                 } else {
@@ -90,7 +152,9 @@ enum MonetizationDatabase {
         ALTER TABLE bot_settings ADD COLUMN require_all_channels INTEGER NOT NULL DEFAULT 1;
         """
         // Игнорируем ошибку если колонка уже существует
-        sqlite3_exec(db, migrationSQL, nil, nil, nil)
+        migrationSQL.withCString { cSql in
+            sqlite3_exec(db, cSql, nil, nil, nil)
+        }
 
         // Инициализируем записи для всех ботов из NOWCONTROLLERBOT_BROADCAST_BOTS
         // Это гарантирует, что настройки явно видны в БД (require_subscription = 0 по умолчанию)
@@ -106,12 +170,17 @@ enum MonetizationDatabase {
             """
             
             var initStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, initSettingsSQL, -1, &initStmt, nil) == SQLITE_OK {
+            let prepareResult = initSettingsSQL.withCString { cSql in
+                sqlite3_prepare_v2(db, cSql, -1, &initStmt, nil)
+            }
+            if prepareResult == SQLITE_OK {
                 defer { sqlite3_finalize(initStmt) }
                 
                 for botName in managedBots {
                     sqlite3_reset(initStmt)
-                    sqlite3_bind_text(initStmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                    botName.withCString { cBotName in
+                        sqlite3_bind_text(initStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
+                    }
                     
                     if sqlite3_step(initStmt) == SQLITE_DONE {
                         app.logger.info("Initialized bot_settings for \(botName) with require_subscription=0")
@@ -156,7 +225,10 @@ enum MonetizationDatabase {
         var db: OpaquePointer?
         var campaigns: [SponsorCampaign] = []
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for reading campaigns")
             if db != nil { sqlite3_close(db) }
             return campaigns
@@ -174,19 +246,24 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult != SQLITE_OK {
             logger.error("Failed to prepare campaigns query")
             return campaigns
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotname in
+            sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
+        }
         sqlite3_bind_int(stmt, 2, Int32(now))
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             let id = Int(sqlite3_column_int(stmt, 0))
-            let botNameValue = String(cString: sqlite3_column_text(stmt, 1))
-            let channelUsername = String(cString: sqlite3_column_text(stmt, 2))
+            let botNameValue = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let channelUsername = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
             let activeValue = sqlite3_column_int(stmt, 3) != 0
             let expiresValue = sqlite3_column_type(stmt, 4) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 4))
             let createdAt = Int(sqlite3_column_int(stmt, 5))
@@ -209,7 +286,10 @@ enum MonetizationDatabase {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for reading bot_settings")
             if db != nil { sqlite3_close(db) }
             return nil
@@ -223,16 +303,21 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult2 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult2 != SQLITE_OK {
             logger.error("Failed to prepare bot_settings query")
             return nil
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotname in
+            sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
+        }
 
         if sqlite3_step(stmt) == SQLITE_ROW {
-            let nameValue = String(cString: sqlite3_column_text(stmt, 0))
+            let nameValue = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
             let requireValue = sqlite3_column_int(stmt, 1) != 0
             let requireAllChannelsValue = sqlite3_column_int(stmt, 2) != 0
             return BotSetting(botName: nameValue, requireSubscription: requireValue, requireAllChannels: requireAllChannelsValue)
@@ -251,7 +336,10 @@ enum MonetizationDatabase {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for updating bot_settings")
             if db != nil { sqlite3_close(db) }
             return
@@ -265,13 +353,18 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult3 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult3 != SQLITE_OK {
             logger.error("Failed to prepare bot_settings upsert")
             return
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotname in
+            sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
+        }
         sqlite3_bind_int(stmt, 2, require ? 1 : 0)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
@@ -290,7 +383,10 @@ enum MonetizationDatabase {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for inserting sponsor_campaign")
             if db != nil { sqlite3_close(db) }
             return
@@ -303,7 +399,10 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult4 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult4 != SQLITE_OK {
             logger.error("Failed to prepare sponsor_campaign insert")
             return
         }
@@ -311,8 +410,12 @@ enum MonetizationDatabase {
 
         let now = Int(Date().timeIntervalSince1970)
 
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 2, (channelUsername as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotname in
+            sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
+        }
+        channelUsername.withCString { cChannelusername in
+            sqlite3_bind_text(stmt, 2, cChannelusername, -1, SQLITE_TRANSIENT)
+        }
 
         if let expires = expiresAt {
             sqlite3_bind_int(stmt, 3, Int32(expires))
@@ -332,7 +435,10 @@ enum MonetizationDatabase {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for deactivating campaign")
             if db != nil { sqlite3_close(db) }
             return
@@ -342,7 +448,10 @@ enum MonetizationDatabase {
         let sql = "UPDATE sponsor_campaigns SET active = 0 WHERE id = ?1;"
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult5 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult5 != SQLITE_OK {
             logger.error("Failed to prepare deactivate campaign")
             return
         }
@@ -361,7 +470,10 @@ enum MonetizationDatabase {
         var db: OpaquePointer?
         var result: [String: Int] = [:]
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for user stats")
             if db != nil { sqlite3_close(db) }
             return result
@@ -375,14 +487,17 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult6 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult6 != SQLITE_OK {
             logger.error("Failed to prepare user stats query")
             return result
         }
         defer { sqlite3_finalize(stmt) }
 
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let nameValue = String(cString: sqlite3_column_text(stmt, 0))
+            let nameValue = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
             let countValue = Int(sqlite3_column_int(stmt, 1))
             result[nameValue] = countValue
         }
@@ -395,7 +510,10 @@ enum MonetizationDatabase {
         let path = databasePath(env: env)
         var db: OpaquePointer?
         
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for sponsor count")
             if db != nil { sqlite3_close(db) }
             return 0
@@ -412,13 +530,18 @@ enum MonetizationDatabase {
         """
         
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+        let prepareResult7 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        guard prepareResult7 == SQLITE_OK else {
             logger.error("Failed to prepare sponsor count query")
             return 0
         }
         defer { sqlite3_finalize(stmt) }
         
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotname in
+            sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
+        }
         sqlite3_bind_int(stmt, 2, Int32(now))
         
         if sqlite3_step(stmt) == SQLITE_ROW {
@@ -434,7 +557,10 @@ enum MonetizationDatabase {
         var db: OpaquePointer?
         var bots: [String] = []
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for bots with sponsors")
             if db != nil { sqlite3_close(db) }
             return bots
@@ -451,7 +577,10 @@ enum MonetizationDatabase {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult8 = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult8 != SQLITE_OK {
             logger.error("Failed to prepare bots with sponsors query")
             return bots
         }
@@ -460,7 +589,7 @@ enum MonetizationDatabase {
         sqlite3_bind_int(stmt, 1, Int32(now))
 
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let botName = String(cString: sqlite3_column_text(stmt, 0))
+            let botName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
             bots.append(botName)
         }
 

@@ -16,7 +16,8 @@ func routes(_ app: Application) throws {
     }
 
     // Отдача локального датасета для Replicate через BASE_URL
-    app.get("neurfotobot", "datasets", ":chatId", "dataset.zip") { req async throws -> Response in
+    // Поддерживаем оба варианта: с префиксом и без (для Traefik с stripprefix)
+    @Sendable func handleDatasetRequest(req: Request) async throws -> Response {
         guard let chatIdParam = req.parameters.get("chatId"),
               let chatId = Int64(chatIdParam) else {
             throw Abort(.badRequest, reason: "Invalid chatId")
@@ -37,6 +38,15 @@ func routes(_ app: Application) throws {
         headers.add(name: .contentType, value: "application/zip")
 
         return Response(status: .ok, headers: headers, body: .init(buffer: buffer))
+    }
+    
+    app.get("neurfotobot", "datasets", ":chatId", "dataset.zip") { req async throws -> Response in
+        try await handleDatasetRequest(req: req)
+    }
+    
+    // Альтернативный маршрут без префикса (для Traefik с stripprefix)
+    app.get("datasets", ":chatId", "dataset.zip") { req async throws -> Response in
+        try await handleDatasetRequest(req: req)
     }
     
     // Временный роут для добавления записи модели в БД (удалить после использования)

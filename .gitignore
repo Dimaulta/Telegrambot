@@ -23,6 +23,7 @@ config/.env.*
 Roundsvideobot/Resources/temporaryvideoFiles/
 logs/
 config/certs/
+config/traefik/letsencrypt/acme.json
 
 # Database files
 *.sqlite

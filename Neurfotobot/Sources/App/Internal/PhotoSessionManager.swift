@@ -21,7 +21,12 @@ actor PhotoSessionManager {
             case genderSelected // Пол выбран, ждём место
             case locationSelected // Место выбрано, ждём одежду
             case clothingSelected // Одежда выбрана, ждём дополнительные детали
+            case selectingAdditionalCategories // Выбираем категории дополнительных параметров
+            case selectingAdditionalParams // Выбираем параметры для выбранных категорий
             case readyToGenerate // Всё собрано, готово к генерации
+            case editingLocation // Редактируем место
+            case editingClothing // Редактируем одежду
+            case editingDetails // Редактируем дополнительные детали
         }
 
         var photos: [PhotoRecord] = []
@@ -40,7 +45,16 @@ actor PhotoSessionManager {
         var userGender: String? // "male" или "female"
         var userLocation: String? // Место, где пользователь хочет себя увидеть
         var userClothing: String? // Одежда и её цвет
-        var additionalDetails: String? // Дополнительные детали от пользователя
+        var additionalDetails: String? // Дополнительные детали от пользователя (текст)
+        
+        // Дополнительные параметры для промпта
+        var selectedAdditionalCategories: Set<String> = [] // Выбранные категории (например, ["camera_angle", "shot_size"])
+        var cameraAngle: String? // Угол камеры
+        var shotSize: String? // Крупность плана
+        var lighting: String? // Освещение
+        var pose: String? // Поза
+        var expression: String? // Выражение лица
+        var focus: String? // Фокус
     }
 
     static let shared = PhotoSessionManager()
@@ -211,7 +225,85 @@ actor PhotoSessionManager {
         session.userLocation = nil
         session.userClothing = nil
         session.additionalDetails = nil
+        session.selectedAdditionalCategories = []
+        session.cameraAngle = nil
+        session.shotSize = nil
+        session.lighting = nil
+        session.pose = nil
+        session.expression = nil
+        session.focus = nil
         sessions[chatId] = session
+    }
+    
+    // Методы для работы с дополнительными параметрами
+    func setSelectedAdditionalCategories(_ categories: Set<String>, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.selectedAdditionalCategories = categories
+        sessions[chatId] = session
+    }
+    
+    func getSelectedAdditionalCategories(for chatId: Int64) -> Set<String> {
+        sessions[chatId]?.selectedAdditionalCategories ?? []
+    }
+    
+    func setCameraAngle(_ angle: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.cameraAngle = angle
+        sessions[chatId] = session
+    }
+    
+    func getCameraAngle(for chatId: Int64) -> String? {
+        sessions[chatId]?.cameraAngle
+    }
+    
+    func setShotSize(_ size: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.shotSize = size
+        sessions[chatId] = session
+    }
+    
+    func getShotSize(for chatId: Int64) -> String? {
+        sessions[chatId]?.shotSize
+    }
+    
+    func setLighting(_ lighting: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.lighting = lighting
+        sessions[chatId] = session
+    }
+    
+    func getLighting(for chatId: Int64) -> String? {
+        sessions[chatId]?.lighting
+    }
+    
+    func setPose(_ pose: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.pose = pose
+        sessions[chatId] = session
+    }
+    
+    func getPose(for chatId: Int64) -> String? {
+        sessions[chatId]?.pose
+    }
+    
+    func setExpression(_ expression: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.expression = expression
+        sessions[chatId] = session
+    }
+    
+    func getExpression(for chatId: Int64) -> String? {
+        sessions[chatId]?.expression
+    }
+    
+    func setFocus(_ focus: String?, for chatId: Int64) {
+        var session = sessions[chatId] ?? Session()
+        session.focus = focus
+        sessions[chatId] = session
+    }
+    
+    func getFocus(for chatId: Int64) -> String? {
+        sessions[chatId]?.focus
     }
     
     func setTranslatedPrompt(_ prompt: String?, for chatId: Int64) {

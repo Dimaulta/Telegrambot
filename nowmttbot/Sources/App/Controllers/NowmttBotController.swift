@@ -399,17 +399,37 @@ final class NowmttBotController {
     }
     
     // Отправка видео по прямой ссылке через Telegram API
+    // Сначала скачиваем видео на сервер, затем отправляем как файл
     private func sendTelegramVideoByUrl(token: String, chatId: Int64, videoUrl: String, client: Client, logger: Logger) async throws {
+        logger.info("📥 Downloading video from URL: \(videoUrl.prefix(100))...")
+        
+        // Скачиваем видео на сервер
+        let videoUri = URI(string: videoUrl)
+        let downloadResponse = try await client.get(videoUri)
+        
+        guard downloadResponse.status == .ok, let videoBody = downloadResponse.body else {
+            throw Abort(.badRequest, reason: "Failed to download video from URL")
+        }
+        
+        let videoData = videoBody.getData(at: 0, length: videoBody.readableBytes) ?? Data()
+        logger.info("✅ Video downloaded, size: \(videoData.count) bytes")
+        
+        // Отправляем видео как файл через Telegram API (используем данные из памяти, файл не нужен)
         let url = URI(string: "https://api.telegram.org/bot\(token)/sendVideo")
         let boundary = UUID().uuidString
         var body = ByteBufferAllocator().buffer(capacity: 0)
         
+        // chat_id
         body.writeString("--\(boundary)\r\n")
         body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
         body.writeString("\(chatId)\r\n")
+        
+        // video file
         body.writeString("--\(boundary)\r\n")
-        body.writeString("Content-Disposition: form-data; name=\"video\"\r\n\r\n")
-        body.writeString("\(videoUrl)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"video\"; filename=\"video.mp4\"\r\n")
+        body.writeString("Content-Type: video/mp4\r\n\r\n")
+        body.writeBytes(videoData)
+        body.writeString("\r\n")
         body.writeString("--\(boundary)--\r\n")
         
         var headers = HTTPHeaders()

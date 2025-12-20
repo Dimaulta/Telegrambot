@@ -20,7 +20,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 public func configure(_ app: Application) async throws {
     // Загружаем config/.env, чтобы подтянуть NEURFOTOBOT_TOKEN и прочие ключи заранее
     let envPath = "config/.env"
-    if let content = try? String(contentsOfFile: envPath) {
+    if let content = try? String(contentsOfFile: envPath, encoding: .utf8) {
         var vars: [String: String] = [:]
         for line in content.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)

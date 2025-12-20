@@ -479,7 +479,7 @@ struct PereskazService {
     private func compressAudio(audioFile: URL, workDir: URL, originalSize: Int, logger: Logger) async throws -> Data {
         // Используем ffmpeg для перекодирования с более низким битрейтом
         // Проверяем наличие ffmpeg
-        let ffmpegPaths = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]
+        let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
         var ffmpegPath: String?
         
         for path in ffmpegPaths {

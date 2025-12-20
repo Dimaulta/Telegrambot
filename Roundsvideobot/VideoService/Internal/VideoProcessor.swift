@@ -90,8 +90,22 @@ struct VideoProcessor {
         let startTime = Date()
         req.logger.info("Время начала FFmpeg: \(startTime)")
 
+        // Ищем ffmpeg в стандартных местах
+        let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
+        var ffmpegPath: String?
+        for path in ffmpegPaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffmpeg" {
+                ffmpegPath = path
+                break
+            }
+        }
+        guard let ffmpeg = ffmpegPath else {
+            throw Abort(.internalServerError, reason: "ffmpeg not found")
+        }
+        req.logger.info("Using ffmpeg at: \(ffmpeg)")
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
             "-i", inputPath,
             "-vf", "scale=640:640,format=yuv420p",
@@ -248,8 +262,22 @@ struct VideoProcessor {
 
         // Обрабатываем видео с помощью FFmpeg
         req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(x), y=\(y), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
+        
+        // Ищем ffmpeg в стандартных местах
+        let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
+        var ffmpegPath: String?
+        for path in ffmpegPaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffmpeg" {
+                ffmpegPath = path
+                break
+            }
+        }
+        guard let ffmpeg = ffmpegPath else {
+            throw Abort(.internalServerError, reason: "ffmpeg not found")
+        }
+        
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
             "-i", filePath,
             "-vf", filterChain,
@@ -295,8 +323,21 @@ struct VideoProcessor {
     }
     
     private func getVideoSize(inputPath: String) async throws -> (width: Int, height: Int) {
+        // Ищем ffprobe в стандартных местах
+        let ffprobePaths = ["/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "/opt/homebrew/bin/ffprobe", "ffprobe"]
+        var ffprobePath: String?
+        for path in ffprobePaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffprobe" {
+                ffprobePath = path
+                break
+            }
+        }
+        guard let probePath = ffprobePath else {
+            throw Abort(.internalServerError, reason: "ffprobe не найден")
+        }
+        
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
+        process.executableURL = URL(fileURLWithPath: probePath)
         process.arguments = [
             "-v", "error",
             "-select_streams", "v:0",
@@ -327,8 +368,21 @@ struct VideoProcessor {
     }
     
     private func getVideoDuration(inputPath: String) async throws -> Int {
+        // Ищем ffprobe в стандартных местах
+        let ffprobePaths = ["/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "/opt/homebrew/bin/ffprobe", "ffprobe"]
+        var ffprobePath: String?
+        for path in ffprobePaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffprobe" {
+                ffprobePath = path
+                break
+            }
+        }
+        guard let probePath = ffprobePath else {
+            throw Abort(.internalServerError, reason: "ffprobe не найден")
+        }
+        
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
+        process.executableURL = URL(fileURLWithPath: probePath)
         process.arguments = [
             "-v", "error",
             "-show_entries", "format=duration",
@@ -353,8 +407,21 @@ struct VideoProcessor {
 
     // Определяем угол поворота видео из метаданных (если есть)
     private func getVideoRotationDegrees(inputPath: String) async throws -> Int {
+        // Ищем ffprobe в стандартных местах
+        let ffprobePaths = ["/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "/opt/homebrew/bin/ffprobe", "ffprobe"]
+        var ffprobePath: String?
+        for path in ffprobePaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffprobe" {
+                ffprobePath = path
+                break
+            }
+        }
+        guard let probePath = ffprobePath else {
+            throw Abort(.internalServerError, reason: "ffprobe не найден")
+        }
+        
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffprobe")
+        process.executableURL = URL(fileURLWithPath: probePath)
         process.arguments = [
             "-v", "error",
             "-select_streams", "v:0",
@@ -458,8 +525,22 @@ struct VideoProcessor {
 
         // Обрабатываем видео с помощью FFmpeg
         req.logger.info("Начинаем обработку видео через ffmpeg (direct bot)...")
+        
+        // Ищем ffmpeg в стандартных местах
+        let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
+        var ffmpegPath: String?
+        for path in ffmpegPaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffmpeg" {
+                ffmpegPath = path
+                break
+            }
+        }
+        guard let ffmpeg = ffmpegPath else {
+            throw Abort(.internalServerError, reason: "ffmpeg not found")
+        }
+        
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
             "-i", inputPath,
             "-vf", filterChain,

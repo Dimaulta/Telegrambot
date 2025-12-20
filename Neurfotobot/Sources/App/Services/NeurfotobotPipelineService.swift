@@ -184,16 +184,22 @@ actor NeurfotobotPipelineService {
             // Автоматически добавляем trigger word в начало промпта
             let triggerWord = await PhotoSessionManager.shared.getTriggerWord(for: chatId) ?? "user\(chatId)"
             
-            // Добавляем указание пола в промпт для лучшего соответствия
-            var genderPrompt = ""
-            if let gender = userGender {
-                genderPrompt = gender == "male" ? ", male person, man" : ", female person, woman"
-            }
+            // УБРАНО: Добавление пола в промпт, так как модель уже обучена на конкретном лице
+            // Добавление ", female person, woman" или ", male person, man" создаёт конфликт
+            // между обученным лицом и обобщённым описанием пола, что ухудшает похожесть
+            // var genderPrompt = ""
+            // if let gender = userGender {
+            //     genderPrompt = gender == "male" ? ", male person, man" : ", female person, woman"
+            // }
             
-            // Собираем финальный промпт: trigger word + пользовательский промпт + пол + стилевые улучшения
+            // Добавляем средний план по умолчанию для лучшей похожести лица
+            // (крупный план может хуже работать, особенно на фантастических сценах)
+            let defaultShotSize = ", medium shot"
+            
+            // Собираем финальный промпт: trigger word + пользовательский промпт + стилевые улучшения
             // Добавляем негативный промпт для лучшего качества
             let negativePrompt = "blurry, low quality, distorted, deformed, bad anatomy, bad proportions, extra limbs, duplicate, watermark, signature, text, ugly, worst quality, low resolution"
-            let enhancedPrompt = "\(triggerWord) \(prompt)\(genderPrompt), \(stylePrompt)"
+            let enhancedPrompt = "\(triggerWord) \(prompt)\(defaultShotSize), \(stylePrompt)"
             
             logger.info("Using enhanced prompt for chatId=\(chatId), style=\(style): \(enhancedPrompt)")
             

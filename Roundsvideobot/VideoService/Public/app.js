@@ -917,7 +917,7 @@ cropButton.addEventListener('click', async () => {
         }
 
         console.log('Отправляем запрос на сервер...');
-        const response = await fetch('/api/upload', {
+        const response = await fetch('/rounds/api/upload', {
             method: 'POST',
             body: formData
         });

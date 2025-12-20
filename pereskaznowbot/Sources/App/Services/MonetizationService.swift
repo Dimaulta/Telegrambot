@@ -1,6 +1,65 @@
 import Foundation
 import Vapor
+#if canImport(SQLite3)
 import SQLite3
+#elseif canImport(CSQLite)
+import CSQLite
+// На Linux через CSQLite функции доступны, но нужно использовать их через правильный namespace
+// Используем функции напрямую из libsqlite3
+@_silgen_name("sqlite3_open")
+func sqlite3_open(_ filename: UnsafePointer<CChar>, _ ppDb: UnsafeMutablePointer<OpaquePointer?>) -> Int32
+
+@_silgen_name("sqlite3_close")
+func sqlite3_close(_ db: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_errmsg")
+func sqlite3_errmsg(_ db: OpaquePointer?) -> UnsafePointer<CChar>?
+
+@_silgen_name("sqlite3_exec")
+func sqlite3_exec(_ db: OpaquePointer?, _ sql: UnsafePointer<CChar>?, _ callback: (@convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32)?, _ arg: UnsafeMutableRawPointer?, _ errmsg: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+
+@_silgen_name("sqlite3_prepare_v2")
+func sqlite3_prepare_v2(_ db: OpaquePointer?, _ zSql: UnsafePointer<CChar>?, _ nByte: Int32, _ ppStmt: UnsafeMutablePointer<OpaquePointer?>?, _ pzTail: UnsafeMutablePointer<UnsafePointer<CChar>?>?) -> Int32
+
+@_silgen_name("sqlite3_finalize")
+func sqlite3_finalize(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_bind_text")
+func sqlite3_bind_text(_ pStmt: OpaquePointer?, _ i: Int32, _ zData: UnsafePointer<CChar>?, _ nData: Int32, _ xDel: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?) -> Int32
+
+@_silgen_name("sqlite3_bind_int")
+func sqlite3_bind_int(_ pStmt: OpaquePointer?, _ i: Int32, _ value: Int32) -> Int32
+
+@_silgen_name("sqlite3_bind_int64")
+func sqlite3_bind_int64(_ pStmt: OpaquePointer?, _ i: Int32, _ value: Int64) -> Int32
+
+@_silgen_name("sqlite3_bind_null")
+func sqlite3_bind_null(_ pStmt: OpaquePointer?, _ i: Int32) -> Int32
+
+@_silgen_name("sqlite3_step")
+func sqlite3_step(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_column_text")
+func sqlite3_column_text(_ pStmt: OpaquePointer?, _ iCol: Int32) -> UnsafePointer<CChar>?
+
+@_silgen_name("sqlite3_column_int")
+func sqlite3_column_int(_ pStmt: OpaquePointer?, _ iCol: Int32) -> Int32
+
+let SQLITE_OK: Int32 = 0
+let SQLITE_DONE: Int32 = 101
+let SQLITE_ROW: Int32 = 100
+let SQLITE_NULL: Int32 = 5
+
+@_silgen_name("sqlite3_reset")
+func sqlite3_reset(_ pStmt: OpaquePointer?) -> Int32
+
+@_silgen_name("sqlite3_column_type")
+func sqlite3_column_type(_ pStmt: OpaquePointer?, _ iCol: Int32) -> Int32
+
+typealias sqlite3_destructor_type = @convention(c) (UnsafeMutableRawPointer?) -> Void
+let SQLITE_STATIC: sqlite3_destructor_type? = unsafeBitCast(0, to: sqlite3_destructor_type?.self)
+let SQLITE_TRANSIENT: sqlite3_destructor_type? = unsafeBitCast(-1, to: sqlite3_destructor_type?.self)
+#endif
 
 /// Сервис монетизации для pereskaznowbot.
 /// Отвечает за:
@@ -31,7 +90,10 @@ enum MonetizationService {
         }
 
         var db: OpaquePointer?
-        if sqlite3_open(path, &db) != SQLITE_OK {
+        let result = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        if result != SQLITE_OK {
             if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
                 app.logger.error("Failed to open monetization DB at \(path) (pereskaznowbot): \(errorMessage)")
             } else {
@@ -71,18 +133,31 @@ enum MonetizationService {
         let createBotSettingsSQL = """
         CREATE TABLE IF NOT EXISTS bot_settings (
             bot_name TEXT PRIMARY KEY,
-            require_subscription INTEGER NOT NULL DEFAULT 0
+            require_subscription INTEGER NOT NULL DEFAULT 0,
+            require_all_channels INTEGER NOT NULL DEFAULT 1
         );
         """
 
         for sql in [createUserSessionsSQL, createSponsorCampaignsSQL, createBotSettingsSQL] {
-            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+            let execResult = sql.withCString { cSql in
+                sqlite3_exec(db, cSql, nil, nil, nil)
+            }
+            if execResult != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
                     app.logger.error("Failed to run schema SQL (pereskaznowbot): \(errorMessage)")
                 } else {
                     app.logger.error("Failed to run schema SQL (pereskaznowbot, unknown error)")
                 }
             }
+        }
+
+        // Миграция: добавляем поле require_all_channels если его нет
+        let migrationSQL = """
+        ALTER TABLE bot_settings ADD COLUMN require_all_channels INTEGER NOT NULL DEFAULT 1;
+        """
+        // Игнорируем ошибку если колонка уже существует
+        migrationSQL.withCString { cSql in
+            sqlite3_exec(db, cSql, nil, nil, nil)
         }
 
         app.logger.info("Monetization DB ensured at path (pereskaznowbot): \(path)")
@@ -93,7 +168,10 @@ enum MonetizationService {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for registerUser")
             if db != nil { sqlite3_close(db) }
             return
@@ -107,14 +185,19 @@ enum MonetizationService {
         """
 
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+        let prepareResult = sql.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &stmt, nil)
+        }
+        if prepareResult != SQLITE_OK {
             logger.error("Failed to prepare registerUser statement")
             return
         }
         defer { sqlite3_finalize(stmt) }
 
         let now = Int(Date().timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotName in
+            sqlite3_bind_text(stmt, 1, cBotName, -1, SQLITE_TRANSIENT)
+        }
         sqlite3_bind_int64(stmt, 2, chatId)
         sqlite3_bind_int(stmt, 3, Int32(now))
 
@@ -140,7 +223,10 @@ enum MonetizationService {
         let path = databasePath(env: env)
         var db: OpaquePointer?
 
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = path.withCString { cPath in
+            sqlite3_open(cPath, &db)
+        }
+        guard openResult == SQLITE_OK else {
             logger.error("Failed to open monetization DB for checkAccess")
             if db != nil { sqlite3_close(db) }
             // Фейлим мягко: разрешаем доступ
@@ -156,13 +242,18 @@ enum MonetizationService {
         """
 
         var settingStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, settingSQL, -1, &settingStmt, nil) != SQLITE_OK {
+        let prepareResult = settingSQL.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &settingStmt, nil)
+        }
+        if prepareResult != SQLITE_OK {
             logger.error("Failed to prepare bot_settings in checkAccess")
             return (true, [])
         }
         defer { sqlite3_finalize(settingStmt) }
 
-        sqlite3_bind_text(settingStmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotName in
+            sqlite3_bind_text(settingStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
+        }
 
         var requireSubscription = false
         var requireAllChannels = true // По умолчанию требуем подписку на все каналы
@@ -190,18 +281,23 @@ enum MonetizationService {
         """
 
         var campaignsStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, campaignsSQL, -1, &campaignsStmt, nil) != SQLITE_OK {
+        let campaignsPrepareResult = campaignsSQL.withCString { cSql in
+            sqlite3_prepare_v2(db, cSql, -1, &campaignsStmt, nil)
+        }
+        if campaignsPrepareResult != SQLITE_OK {
             logger.error("Failed to prepare sponsor_campaigns in checkAccess")
             return (true, [])
         }
         defer { sqlite3_finalize(campaignsStmt) }
 
-        sqlite3_bind_text(campaignsStmt, 1, (botName as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        botName.withCString { cBotName in
+            sqlite3_bind_text(campaignsStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
+        }
         sqlite3_bind_int(campaignsStmt, 2, Int32(now))
 
         var campaigns: [Campaign] = []
         while sqlite3_step(campaignsStmt) == SQLITE_ROW {
-            let username = String(cString: sqlite3_column_text(campaignsStmt, 0))
+            let username = String(cString: sqlite3_column_text(campaignsStmt, 0)!)
             let expiresAt: Int?
             if sqlite3_column_type(campaignsStmt, 1) == SQLITE_NULL {
                 expiresAt = nil
@@ -408,12 +504,7 @@ enum MonetizationService {
         }
 
         // Теперь используем числовой ID для getChatMember
-        // Используем прямой HTTP-запрос через URLSession вместо Vapor Client,
-        // потому что Vapor Client даёт 404, а curl работает
         let urlString = "https://api.telegram.org/bot\(botToken)/getChatMember"
-        guard let url = URL(string: urlString) else {
-            throw Abort(.badRequest, reason: "Invalid URL for getChatMember")
-        }
 
         struct GetChatMemberPayload: Codable {
             let chat_id: String
@@ -424,26 +515,14 @@ enum MonetizationService {
         
         logger.info("getChatMember request: chat_id=\(finalChatId), user_id=\(userId)")
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let payloadData = try JSONEncoder().encode(payload)
-        request.httpBody = payloadData
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw Abort(.badRequest, reason: "Invalid HTTP response")
+        let response = try await client.post(URI(string: urlString)) { req in
+            try req.content.encode(payload, as: .json)
         }
         
-        guard httpResponse.statusCode == 200 else {
-            if let errorString = String(data: data, encoding: .utf8) {
-                logger.warning("getChatMember failed for chat_id=\(finalChatId) (username=@\(channelUsername)), status: \(httpResponse.statusCode), response: \(errorString)")
-            } else {
-                logger.warning("getChatMember failed for chat_id=\(finalChatId) (username=@\(channelUsername)), status: \(httpResponse.statusCode)")
-            }
-            throw Abort(.badRequest, reason: "getChatMember HTTP status \(httpResponse.statusCode)")
+        guard response.status == .ok else {
+            let bodyString = response.body.map { String(buffer: $0) } ?? "no body"
+            logger.warning("getChatMember failed for chat_id=\(finalChatId) (username=@\(channelUsername)), status: \(response.status.code), response: \(bodyString)")
+            throw Abort(.badRequest, reason: "getChatMember HTTP status \(response.status.code)")
         }
 
         struct ChatMemberResponse: Decodable {
@@ -455,14 +534,11 @@ enum MonetizationService {
             let result: Result?
         }
 
-        let decoded = try JSONDecoder().decode(ChatMemberResponse.self, from: data)
+        let decoded = try response.content.decode(ChatMemberResponse.self)
 
         guard decoded.ok, let result = decoded.result else {
-            if let errorString = String(data: data, encoding: .utf8) {
-                logger.warning("getChatMember returned not ok for chat_id=\(finalChatId) (username=@\(channelUsername)), response: \(errorString)")
-            } else {
-                logger.warning("getChatMember returned not ok for chat_id=\(finalChatId) (username=@\(channelUsername))")
-            }
+            let bodyString = response.body.map { String(buffer: $0) } ?? "no body"
+            logger.warning("getChatMember returned not ok for chat_id=\(finalChatId) (username=@\(channelUsername)), response: \(bodyString)")
             throw Abort(.badRequest, reason: "getChatMember returned not ok for chat_id=\(finalChatId)")
         }
 

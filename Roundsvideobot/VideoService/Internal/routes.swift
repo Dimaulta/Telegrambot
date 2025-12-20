@@ -7,7 +7,16 @@ func routes(_ app: Application) async throws {
     // }
     
     // Маршрут для обработки webhook'а от Telegram
+    // Поддерживаем оба варианта: /webhook и /rounds/webhook (для Traefik)
     app.post("webhook") { req async throws -> HTTPStatus in
+        return try await handleWebhook(req: req)
+    }
+    app.post("rounds", "webhook") { req async throws -> HTTPStatus in
+        return try await handleWebhook(req: req)
+    }
+    
+    // Вспомогательная функция для обработки webhook
+    func handleWebhook(req: Request) async throws -> HTTPStatus {
         // Логируем сырой запрос для проверки
         let body = req.body.string ?? "Нет тела запроса"
         req.logger.info("Сырой JSON от Telegram: \(body)")
@@ -416,7 +425,16 @@ func routes(_ app: Application) async throws {
     }
     
     // Обработчик загрузки видео из мини-аппы
+    // Поддерживаем оба варианта: /api/upload и /rounds/api/upload (для Traefik)
     app.post(["api", "upload"]) { req async throws -> Response in
+        return try await handleUpload(req: req)
+    }
+    app.post(["rounds", "api", "upload"]) { req async throws -> Response in
+        return try await handleUpload(req: req)
+    }
+    
+    // Вспомогательная функция для обработки загрузки
+    func handleUpload(req: Request) async throws -> Response {
         struct UploadData: Content {
             var video: File
             var chatId: String

@@ -1,6 +1,8 @@
 import Vapor
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#endif
 // MonetizationService lives in the same module
 
 func getPortFromConfig(serviceName: String) async throws -> Int {

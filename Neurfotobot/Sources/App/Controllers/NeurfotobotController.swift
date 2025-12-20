@@ -98,7 +98,19 @@ final class NeurfotobotController: Sendable {
                     try sendReq.content.encode(removePayload, as: .json)
                 }.get()
                 
-                // Отправляем сообщение с инструкциями
+                // Проверяем, был ли промпт готов к генерации (состояние readyToGenerate)
+                let promptState = await PhotoSessionManager.shared.getPromptCollectionState(for: message.chat.id)
+                if promptState == .readyToGenerate {
+                    // Промпт был готов - запускаем генерацию автоматически
+                    _ = try? await sendTelegramMessage(
+                        token: token,
+                        chatId: message.chat.id,
+                        text: "Запускаю генерацию...",
+                        client: req.client
+                    )
+                    try await finalizeAndGeneratePrompt(chatId: message.chat.id, token: token, req: req)
+                } else {
+                    // Промпт не был готов - отправляем обычное сообщение
                 let successText = "Можешь обучить модель нажав /train или добавить ещё фотографии"
                 _ = try? await sendTelegramMessage(
                     token: token,
@@ -106,6 +118,7 @@ final class NeurfotobotController: Sendable {
                     text: successText,
                     client: req.client
                 )
+                }
                 return Response(status: .ok)
             } else {
                 // Подписка всё ещё не подтверждена
@@ -192,6 +205,7 @@ final class NeurfotobotController: Sendable {
             } catch {
                 req.logger.error("Failed to send welcome message: \(error)")
             }
+            return Response(status: .ok)
         }
 
         if text == "/train" {
@@ -620,7 +634,7 @@ final class NeurfotobotController: Sendable {
         
         // Если мы собираем промпт пошагово, обрабатываем текущий шаг
         switch promptState {
-        case .genderSelected:
+        case .styleSelected:
             // Пользователь описал место (после нажатия кнопки "Опиши место действия")
             await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.locationSelected, for: chatId)
@@ -665,6 +679,7 @@ final class NeurfotobotController: Sendable {
             
         case .clothingSelected:
             // Пользователь добавил дополнительные детали (после нажатия кнопки "Дополнительный промпт")
+            // Это старый способ - просто текстовый ввод, теперь не используется, но оставляем для совместимости
             if text.lowercased().trimmingCharacters(in: .whitespaces) == "готово" || text.lowercased().trimmingCharacters(in: .whitespaces) == "готов" {
                 // Пользователь написал "готово", пропускаем дополнительные детали
                 await PhotoSessionManager.shared.setAdditionalDetails("", for: chatId)
@@ -673,92 +688,90 @@ final class NeurfotobotController: Sendable {
             }
             await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
             
-            // Собираем составной промпт для показа пользователю
-            let location = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
-            let clothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
-            let details = await PhotoSessionManager.shared.getAdditionalDetails(for: chatId) ?? ""
-            
-            // Формируем русский промпт для показа
-            var promptParts: [String] = []
-            if !location.isEmpty {
-                promptParts.append("в \(location)")
-            }
-            if !clothing.isEmpty {
-                promptParts.append("в \(clothing)")
-            }
-            if !details.isEmpty {
-                promptParts.append(details)
-            }
-            let russianPrompt = promptParts.joined(separator: ", ")
-            
-            // Переводим на английский для показа (если перевод не отключен)
-            let translationDisabled = Environment.get("DISABLE_TRANSLATION")?.lowercased() == "true"
-            let englishPrompt: String
-            if !translationDisabled {
-                do {
-                    let translator = try YandexTranslationClient(request: req)
-                    englishPrompt = try await translator.translateToEnglish(russianPrompt)
-                    // Сохраняем переведённый промпт, чтобы не переводить дважды
-                    await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
-                } catch {
-                    req.logger.warning("Translation failed for preview chatId=\(chatId): \(error). Using Russian.")
-                    englishPrompt = russianPrompt
-                    await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
-                }
+        case .selectingAdditionalParams:
+            // Пользователь добавил текстовые дополнительные детали
+            if text.lowercased().trimmingCharacters(in: .whitespaces) == "готово" || text.lowercased().trimmingCharacters(in: .whitespaces) == "готов" {
+                // Пользователь написал "готово", пропускаем дополнительные детали
+                await PhotoSessionManager.shared.setAdditionalDetails("", for: chatId)
             } else {
-                req.logger.warning("Translation is disabled via DISABLE_TRANSLATION env flag; using Russian prompt for chatId=\(chatId)")
-                englishPrompt = russianPrompt
-                await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+                await PhotoSessionManager.shared.setAdditionalDetails(text, for: chatId)
             }
+            try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
+            return
             
-            let preview: String
-            if translationDisabled {
-                preview = """
-Дополнительные детали сохранены! ✨
-
-Вот составной промпт:
-🇷🇺 \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
-
-Готов сгенерировать изображение?
-"""
-            } else {
-                preview = """
-Дополнительные детали сохранены! ✨
-
-Вот составной промпт:
-🇷🇺 Русский: \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
-🇬🇧 English: \(englishPrompt.isEmpty ? "(empty)" : englishPrompt)
-
-Готов сгенерировать изображение?
-"""
-            }
+        case .selectingAdditionalCategories:
+            // Пользователь в процессе выбора категорий - игнорируем текстовый ввод
+            return
             
+        case .genderSelected:
+            // Пол выбран (старый flow, теперь не используется, но оставляем для совместимости)
+            // Переходим к описанию места
+            await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.locationSelected, for: chatId)
+            
+            // Показываем кнопку для описания одежды
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)
             let payload = SendInlineMessagePayload(
                 chat_id: chatId,
-                text: preview,
+                text: "Место сохранено! 📍\n\nГотов описать одежду?",
                 reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")]
+                    [InlineKeyboardButton(text: "👔 Опиши одежду и её цвет", callback_data: "ask_clothing")]
                 ])
             )
             request.headers.add(name: .contentType, value: "application/json")
             request.body = try .init(data: JSONEncoder().encode(payload))
             _ = try await req.client.send(request)
+            return
+            
+        case .readyToGenerate:
+            // Промпт уже готов - игнорируем текстовый ввод
+            return
+            
+        case .editingLocation:
+            // Пользователь редактирует место
+            await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Показываем обновленное превью
+            try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
+            return
+            
+        case .editingClothing:
+            // Пользователь редактирует одежду
+            await PhotoSessionManager.shared.setUserClothing(text, for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Показываем обновленное превью
+            try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
+            return
+            
+        case .editingDetails:
+            // Пользователь редактирует дополнительные детали
+            if text.lowercased().trimmingCharacters(in: .whitespaces) == "готово" || text.lowercased().trimmingCharacters(in: .whitespaces) == "готов" {
+                // Пользователь написал "готово", пропускаем дополнительные детали
+                await PhotoSessionManager.shared.setAdditionalDetails("", for: chatId)
+            } else {
+                await PhotoSessionManager.shared.setAdditionalDetails(text, for: chatId)
+            }
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Показываем обновленное превью
+            try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
             return
             
         case .idle:
-            // Если пользователь просто отправил текст без выбора стиля, показываем кнопки выбора стиля
+            // Временно автоматически выбираем "Обычное фото" вместо показа меню
+            await PhotoSessionManager.shared.setStyle("photo", for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
+            await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+            
+            // УБРАНО: Выбор пола, так как он не используется в промпте
+            // Сразу переходим к описанию места
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)
             let payload = SendInlineMessagePayload(
                 chat_id: chatId,
-                text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
+                text: "Готов описать место действия?",
                 reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
-                    [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
-                    [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
-                    [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
+                    [InlineKeyboardButton(text: "📍 Опиши место действия", callback_data: "ask_location")]
                 ])
             )
             request.headers.add(name: .contentType, value: "application/json")
@@ -766,9 +779,23 @@ final class NeurfotobotController: Sendable {
             _ = try await req.client.send(request)
             return
             
-        case .styleSelected, .readyToGenerate:
-            // Если уже выбран стиль или готово к генерации, просто возвращаемся
-            return
+            // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
+            // let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            // var request = ClientRequest(method: .POST, url: url)
+            // let payload = SendInlineMessagePayload(
+            //     chat_id: chatId,
+            //     text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
+            //     reply_markup: ReplyMarkup(inline_keyboard: [
+            //         [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
+            //         [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
+            //         [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
+            //         [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
+            //     ])
+            // )
+            // request.headers.add(name: .contentType, value: "application/json")
+            // request.body = try .init(data: JSONEncoder().encode(payload))
+            // _ = try await req.client.send(request)
+            // return
         }
     }
     
@@ -805,18 +832,80 @@ final class NeurfotobotController: Sendable {
         }
         
         // Собираем финальный промпт из всех частей
-        let gender = await PhotoSessionManager.shared.getUserGender(for: chatId) ?? ""
+        // УБРАНО: gender не используется в промпте
         let location = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
         let clothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
         let additionalDetails = await PhotoSessionManager.shared.getAdditionalDetails(for: chatId) ?? ""
         
-        // Формируем промпт: место + одежда + дополнительные детали
+        // Собираем дополнительные параметры
+        var additionalParams: [String] = []
+        if let angle = await PhotoSessionManager.shared.getCameraAngle(for: chatId) {
+            let angleNames: [String: String] = [
+                "front": "спереди",
+                "side": "сбоку",
+                "back": "сзади",
+                "top": "сверху",
+                "low": "снизу",
+                "three_quarter": "3/4"
+            ]
+            additionalParams.append(angleNames[angle] ?? angle)
+        }
+        if let size = await PhotoSessionManager.shared.getShotSize(for: chatId) {
+            let sizeNames: [String: String] = [
+                "close_up": "крупный план",
+                "medium": "средний план",
+                "full_body": "общий план",
+                "portrait": "портрет"
+            ]
+            additionalParams.append(sizeNames[size] ?? size)
+        }
+        if let lighting = await PhotoSessionManager.shared.getLighting(for: chatId) {
+            let lightingNames: [String: String] = [
+                "natural": "естественное освещение",
+                "golden_hour": "золотой час",
+                "blue_hour": "синий час",
+                "studio": "студийное освещение",
+                "backlight": "контровое освещение",
+                "soft": "мягкое освещение"
+            ]
+            additionalParams.append(lightingNames[lighting] ?? lighting)
+        }
+        if let pose = await PhotoSessionManager.shared.getPose(for: chatId) {
+            let poseNames: [String: String] = [
+                "standing": "стоя",
+                "sitting": "сидя",
+                "lying": "лежа",
+                "motion": "в движении"
+            ]
+            additionalParams.append(poseNames[pose] ?? pose)
+        }
+        if let expression = await PhotoSessionManager.shared.getExpression(for: chatId) {
+            let expressionNames: [String: String] = [
+                "smiling": "улыбка",
+                "serious": "серьёзное",
+                "looking_at_camera": "взгляд в камеру",
+                "looking_away": "взгляд в сторону"
+            ]
+            additionalParams.append(expressionNames[expression] ?? expression)
+        }
+        if let focus = await PhotoSessionManager.shared.getFocus(for: chatId) {
+            let focusNames: [String: String] = [
+                "sharp": "резкий фокус",
+                "bokeh": "размытый фон"
+            ]
+            additionalParams.append(focusNames[focus] ?? focus)
+        }
+        
+        // Формируем промпт: место + одежда + дополнительные параметры + текстовые детали
         var promptParts: [String] = []
         if !location.isEmpty {
             promptParts.append("в \(location)")
         }
         if !clothing.isEmpty {
             promptParts.append("в \(clothing)")
+        }
+        if !additionalParams.isEmpty {
+            promptParts.append(additionalParams.joined(separator: ", "))
         }
         if !additionalDetails.isEmpty {
             promptParts.append(additionalDetails)
@@ -898,7 +987,7 @@ final class NeurfotobotController: Sendable {
             return
         }
         
-        // Сохраняем пол для использования в промпте (чтобы модель знала пол)
+        // Сохраняем промпт
         await PhotoSessionManager.shared.setPrompt(translatedPrompt, for: chatId)
         
         // Очищаем состояние сбора промпта
@@ -907,10 +996,11 @@ final class NeurfotobotController: Sendable {
         let application = req.application
         let logger = req.logger
         Task.detached {
+            // УБРАНО: userGender, так как пол не используется в промпте (модель уже обучена на конкретном лице)
             await NeurfotobotPipelineService.shared.generateImages(
                 chatId: chatId,
                 prompt: translatedPrompt,
-                userGender: gender,
+                userGender: nil,
                 botToken: token,
                 application: application,
                 logger: logger
@@ -919,7 +1009,25 @@ final class NeurfotobotController: Sendable {
     }
 
     private func handleModelCommand(chatId: Int64, token: String, req: Request) async throws {
-        let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        
+        // Если модели нет в памяти, проверяем базу данных
+        if modelVersion == nil {
+            do {
+                if let userModel = try await UserModel.query(on: req.db)
+                    .filter(\.$chatId == chatId)
+                    .first() {
+                    modelVersion = userModel.modelVersion
+                    await PhotoSessionManager.shared.setModelVersion(userModel.modelVersion, for: chatId)
+                    await PhotoSessionManager.shared.setTriggerWord(userModel.triggerWord, for: chatId)
+                    await PhotoSessionManager.shared.setTrainingState(.ready, for: chatId)
+                    req.logger.info("Restored model from database for chatId=\(chatId) in handleModelCommand")
+                }
+            } catch {
+                req.logger.warning("Failed to check database for model version in handleModelCommand: \(error)")
+            }
+        }
+        
         if modelVersion != nil {
             let message = "Твоя модель готова к работе! 🎨\n\nМожешь сгенерировать изображение или удалить модель."
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
@@ -946,7 +1054,25 @@ final class NeurfotobotController: Sendable {
     }
 
     private func handleGenerateCommand(chatId: Int64, token: String, req: Request) async throws {
-        let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        
+        // Если модели нет в памяти, проверяем базу данных
+        if modelVersion == nil {
+            do {
+                if let userModel = try await UserModel.query(on: req.db)
+                    .filter(\.$chatId == chatId)
+                    .first() {
+                    modelVersion = userModel.modelVersion
+                    await PhotoSessionManager.shared.setModelVersion(userModel.modelVersion, for: chatId)
+                    await PhotoSessionManager.shared.setTriggerWord(userModel.triggerWord, for: chatId)
+                    await PhotoSessionManager.shared.setTrainingState(.ready, for: chatId)
+                    req.logger.info("Restored model from database for chatId=\(chatId) in handleGenerateCommand")
+                }
+            } catch {
+                req.logger.warning("Failed to check database for model version in handleGenerateCommand: \(error)")
+            }
+        }
+        
         guard modelVersion != nil else {
             _ = try? await sendTelegramMessage(
                 token: token,
@@ -968,22 +1094,42 @@ final class NeurfotobotController: Sendable {
             return
         }
 
-        // Показываем кнопки выбора стиля
+        // Временно автоматически выбираем "Обычное фото" вместо показа меню
+        await PhotoSessionManager.shared.setStyle("photo", for: chatId)
+        await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
+        await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+        
+        // УБРАНО: Выбор пола, так как он не используется в промпте (модель уже обучена на конкретном лице)
+        // Сразу переходим к описанию места
         let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
         var request = ClientRequest(method: .POST, url: url)
         let payload = SendInlineMessagePayload(
             chat_id: chatId,
-            text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
+            text: "Готов описать место действия?",
             reply_markup: ReplyMarkup(inline_keyboard: [
-                [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
-                [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
-                [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
-                [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
+                [InlineKeyboardButton(text: "📍 Опиши место действия", callback_data: "ask_location")]
             ])
         )
         request.headers.add(name: .contentType, value: "application/json")
         request.body = try .init(data: JSONEncoder().encode(payload))
         _ = try await req.client.send(request)
+        
+        // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
+        // let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        // var request = ClientRequest(method: .POST, url: url)
+        // let payload = SendInlineMessagePayload(
+        //     chat_id: chatId,
+        //     text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
+        //     reply_markup: ReplyMarkup(inline_keyboard: [
+        //         [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
+        //         [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
+        //         [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
+        //         [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
+        //     ])
+        // )
+        // request.headers.add(name: .contentType, value: "application/json")
+        // request.body = try .init(data: JSONEncoder().encode(payload))
+        // _ = try await req.client.send(request)
     }
 
     private func handleCallback(_ callback: NeurfotobotCallbackQuery, token: String, req: Request) async throws {
@@ -1046,7 +1192,25 @@ final class NeurfotobotController: Sendable {
                 chatId = callback.from.id
             }
             
-            let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+            var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+            
+            // Если модели нет в памяти, проверяем базу данных
+            if modelVersion == nil {
+                do {
+                    if let userModel = try await UserModel.query(on: req.db)
+                        .filter(\.$chatId == chatId)
+                        .first() {
+                        modelVersion = userModel.modelVersion
+                        await PhotoSessionManager.shared.setModelVersion(userModel.modelVersion, for: chatId)
+                        await PhotoSessionManager.shared.setTriggerWord(userModel.triggerWord, for: chatId)
+                        await PhotoSessionManager.shared.setTrainingState(.ready, for: chatId)
+                        req.logger.info("Restored model from database for chatId=\(chatId) in start_generate")
+                    }
+                } catch {
+                    req.logger.warning("Failed to check database for model version in start_generate: \(error)")
+                }
+            }
+            
             guard modelVersion != nil else {
                 try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Модель не найдена", req: req)
                 _ = try? await sendTelegramMessage(
@@ -1075,10 +1239,32 @@ final class NeurfotobotController: Sendable {
                 chatId = callback.from.id
             }
             
+            // Проверка подписки перед генерацией
+            let (allowed, channels) = await MonetizationService.checkAccess(
+                botName: "Neurfotobot",
+                userId: chatId,
+                logger: req.logger,
+                env: req.application.environment,
+                client: req.client
+            )
+            
+            if !allowed {
+                try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Требуется подписка на спонсорские каналы", req: req)
+                try await sendSubscriptionRequiredMessage(
+                    token: token,
+                    chatId: chatId,
+                    channels: channels,
+                    client: req.client
+                )
+                return
+            }
+            
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Запускаю генерацию...", req: req)
             try await finalizeAndGeneratePrompt(chatId: chatId, token: token, req: req)
             
-        case "style_cinematic", "style_anime", "style_cyberpunk", "style_photo":
+        // ЗАКОММЕНТИРОВАНО: Обработчики выбора стиля (временно отключены, автоматически выбирается "Обычное фото")
+        // case "style_cinematic", "style_anime", "style_cyberpunk", "style_photo":
+        case "style_photo": // Оставляем только для совместимости, но не используется
             let chatId: Int64
             if let messageChatId = callback.message?.chat.id {
                 chatId = messageChatId
@@ -1154,6 +1340,7 @@ final class NeurfotobotController: Sendable {
             }
             
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: chatId,
@@ -1186,13 +1373,30 @@ final class NeurfotobotController: Sendable {
             }
             
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.selectingAdditionalParams, for: chatId)
             
-            // Показываем текст и кнопку, чтобы можно было пропустить дополнительные детали
+            // Показываем текстовое сообщение с подсказками вместо кнопок
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)
+            let hintText = """
+✨ Дополнительные детали
+
+Ты можешь описать любые детали, которые помогут создать идеальное изображение:
+
+📷 **Угол камеры:** спереди, сбоку, сзади, сверху, снизу, 3/4
+📐 **Крупность плана:** крупный план, средний план, общий план, портрет
+💡 **Освещение:** естественное, золотой час, синий час, студийное, контровое, мягкое
+🧍 **Поза:** стоя, сидя, лежа, в движении
+😊 **Выражение лица:** улыбка, серьёзное, взгляд в камеру, взгляд в сторону
+🎯 **Фокус:** резкий фокус, размытый фон
+
+Или просто опиши любые другие детали, которые хочешь видеть на изображении.
+
+Напиши всё, что хочешь добавить, или отправь "готово" чтобы пропустить.
+"""
             let payload = SendInlineMessagePayload(
                 chat_id: chatId,
-                text: "Хочешь добавить что-то ещё? Опиши дополнительные детали сообщением.\n\nЕсли ничего добавлять не нужно — нажми \"⏭ Пропустить\".",
+                text: hintText,
                 reply_markup: ReplyMarkup(inline_keyboard: [
                     [InlineKeyboardButton(text: "⏭ Пропустить", callback_data: "skip_additional")]
                 ])
@@ -1200,6 +1404,174 @@ final class NeurfotobotController: Sendable {
             request.headers.add(name: .contentType, value: "application/json")
             request.body = try .init(data: JSONEncoder().encode(payload))
             _ = try await req.client.send(request)
+
+        case "add_category_camera_angle", "add_category_shot_size", "add_category_lighting", "add_category_pose", "add_category_expression", "add_category_focus":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            let category = String(data.dropFirst(12)) // Убираем "add_category_" префикс
+            
+            // Добавляем категорию в выбранные (если ещё не добавлена)
+            var selectedCategories = await PhotoSessionManager.shared.getSelectedAdditionalCategories(for: chatId)
+            if !selectedCategories.contains(category) {
+                selectedCategories.insert(category)
+                await PhotoSessionManager.shared.setSelectedAdditionalCategories(selectedCategories, for: chatId)
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.selectingAdditionalParams, for: chatId)
+            
+            // Сразу показываем параметры для выбранной категории
+            try await showCategoryParams(chatId: chatId, token: token, category: category, req: req)
+            
+        case "finish_additional_categories":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            
+            // Показываем опцию добавить текст или завершить
+            try await showFinalAdditionalStep(chatId: chatId, token: token, req: req)
+            
+        case "back_to_categories":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.selectingAdditionalCategories, for: chatId)
+            
+            // Показываем главное меню с категориями
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "📸 Дополнительные параметры\n\nВыбери, что хочешь уточнить:",
+                reply_markup: ReplyMarkup(inline_keyboard: [
+                    [InlineKeyboardButton(text: "📷 Угол камеры", callback_data: "add_category_camera_angle")],
+                    [InlineKeyboardButton(text: "📐 Крупность плана", callback_data: "add_category_shot_size")],
+                    [InlineKeyboardButton(text: "💡 Освещение", callback_data: "add_category_lighting")],
+                    [InlineKeyboardButton(text: "🧍 Поза", callback_data: "add_category_pose")],
+                    [InlineKeyboardButton(text: "😊 Выражение лица", callback_data: "add_category_expression")],
+                    [InlineKeyboardButton(text: "🎯 Фокус", callback_data: "add_category_focus")],
+                    [InlineKeyboardButton(text: "✅ Готово", callback_data: "finish_additional_categories"), InlineKeyboardButton(text: "⏭ Пропустить всё", callback_data: "skip_additional")]
+                ])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            
+        case let data where data.hasPrefix("select_param_"):
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            // Формат: "select_param_camera_front" -> type="camera", value="front"
+            // Или: "select_param_shot_size_close_up" -> type="shot_size", value="close_up"
+            let remaining = String(data.dropFirst(13)) // Убираем "select_param_"
+            let parts = remaining.split(separator: "_", maxSplits: 1)
+            guard parts.count == 2 else {
+                try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Ошибка формата", req: req)
+                return
+            }
+            
+            let paramType = String(parts[0])
+            let paramValue = String(parts[1])
+            
+            // Сохраняем выбранный параметр
+            switch paramType {
+            case "camera":
+                await PhotoSessionManager.shared.setCameraAngle(paramValue, for: chatId)
+            case "shot":
+                await PhotoSessionManager.shared.setShotSize(paramValue, for: chatId)
+            case "lighting":
+                await PhotoSessionManager.shared.setLighting(paramValue, for: chatId)
+            case "pose":
+                await PhotoSessionManager.shared.setPose(paramValue, for: chatId)
+            case "expression":
+                await PhotoSessionManager.shared.setExpression(paramValue, for: chatId)
+            case "focus":
+                await PhotoSessionManager.shared.setFocus(paramValue, for: chatId)
+            default:
+                break
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Параметр выбран", req: req)
+            
+            // После выбора параметра возвращаемся к меню категорий
+            await PhotoSessionManager.shared.setPromptCollectionState(.selectingAdditionalCategories, for: chatId)
+            
+            // Показываем главное меню с категориями (с отметками выбранных параметров)
+            let _ = await PhotoSessionManager.shared.getSelectedAdditionalCategories(for: chatId)
+            let categoryNames: [String: String] = [
+                "camera_angle": "📷 Угол камеры",
+                "shot_size": "📐 Крупность плана",
+                "lighting": "💡 Освещение",
+                "pose": "🧍 Поза",
+                "expression": "😊 Выражение лица",
+                "focus": "🎯 Фокус"
+            ]
+            
+            var keyboard: [[InlineKeyboardButton]] = []
+            for (cat, name) in categoryNames {
+                let hasParam = await hasParamSelected(chatId: chatId, category: cat)
+                let buttonText = hasParam ? "✅ \(name)" : name
+                keyboard.append([InlineKeyboardButton(text: buttonText, callback_data: "add_category_\(cat)")])
+            }
+            keyboard.append([InlineKeyboardButton(text: "✅ Готово", callback_data: "finish_additional_categories"), InlineKeyboardButton(text: "⏭ Пропустить всё", callback_data: "skip_additional")])
+            
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "📸 Дополнительные параметры\n\nВыбери, что хочешь уточнить:",
+                reply_markup: ReplyMarkup(inline_keyboard: keyboard)
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            
+        case "add_text_additional":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Опиши дополнительные детали текстом. Например: \"с книгой в руках\", \"на фоне гор\"",
+                client: req.client
+            )
+            
+        case "finish_additional_without_text":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
+            await PhotoSessionManager.shared.setAdditionalDetails("", for: chatId)
+            try await showPromptPreview(chatId: chatId, token: token, req: req)
 
         case "skip_additional":
             let chatId: Int64
@@ -1270,18 +1642,96 @@ final class NeurfotobotController: Sendable {
 """
             }
             
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            
             let previewURL = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var previewRequest = ClientRequest(method: .POST, url: previewURL)
             let previewPayload = SendInlineMessagePayload(
                 chat_id: chatId,
                 text: preview,
                 reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")]
+                    [
+                        InlineKeyboardButton(text: "✏️ Изменить место", callback_data: "edit_location"),
+                        InlineKeyboardButton(text: "✏️ Изменить одежду", callback_data: "edit_clothing")
+                    ],
+                    [
+                        InlineKeyboardButton(text: "✏️ Изменить детали", callback_data: "edit_details")
+                    ],
+                    [
+                        InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")
+                    ]
                 ])
             )
             previewRequest.headers.add(name: .contentType, value: "application/json")
             previewRequest.body = try .init(data: JSONEncoder().encode(previewPayload))
             _ = try await req.client.send(previewRequest)
+            
+        case "edit_location":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем место", req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.editingLocation, for: chatId)
+            
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "Опиши место действия заново:",
+                reply_markup: ReplyMarkup(inline_keyboard: [])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            
+        case "edit_clothing":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем одежду", req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.editingClothing, for: chatId)
+            
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "Опиши одежду и её цвет заново:",
+                reply_markup: ReplyMarkup(inline_keyboard: [])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            
+        case "edit_details":
+            let chatId: Int64
+            if let messageChatId = callback.message?.chat.id {
+                chatId = messageChatId
+            } else {
+                chatId = callback.from.id
+            }
+            
+            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем детали", req: req)
+            await PhotoSessionManager.shared.setPromptCollectionState(.editingDetails, for: chatId)
+            
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "Добавь дополнительные детали заново (или напиши \"готово\" чтобы пропустить):",
+                reply_markup: ReplyMarkup(inline_keyboard: [])
+            )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
+            
         default:
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
         }
@@ -1299,6 +1749,440 @@ final class NeurfotobotController: Sendable {
         request.headers.add(name: .contentType, value: "application/json")
         request.body = try .init(data: JSONEncoder().encode(payload))
         _ = try await req.client.send(request)
+    }
+    
+    // MARK: - Вспомогательные функции для дополнительных параметров
+    
+    private func showCategoryParams(chatId: Int64, token: String, category: String, req: Request) async throws {
+        var keyboard: [[InlineKeyboardButton]] = []
+        var messageText = ""
+        var currentValue: String? = nil
+        
+        switch category {
+        case "camera_angle":
+            messageText = "📷 Угол камеры:"
+            currentValue = await PhotoSessionManager.shared.getCameraAngle(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "front" ? "✅ Спереди" : "Спереди", callback_data: "select_param_camera_front"),
+                InlineKeyboardButton(text: currentValue == "side" ? "✅ Сбоку" : "Сбоку", callback_data: "select_param_camera_side")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "back" ? "✅ Сзади" : "Сзади", callback_data: "select_param_camera_back"),
+                InlineKeyboardButton(text: currentValue == "top" ? "✅ Сверху" : "Сверху", callback_data: "select_param_camera_top")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "low" ? "✅ Снизу" : "Снизу", callback_data: "select_param_camera_low"),
+                InlineKeyboardButton(text: currentValue == "three_quarter" ? "✅ 3/4" : "3/4", callback_data: "select_param_camera_three_quarter")
+            ])
+            
+        case "shot_size":
+            messageText = "📐 Крупность плана:"
+            currentValue = await PhotoSessionManager.shared.getShotSize(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "close_up" ? "✅ Крупный план" : "Крупный план", callback_data: "select_param_shot_close_up"),
+                InlineKeyboardButton(text: currentValue == "medium" ? "✅ Средний план" : "Средний план", callback_data: "select_param_shot_medium")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "full_body" ? "✅ Общий план" : "Общий план", callback_data: "select_param_shot_full_body"),
+                InlineKeyboardButton(text: currentValue == "portrait" ? "✅ Портрет" : "Портрет", callback_data: "select_param_shot_portrait")
+            ])
+            
+        case "lighting":
+            messageText = "💡 Освещение:"
+            currentValue = await PhotoSessionManager.shared.getLighting(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "natural" ? "✅ Естественное" : "Естественное", callback_data: "select_param_lighting_natural"),
+                InlineKeyboardButton(text: currentValue == "golden_hour" ? "✅ Золотой час" : "Золотой час", callback_data: "select_param_lighting_golden_hour")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "blue_hour" ? "✅ Синий час" : "Синий час", callback_data: "select_param_lighting_blue_hour"),
+                InlineKeyboardButton(text: currentValue == "studio" ? "✅ Студийное" : "Студийное", callback_data: "select_param_lighting_studio")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "backlight" ? "✅ Контровое" : "Контровое", callback_data: "select_param_lighting_backlight"),
+                InlineKeyboardButton(text: currentValue == "soft" ? "✅ Мягкое" : "Мягкое", callback_data: "select_param_lighting_soft")
+            ])
+            
+        case "pose":
+            messageText = "🧍 Поза:"
+            currentValue = await PhotoSessionManager.shared.getPose(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "standing" ? "✅ Стоя" : "Стоя", callback_data: "select_param_pose_standing"),
+                InlineKeyboardButton(text: currentValue == "sitting" ? "✅ Сидя" : "Сидя", callback_data: "select_param_pose_sitting")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "lying" ? "✅ Лежа" : "Лежа", callback_data: "select_param_pose_lying"),
+                InlineKeyboardButton(text: currentValue == "motion" ? "✅ В движении" : "В движении", callback_data: "select_param_pose_motion")
+            ])
+            
+        case "expression":
+            messageText = "😊 Выражение лица:"
+            currentValue = await PhotoSessionManager.shared.getExpression(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "smiling" ? "✅ Улыбка" : "Улыбка", callback_data: "select_param_expression_smiling"),
+                InlineKeyboardButton(text: currentValue == "serious" ? "✅ Серьёзное" : "Серьёзное", callback_data: "select_param_expression_serious")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "looking_at_camera" ? "✅ Взгляд в камеру" : "Взгляд в камеру", callback_data: "select_param_expression_looking_at_camera"),
+                InlineKeyboardButton(text: currentValue == "looking_away" ? "✅ Взгляд в сторону" : "Взгляд в сторону", callback_data: "select_param_expression_looking_away")
+            ])
+            
+        case "focus":
+            messageText = "🎯 Фокус:"
+            currentValue = await PhotoSessionManager.shared.getFocus(for: chatId)
+            keyboard.append([
+                InlineKeyboardButton(text: currentValue == "sharp" ? "✅ Резкий" : "Резкий", callback_data: "select_param_focus_sharp"),
+                InlineKeyboardButton(text: currentValue == "bokeh" ? "✅ Размытый фон" : "Размытый фон", callback_data: "select_param_focus_bokeh")
+            ])
+            
+        default:
+            return
+        }
+        
+        // Добавляем кнопку "Назад"
+        keyboard.append([InlineKeyboardButton(text: "⬅️ Назад к категориям", callback_data: "back_to_categories")])
+        
+        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        var request = ClientRequest(method: .POST, url: url)
+        let payload = SendInlineMessagePayload(
+            chat_id: chatId,
+            text: messageText,
+            reply_markup: ReplyMarkup(inline_keyboard: keyboard)
+        )
+        request.headers.add(name: .contentType, value: "application/json")
+        request.body = try .init(data: JSONEncoder().encode(payload))
+        _ = try await req.client.send(request)
+    }
+    
+    private func hasParamSelected(chatId: Int64, category: String) async -> Bool {
+        switch category {
+        case "camera_angle":
+            return await PhotoSessionManager.shared.getCameraAngle(for: chatId) != nil
+        case "shot_size":
+            return await PhotoSessionManager.shared.getShotSize(for: chatId) != nil
+        case "lighting":
+            return await PhotoSessionManager.shared.getLighting(for: chatId) != nil
+        case "pose":
+            return await PhotoSessionManager.shared.getPose(for: chatId) != nil
+        case "expression":
+            return await PhotoSessionManager.shared.getExpression(for: chatId) != nil
+        case "focus":
+            return await PhotoSessionManager.shared.getFocus(for: chatId) != nil
+        default:
+            return false
+        }
+    }
+    
+    private func showAdditionalParamsMenu(chatId: Int64, token: String, selectedCategories: Set<String>, req: Request) async throws {
+        var keyboard: [[InlineKeyboardButton]] = []
+        var messageText = "📸 Выбери параметры:\n\n"
+        
+        // Параметры для угла камеры
+        if selectedCategories.contains("camera_angle") {
+            let current = await PhotoSessionManager.shared.getCameraAngle(for: chatId)
+            messageText += "📷 Угол камеры\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "front" ? "✅ Спереди" : "Спереди", callback_data: "select_param_camera_front"),
+                InlineKeyboardButton(text: current == "side" ? "✅ Сбоку" : "Сбоку", callback_data: "select_param_camera_side")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "back" ? "✅ Сзади" : "Сзади", callback_data: "select_param_camera_back"),
+                InlineKeyboardButton(text: current == "top" ? "✅ Сверху" : "Сверху", callback_data: "select_param_camera_top")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "low" ? "✅ Снизу" : "Снизу", callback_data: "select_param_camera_low"),
+                InlineKeyboardButton(text: current == "three_quarter" ? "✅ 3/4" : "3/4", callback_data: "select_param_camera_three_quarter")
+            ])
+            keyboard.append([]) // Пустая строка для разделения
+        }
+        
+        // Параметры для крупности плана
+        if selectedCategories.contains("shot_size") {
+            let current = await PhotoSessionManager.shared.getShotSize(for: chatId)
+            messageText += "📐 Крупность плана\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "close_up" ? "✅ Крупный план" : "Крупный план", callback_data: "select_param_shot_close_up"),
+                InlineKeyboardButton(text: current == "medium" ? "✅ Средний план" : "Средний план", callback_data: "select_param_shot_medium")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "full_body" ? "✅ Общий план" : "Общий план", callback_data: "select_param_shot_full_body"),
+                InlineKeyboardButton(text: current == "portrait" ? "✅ Портрет" : "Портрет", callback_data: "select_param_shot_portrait")
+            ])
+            keyboard.append([])
+        }
+        
+        // Параметры для освещения
+        if selectedCategories.contains("lighting") {
+            let current = await PhotoSessionManager.shared.getLighting(for: chatId)
+            messageText += "💡 Освещение\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "natural" ? "✅ Естественное" : "Естественное", callback_data: "select_param_lighting_natural"),
+                InlineKeyboardButton(text: current == "golden_hour" ? "✅ Золотой час" : "Золотой час", callback_data: "select_param_lighting_golden_hour")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "blue_hour" ? "✅ Синий час" : "Синий час", callback_data: "select_param_lighting_blue_hour"),
+                InlineKeyboardButton(text: current == "studio" ? "✅ Студийное" : "Студийное", callback_data: "select_param_lighting_studio")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "backlight" ? "✅ Контровое" : "Контровое", callback_data: "select_param_lighting_backlight"),
+                InlineKeyboardButton(text: current == "soft" ? "✅ Мягкое" : "Мягкое", callback_data: "select_param_lighting_soft")
+            ])
+            keyboard.append([])
+        }
+        
+        // Параметры для позы
+        if selectedCategories.contains("pose") {
+            let current = await PhotoSessionManager.shared.getPose(for: chatId)
+            messageText += "🧍 Поза\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "standing" ? "✅ Стоя" : "Стоя", callback_data: "select_param_pose_standing"),
+                InlineKeyboardButton(text: current == "sitting" ? "✅ Сидя" : "Сидя", callback_data: "select_param_pose_sitting")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "lying" ? "✅ Лежа" : "Лежа", callback_data: "select_param_pose_lying"),
+                InlineKeyboardButton(text: current == "motion" ? "✅ В движении" : "В движении", callback_data: "select_param_pose_motion")
+            ])
+            keyboard.append([])
+        }
+        
+        // Параметры для выражения лица
+        if selectedCategories.contains("expression") {
+            let current = await PhotoSessionManager.shared.getExpression(for: chatId)
+            messageText += "😊 Выражение лица\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "smiling" ? "✅ Улыбка" : "Улыбка", callback_data: "select_param_expression_smiling"),
+                InlineKeyboardButton(text: current == "serious" ? "✅ Серьёзное" : "Серьёзное", callback_data: "select_param_expression_serious")
+            ])
+            keyboard.append([
+                InlineKeyboardButton(text: current == "looking_at_camera" ? "✅ Взгляд в камеру" : "Взгляд в камеру", callback_data: "select_param_expression_looking_at_camera"),
+                InlineKeyboardButton(text: current == "looking_away" ? "✅ Взгляд в сторону" : "Взгляд в сторону", callback_data: "select_param_expression_looking_away")
+            ])
+            keyboard.append([])
+        }
+        
+        // Параметры для фокуса
+        if selectedCategories.contains("focus") {
+            let current = await PhotoSessionManager.shared.getFocus(for: chatId)
+            messageText += "🎯 Фокус\(current != nil ? " (✅ \(current ?? "")" : ""):\n"
+            keyboard.append([
+                InlineKeyboardButton(text: current == "sharp" ? "✅ Резкий" : "Резкий", callback_data: "select_param_focus_sharp"),
+                InlineKeyboardButton(text: current == "bokeh" ? "✅ Размытый фон" : "Размытый фон", callback_data: "select_param_focus_bokeh")
+            ])
+            keyboard.append([])
+        }
+        
+        // Убираем последнюю пустую строку если есть
+        if keyboard.last?.isEmpty == true {
+            keyboard.removeLast()
+        }
+        
+        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        var request = ClientRequest(method: .POST, url: url)
+        let payload = SendInlineMessagePayload(
+            chat_id: chatId,
+            text: messageText,
+            reply_markup: ReplyMarkup(inline_keyboard: keyboard)
+        )
+        request.headers.add(name: .contentType, value: "application/json")
+        request.body = try .init(data: JSONEncoder().encode(payload))
+        _ = try await req.client.send(request)
+    }
+    
+    private func checkAllParamsSelected(chatId: Int64, categories: Set<String>) async -> Bool {
+        for category in categories {
+            switch category {
+            case "camera_angle":
+                if await PhotoSessionManager.shared.getCameraAngle(for: chatId) == nil {
+                    return false
+                }
+            case "shot_size":
+                if await PhotoSessionManager.shared.getShotSize(for: chatId) == nil {
+                    return false
+                }
+            case "lighting":
+                if await PhotoSessionManager.shared.getLighting(for: chatId) == nil {
+                    return false
+                }
+            case "pose":
+                if await PhotoSessionManager.shared.getPose(for: chatId) == nil {
+                    return false
+                }
+            case "expression":
+                if await PhotoSessionManager.shared.getExpression(for: chatId) == nil {
+                    return false
+                }
+            case "focus":
+                if await PhotoSessionManager.shared.getFocus(for: chatId) == nil {
+                    return false
+                }
+            default:
+                break
+            }
+        }
+        return true
+    }
+    
+    private func showFinalAdditionalStep(chatId: Int64, token: String, req: Request) async throws {
+        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        var request = ClientRequest(method: .POST, url: url)
+        let payload = SendInlineMessagePayload(
+            chat_id: chatId,
+            text: "Параметры сохранены! ✨\n\nХочешь добавить что-то ещё текстом?\n(Например: \"с книгой в руках\", \"на фоне гор\")",
+            reply_markup: ReplyMarkup(inline_keyboard: [
+                [InlineKeyboardButton(text: "➕ Добавить текст", callback_data: "add_text_additional")],
+                [InlineKeyboardButton(text: "✅ Готово, сгенерировать", callback_data: "finish_additional_without_text")]
+            ])
+        )
+        request.headers.add(name: .contentType, value: "application/json")
+        request.body = try .init(data: JSONEncoder().encode(payload))
+        _ = try await req.client.send(request)
+    }
+    
+    private func showPromptPreview(chatId: Int64, token: String, req: Request) async throws {
+        let location = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
+        let clothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
+        
+        // Собираем дополнительные параметры
+        var additionalParams: [String] = []
+        if let angle = await PhotoSessionManager.shared.getCameraAngle(for: chatId) {
+            let angleNames: [String: String] = [
+                "front": "спереди",
+                "side": "сбоку",
+                "back": "сзади",
+                "top": "сверху",
+                "low": "снизу",
+                "three_quarter": "3/4"
+            ]
+            additionalParams.append(angleNames[angle] ?? angle)
+        }
+        if let size = await PhotoSessionManager.shared.getShotSize(for: chatId) {
+            let sizeNames: [String: String] = [
+                "close_up": "крупный план",
+                "medium": "средний план",
+                "full_body": "общий план",
+                "portrait": "портрет"
+            ]
+            additionalParams.append(sizeNames[size] ?? size)
+        }
+        if let lighting = await PhotoSessionManager.shared.getLighting(for: chatId) {
+            let lightingNames: [String: String] = [
+                "natural": "естественное освещение",
+                "golden_hour": "золотой час",
+                "blue_hour": "синий час",
+                "studio": "студийное освещение",
+                "backlight": "контровое освещение",
+                "soft": "мягкое освещение"
+            ]
+            additionalParams.append(lightingNames[lighting] ?? lighting)
+        }
+        if let pose = await PhotoSessionManager.shared.getPose(for: chatId) {
+            let poseNames: [String: String] = [
+                "standing": "стоя",
+                "sitting": "сидя",
+                "lying": "лежа",
+                "motion": "в движении"
+            ]
+            additionalParams.append(poseNames[pose] ?? pose)
+        }
+        if let expression = await PhotoSessionManager.shared.getExpression(for: chatId) {
+            let expressionNames: [String: String] = [
+                "smiling": "улыбка",
+                "serious": "серьёзное",
+                "looking_at_camera": "взгляд в камеру",
+                "looking_away": "взгляд в сторону"
+            ]
+            additionalParams.append(expressionNames[expression] ?? expression)
+        }
+        if let focus = await PhotoSessionManager.shared.getFocus(for: chatId) {
+            let focusNames: [String: String] = [
+                "sharp": "резкий фокус",
+                "bokeh": "размытый фон"
+            ]
+            additionalParams.append(focusNames[focus] ?? focus)
+        }
+        
+        let additionalDetails = await PhotoSessionManager.shared.getAdditionalDetails(for: chatId) ?? ""
+        
+        // Формируем русский промпт
+        var promptParts: [String] = []
+        if !location.isEmpty {
+            promptParts.append("в \(location)")
+        }
+        if !clothing.isEmpty {
+            promptParts.append("в \(clothing)")
+        }
+        if !additionalParams.isEmpty {
+            promptParts.append(additionalParams.joined(separator: ", "))
+        }
+        if !additionalDetails.isEmpty {
+            promptParts.append(additionalDetails)
+        }
+        let russianPrompt = promptParts.joined(separator: ", ")
+        
+        // Переводим на английский
+        let translationDisabled = Environment.get("DISABLE_TRANSLATION")?.lowercased() == "true"
+        let englishPrompt: String
+        if !translationDisabled {
+            do {
+                let translator = try YandexTranslationClient(request: req)
+                englishPrompt = try await translator.translateToEnglish(russianPrompt)
+                await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+            } catch {
+                req.logger.warning("Translation failed for preview chatId=\(chatId): \(error). Using Russian.")
+                englishPrompt = russianPrompt
+                await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+            }
+        } else {
+            englishPrompt = russianPrompt
+            await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+        }
+        
+        // Показываем превью
+        let preview: String
+        if translationDisabled {
+            preview = """
+Дополнительные детали сохранены! ✨
+
+Вот составной промпт:
+🇷🇺 \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
+
+Готов сгенерировать изображение?
+"""
+        } else {
+            preview = """
+Дополнительные детали сохранены! ✨
+
+Вот составной промпт:
+🇷🇺 Русский: \(russianPrompt.isEmpty ? "(пусто)" : russianPrompt)
+🇬🇧 English: \(englishPrompt.isEmpty ? "(empty)" : englishPrompt)
+
+Готов сгенерировать изображение?
+"""
+        }
+        
+        await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+        
+        let previewURL = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        var previewRequest = ClientRequest(method: .POST, url: previewURL)
+        let previewPayload = SendInlineMessagePayload(
+            chat_id: chatId,
+            text: preview,
+            reply_markup: ReplyMarkup(inline_keyboard: [
+                [
+                    InlineKeyboardButton(text: "✏️ Изменить место", callback_data: "edit_location"),
+                    InlineKeyboardButton(text: "✏️ Изменить одежду", callback_data: "edit_clothing")
+                ],
+                [
+                    InlineKeyboardButton(text: "✏️ Изменить детали", callback_data: "edit_details")
+                ],
+                [
+                    InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")
+                ]
+            ])
+        )
+        previewRequest.headers.add(name: .contentType, value: "application/json")
+        previewRequest.body = try .init(data: JSONEncoder().encode(previewPayload))
+        _ = try await req.client.send(previewRequest)
     }
 } 
 

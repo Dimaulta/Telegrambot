@@ -24,6 +24,8 @@ Roundsvideobot/Resources/temporaryvideoFiles/
 logs/
 config/certs/
 config/traefik/letsencrypt/acme.json
+COMMIT_MESSAGE*.txt
+SECURITY_AUDIT*.md
 
 # Database files
 *.sqlite

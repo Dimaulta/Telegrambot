@@ -1,0 +1,194 @@
+version: '3.8'
+
+# Docker Compose для разработки
+# Использование: docker compose -f docker-compose.dev.yml up
+#
+# Отличия от prod:
+# - Использует Dockerfile.dev (не production build)
+# - Монтирует весь код через volumes (для редактирования на Mac)
+# - Использует swift run (не скомпилированный бинарник)
+# - LOG_LEVEL=debug по умолчанию
+
+services:
+  # NowControllerBot - запускается первым для инициализации БД
+  nowcontrollerbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: NowControllerBot
+    container_name: telegrambot_dev_nowcontrollerbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      # Монтируем весь проект для разработки
+      - .:/app
+      # Монтируем config отдельно (для .env и monetization.sqlite)
+      - ./config:/app/config
+    working_dir: /app
+    command: swift run NowControllerBot serve --hostname 0.0.0.0 --port 8084
+    ports:
+      - "8084:8084"
+    networks:
+      - telegrambot_dev_network
+
+  # VideoServiceRunner (Roundsvideobot)
+  roundsvideobot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: VideoServiceRunner
+    container_name: telegrambot_dev_roundsvideobot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+      - ./Roundsvideobot/Resources/temporaryvideoFiles:/app/Roundsvideobot/Resources/temporaryvideoFiles
+    working_dir: /app
+    command: swift run VideoServiceRunner serve --hostname 0.0.0.0 --port 8081
+    ports:
+      - "8081:8081"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+  # NowmttBot
+  nowmttbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: NowmttBot
+    container_name: telegrambot_dev_nowmttbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+    working_dir: /app
+    command: swift run NowmttBot serve --hostname 0.0.0.0 --port 8085
+    ports:
+      - "8085:8085"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+  # GSForTextBot
+  gsfortextbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: GSForTextBot
+    container_name: telegrambot_dev_gsfortextbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+    working_dir: /app
+    command: swift run GSForTextBot serve --hostname 0.0.0.0 --port 8083
+    ports:
+      - "8083:8083"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+  # ContentFabrikaBot
+  contentfabrikabot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: ContentFabrikaBot
+    container_name: telegrambot_dev_contentfabrikabot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+      - ./contentfabrikabot:/app/contentfabrikabot
+    working_dir: /app
+    command: swift run ContentFabrikaBot serve --hostname 0.0.0.0 --port 8089
+    ports:
+      - "8089:8089"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+  # Neurfotobot
+  neurfotobot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: Neurfotobot
+    container_name: telegrambot_dev_neurfotobot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+      - ./Neurfotobot:/app/Neurfotobot
+    working_dir: /app
+    command: swift run Neurfotobot serve --hostname 0.0.0.0 --port 8082
+    ports:
+      - "8082:8082"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+  # PereskazNowBot
+  pereskaznowbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PRODUCT: PereskazNowBot
+    container_name: telegrambot_dev_pereskaznowbot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      - LOG_LEVEL=debug
+    volumes:
+      - .:/app
+      - ./config:/app/config
+    working_dir: /app
+    command: swift run PereskazNowBot serve --hostname 0.0.0.0 --port 8090
+    ports:
+      - "8090:8090"
+    networks:
+      - telegrambot_dev_network
+    depends_on:
+      - nowcontrollerbot
+
+networks:
+  telegrambot_dev_network:
+    driver: bridge
+

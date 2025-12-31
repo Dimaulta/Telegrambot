@@ -1,0 +1,100 @@
+name: Deploy to Production (Smart Rebuild)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Нужно для сравнения с предыдущим коммитом
+      
+      - name: Detect changed services
+        id: changed
+        run: |
+          # Определяем какие папки/сервисы изменились
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Определяем изменённые сервисы
+          SERVICES=""
+          if echo "$CHANGED_FILES" | grep -qE "^Neurfotobot/|^neurfotobot/"; then
+            SERVICES="$SERVICES neurfotobot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/"; then
+            SERVICES="$SERVICES roundsvideobot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^nowmttbot/"; then
+            SERVICES="$SERVICES nowmttbot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^gsfortextbot/"; then
+            SERVICES="$SERVICES gsfortextbot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^contentfabrikabot/"; then
+            SERVICES="$SERVICES contentfabrikabot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^pereskaznowbot/"; then
+            SERVICES="$SERVICES pereskaznowbot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^nowcontrollerbot/"; then
+            SERVICES="$SERVICES nowcontrollerbot"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod|Package.swift"; then
+            SERVICES="all"  # Если изменились общие файлы - пересобрать всё
+          fi
+          
+          if [ -z "$SERVICES" ]; then
+            SERVICES="all"  # Если не определили - пересобрать всё для безопасности
+          fi
+          
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+          echo "🔍 Изменённые сервисы: $SERVICES"
+      
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /root/Telegrambot
+            echo "📥 Получаю изменения из main..."
+            git fetch origin
+            git checkout main
+            git pull origin main
+            
+            CHANGED_SERVICES="${{ steps.changed.outputs.services }}"
+            
+            if [ "$CHANGED_SERVICES" = "all" ]; then
+              echo "🔨 Пересобираю все контейнеры..."
+              docker compose -f docker-compose.prod.yml build
+              docker compose -f docker-compose.prod.yml up -d
+            else
+              echo "🔨 Пересобираю только изменённые сервисы: $CHANGED_SERVICES"
+              for service in $CHANGED_SERVICES; do
+                echo "  → Пересобираю $service..."
+                docker compose -f docker-compose.prod.yml build $service
+                docker compose -f docker-compose.prod.yml up -d $service
+              done
+            fi
+            
+            echo "⏳ Жду запуска сервисов (30 секунд)..."
+            sleep 30
+            
+            echo "🔗 Настраиваю webhooks..."
+            set -a; source config/.env; set +a
+            ./config/set-webhooks.sh
+            
+            echo "📊 Статус контейнеров:"
+            docker compose -f docker-compose.prod.yml ps
+            
+            echo "✅ Деплой завершён!"
+

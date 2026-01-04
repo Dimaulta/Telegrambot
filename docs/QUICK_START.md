@@ -79,7 +79,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|BANANANOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
+env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|ANTISPAMNOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
 ./config/set-webhooks.sh
 ```
 
@@ -157,25 +157,25 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   swift run PereskazNowBot
   ```
 
-- BananaNowBot — бот для использования Nano Banana (в разработке)
+- AntispamNowBot — антиспам бот: выключатель на ночь, капча для вступления, запрещатель сообщений от каналов (в разработке)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run BananaNowBot
+  swift run AntispamNowBot
   ```
 
-- SoranowBot — бот для генерации видео из текстового описания с помощью Sora2 (в разработке)
+- NeurVideoBot — бот для генерации видео сервисами OpenAI, Google и другими (в разработке)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run SoranowBot
+  swift run NeurVideoBot
   ```
 
-- VeoNowBot - бот для генерации видео из текстового описания через Veo 3 (в разработке)
+- GolosNowBot — озвучивает пересланный текст голосом (в разработке)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run VeoNowBot
+  swift run GolosNowBot
   ```
 
   
@@ -234,9 +234,9 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 - Шестая вкладка (шаг 6): GSForTextBot — распознавание голосовых через SaluteSpeech
 - Седьмая вкладка (шаг 6): ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
 - Восьмая вкладка (шаг 6): Neurfotobot — нейрофотографии (AI обработка изображений)
-- Девятая вкладка (шаг 6): BananaNowBot — прототип генерации медиа Nano Banana
-- Десятая вкладка (шаг 6): SoranowBot — генерация видео с помощью Sora2 (в разработке)
-- Одиннадцатая вкладка (шаг 6): VeoNowBot — генерация видео через Veo 3 (в разработке)
+- Девятая вкладка (шаг 6): AntispamNowBot — антиспам бот: выключатель на ночь, капча для вступления, запрещатель сообщений от каналов (в разработке)
+- Десятая вкладка (шаг 6): NeurVideoBot — генерация видео сервисами OpenAI, Google и другими (в разработке)
+- Одиннадцатая вкладка (шаг 6): GolosNowBot — озвучивает пересланный текст голосом (в разработке)
 - Двенадцатая вкладка (шаг 6): PereskazNowBot — получение расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
 - Тринадцатая вкладка (шаг 6): NowControllerBot — управление отправкой сообщений в боты NowBots (MVP)
 

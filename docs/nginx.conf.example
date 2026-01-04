@@ -8,9 +8,9 @@
 #   - GSForTextBot
 #   - NowControllerBot
 #   - NowmttBot
-#   - SoranowBot
-#   - VeoNowBot
-#   - BananaNowBot
+#   - NeurVideoBot
+#   - GolosNowBot
+#   - AntispamNowBot
 #   - ContentFabrikaBot
 #
 # Используй этот файл как ориентир, если твой nginx.conf сильно отличается
@@ -130,8 +130,8 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # SoranowBot — /soranow/webhook -> 8086
-        location = /soranow/webhook {
+        # NeurVideoBot — /neurvideo/webhook -> 8086
+        location = /neurvideo/webhook {
             proxy_pass http://127.0.0.1:8086/webhook;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -139,8 +139,8 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # VeoNowBot — /veonow/webhook -> 8087
-        location = /veonow/webhook {
+        # GolosNowBot — /golosnow/webhook -> 8087
+        location = /golosnow/webhook {
             proxy_pass http://127.0.0.1:8087/webhook;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -148,8 +148,8 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # BananaNowBot — /banananow/webhook -> 8088
-        location = /banananow/webhook {
+        # AntispamNowBot — /antispamnow/webhook -> 8088
+        location = /antispamnow/webhook {
             proxy_pass http://127.0.0.1:8088/webhook;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

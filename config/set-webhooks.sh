@@ -129,75 +129,75 @@ else
 fi
 
 # ============================================
-# SORANOWBOT (Video Generation via external API)
+# NEURVIDEOBOT (Video Generation via OpenAI, Google and others)
 # ============================================
-if [ -z "$SORANOWBOT_TOKEN" ]; then
-    echo "⚠️ SORANOWBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$NEURVIDEOBOT_TOKEN" ]; then
+    echo "⚠️ NEURVIDEOBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для SoranowBot..."
-    echo "📡 URL: ${BASE_URL}/soranow/webhook"
+    echo "🔧 Настройка webhook для NeurVideoBot..."
+    echo "📡 URL: ${BASE_URL}/neurvideo/webhook"
 
-    curl -sS -X POST "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${NEURVIDEOBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/soranow/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/neurvideo/webhook\"}"
 
     echo ""
-    echo "✅ Webhook для SoranowBot настроен!"
+    echo "✅ Webhook для NeurVideoBot настроен!"
     echo "📋 Проверка:"
-    curl -sS "https://api.telegram.org/bot${SORANOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${NEURVIDEOBOT_TOKEN}/getWebhookInfo"
     echo ""
     echo ""
 fi
 
 # ============================================
-# VEONOWBOT (Veo 3 Video Generation)
+# GOLOSNOWBOT (Text to Speech)
 # ============================================
-if [ -z "$VEONOWBOT_TOKEN" ]; then
-    echo "⚠️ VEONOWBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$GOLOSNOWBOT_TOKEN" ]; then
+    echo "⚠️ GOLOSNOWBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для VeoNowBot..."
-    echo "📡 URL: ${BASE_URL}/veonow/webhook"
+    echo "🔧 Настройка webhook для GolosNowBot..."
+    echo "📡 URL: ${BASE_URL}/golosnow/webhook"
 
-    payload="{\"url\":\"${BASE_URL}/veonow/webhook\""
-    if [ -n "$VEONOWBOT_WEBHOOK_SECRET" ]; then
+    payload="{\"url\":\"${BASE_URL}/golosnow/webhook\""
+    if [ -n "$GOLOSNOWBOT_WEBHOOK_SECRET" ]; then
         # Проверяем, что secret token содержит только допустимые символы
-        if [[ "$VEONOWBOT_WEBHOOK_SECRET" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            payload="${payload},\"secret_token\":\"${VEONOWBOT_WEBHOOK_SECRET}\""
+        if [[ "$GOLOSNOWBOT_WEBHOOK_SECRET" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            payload="${payload},\"secret_token\":\"${GOLOSNOWBOT_WEBHOOK_SECRET}\""
         else
-            echo "⚠️ VEONOWBOT_WEBHOOK_SECRET содержит недопустимые символы, используем без secret token"
+            echo "⚠️ GOLOSNOWBOT_WEBHOOK_SECRET содержит недопустимые символы, используем без secret token"
         fi
     fi
     payload="${payload}}"
 
-    curl -sS -X POST "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${GOLOSNOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
       -d "${payload}"
 
     echo ""
-    echo "✅ Webhook для VeoNowBot настроен!"
+    echo "✅ Webhook для GolosNowBot настроен!"
     echo "📋 Проверка:"
-    curl -sS "https://api.telegram.org/bot${VEONOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${GOLOSNOWBOT_TOKEN}/getWebhookInfo"
     echo ""
     echo ""
 fi
 
 # ============================================
-# BANANANOWBOT (Nano Banana Media)
+# ANTISPAMNOWBOT (Anti-spam bot)
 # ============================================
-if [ -z "$BANANANOWBOT_TOKEN" ]; then
-    echo "⚠️ BANANANOWBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$ANTISPAMNOWBOT_TOKEN" ]; then
+    echo "⚠️ ANTISPAMNOWBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для BananaNowBot..."
-    echo "📡 URL: ${BASE_URL}/banananow/webhook"
+    echo "🔧 Настройка webhook для AntispamNowBot..."
+    echo "📡 URL: ${BASE_URL}/antispamnow/webhook"
 
-    curl -sS -X POST "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${ANTISPAMNOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/banananow/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/antispamnow/webhook\"}"
 
     echo ""
-    echo "✅ Webhook для BananaNowBot настроен!"
+    echo "✅ Webhook для AntispamNowBot настроен!"
     echo "📋 Проверка:"
-    curl -sS "https://api.telegram.org/bot${BANANANOWBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${ANTISPAMNOWBOT_TOKEN}/getWebhookInfo"
     echo ""
     echo ""
 fi

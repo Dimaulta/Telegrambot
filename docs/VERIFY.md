@@ -8,15 +8,15 @@ curl -i http://127.0.0.1:8080/nowmtt/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
 
-# VeoNowBot (при наличии)
-curl -i http://127.0.0.1:8080/veonow/webhook \
+# GolosNowBot (при наличии)
+curl -i http://127.0.0.1:8080/golosnow/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй короткое видео"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Озвучь этот текст"}}'
 
-# BananaNowBot
-curl -i http://127.0.0.1:8080/banananow/webhook \
+# AntispamNowBot (при наличии)
+curl -i http://127.0.0.1:8080/antispamnow/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй яркий постер с бананом"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
 # ContentFabrikaBot
 curl -i http://127.0.0.1:8080/contentfabrika/webhook \
@@ -39,15 +39,15 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
 
-# VeoNowBot (при наличии)
-curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/veonow/webhook \
+# GolosNowBot (при наличии)
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/golosnow/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Сгенерируй короткое видео"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Озвучь этот текст"}}'
 
-# BananaNowBot
-curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/banananow/webhook \
+# AntispamNowBot (при наличии)
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/antispamnow/webhook \
   -H "Content-Type: application/json" \
-  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"Создай атмосферную сцену с бананами"}}'
+  -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
 # ContentFabrikaBot
 curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/contentfabrika/webhook \

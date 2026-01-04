@@ -23,40 +23,48 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          # Проверяем, изменились ли только файлы документации/workflow (не нужно пересобирать)
-          if echo "$CHANGED_FILES" | grep -qvE "^Neurfotobot/|^neurfotobot/|^Roundsvideobot/|^roundsvideobot/|^nowmttbot/|^gsfortextbot/|^contentfabrikabot/|^pereskaznowbot/|^nowcontrollerbot/|^core-server/|docker-compose.prod.yml|Dockerfile.prod|Package.swift|Package.resolved"; then
-            # Изменились только docs/, .github/, README и т.д. - не пересобираем
+          # Неработающие сервисы (игнорируем при переименовании/изменении)
+          NON_WORKING_SERVICES="veonowbot|banananowbot|soranowbot|golosnowbot|AntispamNowBot|NeurVideoBot"
+          
+          # Проверяем, изменились ли только неработающие сервисы или только services.json
+          ONLY_NON_WORKING=$(echo "$CHANGED_FILES" | grep -vE "^($NON_WORKING_SERVICES)/|^config/services.json$|^docs/|^\.github/|^README|^SECURITY|^TRANSFER|^check_ssl|^config/nginx|^config/traefik" || true)
+          
+          if [ -z "$ONLY_NON_WORKING" ]; then
+            # Изменились только неработающие сервисы или только services.json/docs - не пересобираем
             SERVICES="none"
           else
-            # Определяем изменённые сервисы
-            SERVICES=""
-            if echo "$CHANGED_FILES" | grep -qE "^Neurfotobot/|^neurfotobot/"; then
-              SERVICES="$SERVICES neurfotobot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/"; then
-              SERVICES="$SERVICES roundsvideobot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^nowmttbot/"; then
-              SERVICES="$SERVICES nowmttbot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^gsfortextbot/"; then
-              SERVICES="$SERVICES gsfortextbot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^contentfabrikabot/"; then
-              SERVICES="$SERVICES contentfabrikabot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^pereskaznowbot/"; then
-              SERVICES="$SERVICES pereskaznowbot"
-            fi
-            if echo "$CHANGED_FILES" | grep -qE "^nowcontrollerbot/"; then
-              SERVICES="$SERVICES nowcontrollerbot"
-            fi
+            # Проверяем общие файлы (требуют пересборки всех)
             if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod|Package.swift|Package.resolved"; then
-              SERVICES="all"  # Если изменились общие файлы - пересобрать всё
-            fi
-            
-            if [ -z "$SERVICES" ]; then
-              SERVICES="all"  # Если не определили - пересобрать всё для безопасности
+              SERVICES="all"
+            else
+              # Определяем изменённые работающие сервисы
+              SERVICES=""
+              if echo "$CHANGED_FILES" | grep -qE "^Neurfotobot/|^neurfotobot/"; then
+                SERVICES="$SERVICES neurfotobot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/"; then
+                SERVICES="$SERVICES roundsvideobot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^nowmttbot/"; then
+                SERVICES="$SERVICES nowmttbot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^gsfortextbot/"; then
+                SERVICES="$SERVICES gsfortextbot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^contentfabrikabot/"; then
+                SERVICES="$SERVICES contentfabrikabot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^pereskaznowbot/"; then
+                SERVICES="$SERVICES pereskaznowbot"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "^nowcontrollerbot/"; then
+                SERVICES="$SERVICES nowcontrollerbot"
+              fi
+              
+              # Если не определили работающие сервисы - пересобрать всё для безопасности
+              if [ -z "$SERVICES" ]; then
+                SERVICES="all"
+              fi
             fi
           fi
           
@@ -80,7 +88,7 @@ jobs:
             CHANGED_SERVICES="${{ steps.changed.outputs.services }}"
             
             if [ "$CHANGED_SERVICES" = "none" ]; then
-              echo "ℹ️ Изменились только файлы документации/workflow - пересборка не требуется"
+              echo "ℹ️ Изменились только неработающие сервисы/services.json/документация - пересборка не требуется"
             elif [ "$CHANGED_SERVICES" = "all" ]; then
               echo "🔨 Пересобираю все контейнеры..."
               docker compose -f docker-compose.prod.yml build

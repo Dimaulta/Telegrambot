@@ -33,9 +33,54 @@ jobs:
             # Изменились только неработающие сервисы или только services.json/docs - не пересобираем
             SERVICES="none"
           else
-            # Проверяем общие файлы (требуют пересборки всех)
-            if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod|Package.swift|Package.resolved"; then
+            # Проверяем общие файлы
+            if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod"; then
               SERVICES="all"
+            elif echo "$CHANGED_FILES" | grep -qE "^Package.resolved$"; then
+              # Package.resolved изменился - зависимости обновились, пересобираем всё
+              SERVICES="all"
+            elif echo "$CHANGED_FILES" | grep -qE "^Package.swift$"; then
+              # Package.swift изменился - анализируем что именно
+              PACKAGE_DIFF=$(git diff HEAD~1 HEAD -- Package.swift)
+              
+              # Проверяем, изменились ли общие зависимости (версии пакетов в секции dependencies)
+              if echo "$PACKAGE_DIFF" | grep -qE "^\+.*\.package\(|^\-.*\.package\(|from:|\.upToNextMajor|\.upToNextMinor"; then
+                # Общие зависимости изменились - пересобираем всё
+                SERVICES="all"
+              else
+                # Изменились только таргеты или их зависимости - определяем какие
+                CHANGED_TARGETS=""
+                
+                # Маппинг таргетов Package.swift на сервисы docker-compose
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowControllerBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS nowcontrollerbot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"VideoServiceRunner\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS roundsvideobot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowmttBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS nowmttbot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"GSForTextBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS gsfortextbot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"ContentFabrikaBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS contentfabrikabot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"Neurfotobot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS neurfotobot"
+                fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"PereskazNowBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS pereskaznowbot"
+                fi
+                
+                SERVICES="$CHANGED_TARGETS"
+                
+                # Если не определили затронутые сервисы - пересобрать всё для безопасности
+                if [ -z "$SERVICES" ]; then
+                  SERVICES="all"
+                fi
+              fi
             else
               # Определяем изменённые работающие сервисы
               SERVICES=""

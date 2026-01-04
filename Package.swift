@@ -51,13 +51,13 @@ let package = Package(
         ),
         // Временно отключено - в разработке
         // .executableTarget(
-        //     name: "VeoNowBot",
+        //     name: "GolosNowBot",
         //     dependencies: [
         //         .product(name: "Vapor", package: "vapor"),
         //         .product(name: "Fluent", package: "fluent"),
         //         .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
         //     ],
-        //     path: "VeoNowBot/Sources/App"
+        //     path: "golosnowbot/Sources/App"
         // ),
         .executableTarget(
             name: "NowControllerBot",
@@ -88,21 +88,21 @@ let package = Package(
         ),
         // Временно отключено - в разработке
         // .executableTarget(
-        //     name: "SoranowBot",
+        //     name: "NeurVideoBot",
         //     dependencies: [
         //         .product(name: "Vapor", package: "vapor"),
         //         .product(name: "Fluent", package: "fluent"),
         //         .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
         //     ],
-        //     path: "soranowbot/Sources/App"
+        //     path: "NeurVideoBot/Sources/App"
         // ),
         // Временно отключено - в разработке
         // .executableTarget(
-        //     name: "BananaNowBot",
+        //     name: "AntispamNowBot",
         //     dependencies: [
         //         .product(name: "Vapor", package: "vapor")
         //     ],
-        //     path: "BananaNowBot/Sources/App"
+        //     path: "AntispamNowBot/Sources/App"
         // ),
         .executableTarget(
             name: "ContentFabrikaBot",

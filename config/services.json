@@ -38,35 +38,35 @@
       "webhook_url": "${BASE_URL}/nowmtt/webhook",
       "name": "TikTok Video Downloader Bot"
     },
-    "soranowbot": {
+    "NeurVideoBot": {
       "url": "http://localhost:8086",
       "routes": [
         "/webhook",
-        "/soranow/webhook"
+        "/neurvideo/webhook"
       ],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/soranow/webhook",
-      "name": "Sora Now Video Bot"
+      "webhook_url": "${BASE_URL}/neurvideo/webhook",
+      "name": "NeurVideoBot - Video Generation via OpenAI, Google and others"
     },
-    "veonowbot": {
+    "golosnowbot": {
       "url": "http://localhost:8087",
       "routes": [
         "/webhook",
-        "/veonow/webhook"
+        "/golosnow/webhook"
       ],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/veonow/webhook",
-      "name": "Veo Now Video Bot"
+      "webhook_url": "${BASE_URL}/golosnow/webhook",
+      "name": "GolosNowBot - Text to Speech (озвучивает пересланный текст голосом)"
     },
-    "banananowbot": {
+    "AntispamNowBot": {
       "url": "http://localhost:8088",
       "routes": [
         "/webhook",
-        "/banananow/webhook"
+        "/antispamnow/webhook"
       ],
       "enabled": true,
-      "webhook_url": "${BASE_URL}/banananow/webhook",
-      "name": "BananaNowBot - Nano Banana Media"
+      "webhook_url": "${BASE_URL}/antispamnow/webhook",
+      "name": "AntispamNowBot - Anti-spam bot (выключатель на ночь, капча для вступления, запрещатель сообщений от каналов)"
     },
     "contentfabrikabot": {
       "url": "http://localhost:8089",

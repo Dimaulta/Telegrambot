@@ -49,15 +49,16 @@ let package = Package(
                 .product(name: "XCTVapor", package: "vapor")
             ]
         ),
-        .executableTarget(
-            name: "VeoNowBot",
-            dependencies: [
-                .product(name: "Vapor", package: "vapor"),
-                .product(name: "Fluent", package: "fluent"),
-                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
-            ],
-            path: "VeoNowBot/Sources/App"
-        ),
+        // Временно отключено - в разработке
+        // .executableTarget(
+        //     name: "VeoNowBot",
+        //     dependencies: [
+        //         .product(name: "Vapor", package: "vapor"),
+        //         .product(name: "Fluent", package: "fluent"),
+        //         .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+        //     ],
+        //     path: "VeoNowBot/Sources/App"
+        // ),
         .executableTarget(
             name: "NowControllerBot",
             dependencies: [
@@ -85,22 +86,24 @@ let package = Package(
             ],
             path: "gsfortextbot/Sources/App"
         ),
-        .executableTarget(
-            name: "SoranowBot",
-            dependencies: [
-                .product(name: "Vapor", package: "vapor"),
-                .product(name: "Fluent", package: "fluent"),
-                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
-            ],
-            path: "soranowbot/Sources/App"
-        ),
-        .executableTarget(
-            name: "BananaNowBot",
-            dependencies: [
-                .product(name: "Vapor", package: "vapor")
-            ],
-            path: "BananaNowBot/Sources/App"
-        ),
+        // Временно отключено - в разработке
+        // .executableTarget(
+        //     name: "SoranowBot",
+        //     dependencies: [
+        //         .product(name: "Vapor", package: "vapor"),
+        //         .product(name: "Fluent", package: "fluent"),
+        //         .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+        //     ],
+        //     path: "soranowbot/Sources/App"
+        // ),
+        // Временно отключено - в разработке
+        // .executableTarget(
+        //     name: "BananaNowBot",
+        //     dependencies: [
+        //         .product(name: "Vapor", package: "vapor")
+        //     ],
+        //     path: "BananaNowBot/Sources/App"
+        // ),
         .executableTarget(
             name: "ContentFabrikaBot",
             dependencies: [

@@ -11,7 +11,7 @@
 2. После установки открой [docs/QUICK_START.md](docs/QUICK_START.md), запусти необходимые сервисы и настрой webhooks
 3. При необходимости воспользуйся проверочными командами из [docs/VERIFY.md](docs/VERIFY.md), чтобы убедиться, что проксирование и боты работают
 
-## Статус проекта на 30 декабря 2025:
+## Статус проекта на 04 января 2026:
 
 - ✅ RoundsvideoBot (MVP)
 - ✅ NowmttBot (MVP)
@@ -45,12 +45,20 @@
 
 ## Документация
 
-- [SETUP_GUIDE.md](docs/SETUP_GUIDE.md), установка и настройка окружения
-- [QUICK_START.md](docs/QUICK_START.md), пошаговый запуск всех активных сервисов
-- [VERIFY.md](docs/VERIFY.md), команды для проверки проксирования и работы ботов
-- [docs/env.example](docs/env.example), пример файла с секретами (заполни своими значениями перед запуском)
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md), архитектура и статусы сервисов
-- [SECURITY.md](docs/SECURITY.md), политика безопасности и работа с токенами
+### Локальная разработка
+- [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) — установка и настройка окружения для локальной разработки
+- [QUICK_START.md](docs/QUICK_START.md) — пошаговый запуск всех активных сервисов
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) — разработка в Docker (рекомендуется)
+- [VERIFY.md](docs/VERIFY.md) — команды для проверки проксирования и работы ботов
+
+### Production деплой
+- [DEPLOY.md](docs/DEPLOY.md) — полная инструкция по деплою на VPS сервер
+- [SSH_SETUP.md](docs/SSH_SETUP.md) — настройка SSH ключей и безопасного доступа
+
+### Общая документация
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — архитектура и статусы сервисов
+- [SECURITY.md](docs/SECURITY.md) — политика безопасности и работа с токенами
+- [docs/env.example](docs/env.example) — пример файла с секретами (заполни своими значениями перед запуском)
 
 
 ### Ограничения по использованию (защита от злоупотребления)

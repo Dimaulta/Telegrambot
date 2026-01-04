@@ -51,33 +51,48 @@ jobs:
                 # Изменились только таргеты или их зависимости - определяем какие
                 CHANGED_TARGETS=""
                 
+                # Проверяем, изменились ли только неразработанные таргеты
+                NON_WORKING_TARGETS="GolosNowBot|NeurVideoBot|AntispamNowBot|VeoNowBot|SoranowBot|BananaNowBot"
+                ONLY_NON_WORKING_TARGETS=true
+                
                 # Маппинг таргетов Package.swift на сервисы docker-compose
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowControllerBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS nowcontrollerbot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"VideoServiceRunner\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS roundsvideobot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowmttBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS nowmttbot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"GSForTextBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS gsfortextbot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"ContentFabrikaBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS contentfabrikabot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"Neurfotobot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS neurfotobot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"PereskazNowBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS pereskaznowbot"
+                  ONLY_NON_WORKING_TARGETS=false
                 fi
                 
-                SERVICES="$CHANGED_TARGETS"
-                
-                # Если не определили затронутые сервисы - пересобрать всё для безопасности
-                if [ -z "$SERVICES" ]; then
+                # Если изменились только неразработанные таргеты - не пересобираем ничего
+                if [ "$ONLY_NON_WORKING_TARGETS" = true ]; then
+                  SERVICES="none"
+                elif [ -n "$CHANGED_TARGETS" ]; then
+                  # Изменились работающие таргеты - пересобираем только их
+                  SERVICES="$CHANGED_TARGETS"
+                else
+                  # Не смогли определить - пересобрать всё для безопасности
                   SERVICES="all"
                 fi
               fi

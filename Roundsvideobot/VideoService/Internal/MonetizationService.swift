@@ -2,6 +2,11 @@ import Foundation
 import Vapor
 #if canImport(SQLite3)
 import SQLite3
+
+typealias sqlite3_destructor_type = @convention(c) (UnsafeMutableRawPointer?) -> Void
+let SQLITE_STATIC: sqlite3_destructor_type? = unsafeBitCast(0, to: sqlite3_destructor_type?.self)
+let SQLITE_TRANSIENT: sqlite3_destructor_type? = unsafeBitCast(-1, to: sqlite3_destructor_type?.self)
+
 #elseif canImport(CSQLite)
 import CSQLite
 // На Linux через CSQLite функции доступны, но нужно использовать их через правильный namespace

@@ -10,11 +10,14 @@ final class NeurfotobotController: Sendable {
     // 1. Обучение модели: не больше 1 в час на пользователя
     private static let trainingRateLimiter = RateLimiter(maxRequests: 1, timeWindow: 3600) // 1 час
     
-    // 2. Генерация фото: не больше 2 в минуту на пользователя
+    // 2. Обучение модели: не больше 2 в сутки на пользователя
+    private static let trainingDailyLimiter = DailyLimiter(maxRequests: 2)
+    
+    // 3. Генерация фото: не больше 2 в минуту на пользователя
     private static let generationRateLimiter = RateLimiter(maxRequests: 2, timeWindow: 60) // 1 минута
     
-    // 3. Генерация фото: не больше 50 в сутки на пользователя
-    private static let generationDailyLimiter = DailyLimiter()
+    // 4. Генерация фото: не больше 20 в сутки на пользователя
+    private static let generationDailyLimiter = DailyLimiter(maxRequests: 20)
 
     func handleWebhook(_ req: Request) async throws -> Response {
         guard let token = Environment.get("NEURFOTOBOT_TOKEN"), !token.isEmpty else {
@@ -155,19 +158,14 @@ final class NeurfotobotController: Sendable {
             }
             
             let welcomeMessage: String
-            let keyboard: [[InlineKeyboardButton]]
             
             if modelVersion != nil {
                 // У пользователя есть модель
                 welcomeMessage = """
 Привет! Твоя модель уже обучена и готова к работе! 🎨
 
-Можешь сразу описать образ или использовать кнопки ниже.
+Используй кнопки ниже для управления ботом.
 """
-                keyboard = [
-                    [InlineKeyboardButton(text: "📝 Составить промпт", callback_data: "start_generate")],
-                    [InlineKeyboardButton(text: "ℹ️ Информация о модели", callback_data: "show_model_info")]
-                ]
             } else if photosCount >= minimumPhotoCount {
                 // У пользователя есть фото, но модель не обучена
                 welcomeMessage = """
@@ -175,10 +173,6 @@ final class NeurfotobotController: Sendable {
 
 Нужно от \(minimumPhotoCount) до \(maximumPhotoCount) фото для обучения.
 """
-                keyboard = [
-                    [InlineKeyboardButton(text: "🚀 Обучить модель", callback_data: "train_from_start")],
-                    [InlineKeyboardButton(text: "📸 Добавить фото", callback_data: "add_photos")]
-                ]
             } else {
                 // Новый пользователь или мало фото
                 welcomeMessage = """
@@ -186,25 +180,17 @@ final class NeurfotobotController: Sendable {
 
 ⏳ Обычно всё готово за несколько минут. Мы сообщим, когда модель соберётся и можно будет придумать образ. Чтобы всем было комфортно, автоматически проверяем фотографии через SafeSearch, а промпты через OpenAI Moderation. Добросовестных пользователей это никак не затрагивает, но любой незаконный контент блокируется и фиксируется в логах
 """
-                keyboard = [
-                    [InlineKeyboardButton(text: "📸 Начать загрузку фото", callback_data: "start_upload")]
-                ]
             }
 
-            do {
-                let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-                var request = ClientRequest(method: .POST, url: url)
-                let payload = SendInlineMessagePayload(
-                    chat_id: message.chat.id,
-                    text: welcomeMessage,
-                    reply_markup: ReplyMarkup(inline_keyboard: keyboard)
-                )
-                request.headers.add(name: .contentType, value: "application/json")
-                request.body = try .init(data: JSONEncoder().encode(payload))
-                _ = try await req.client.send(request)
-            } catch {
-                req.logger.error("Failed to send welcome message: \(error)")
-            }
+            // Отправляем сообщение с Reply Keyboard
+            let keyboard = await buildReplyKeyboard(for: message.chat.id, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: message.chat.id,
+                text: welcomeMessage,
+                client: req.client,
+                replyMarkup: keyboard
+            )
             return Response(status: .ok)
         }
 
@@ -237,6 +223,42 @@ final class NeurfotobotController: Sendable {
             try await handleModelCommand(chatId: message.chat.id, token: token, req: req)
             return Response(status: .ok)
         }
+        
+        // Обработка Reply Keyboard кнопок
+        if text == "📸 Обучить модель" {
+            try await handleTrainCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "📝 Составить промпт" {
+            try await handleGenerateCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "ℹ️ Моя модель" {
+            try await handleModelCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "📊 Статистика" {
+            try await handleStatsCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "⏳ Статус обучения" {
+            try await handleTrainingStatusCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "❌ Отменить" {
+            try await handleCancelCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
+        if text == "❓ Помощь" {
+            try await handleHelpCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
 
         if let photos = message.photo, !photos.isEmpty {
             do {
@@ -256,10 +278,181 @@ final class NeurfotobotController: Sendable {
         return Response(status: .ok)
     }
 
-    private func sendTelegramMessage(token: String, chatId: Int64, text: String, client: Client) async throws {
-        let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage?chat_id=\(chatId)&text=\(encodedText)")
-        _ = try await client.get(url)
+    private func handleStatsCommand(chatId: Int64, token: String, req: Request) async throws {
+        let trainingRemaining = await NeurfotobotController.trainingRateLimiter.getRemainingRequests(for: chatId)
+        let trainingDailyRemaining = await NeurfotobotController.trainingDailyLimiter.getRemainingRequests(for: chatId)
+        let generationRemaining = await NeurfotobotController.generationRateLimiter.getRemainingRequests(for: chatId)
+        let generationDailyRemaining = await NeurfotobotController.generationDailyLimiter.getRemainingRequests(for: chatId)
+        
+        let statsText = """
+📊 Твоя статистика:
+
+🎨 Генерации:
+• Сегодня: \(20 - generationDailyRemaining) / 20
+• В минуту: \(2 - generationRemaining) / 2
+
+🤖 Обучение:
+• Сегодня: \(2 - trainingDailyRemaining) / 2
+• В час: \(1 - trainingRemaining) / 1
+
+\(generationDailyRemaining > 0 && trainingDailyRemaining > 0 ? "✅ Все лимиты в норме!" : "⚠️ Некоторые лимиты исчерпаны")
+"""
+        
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: statsText,
+            client: req.client,
+            replyMarkup: keyboard
+        )
+    }
+    
+    private func handleTrainingStatusCommand(chatId: Int64, token: String, req: Request) async throws {
+        let trainingState = await PhotoSessionManager.shared.getTrainingState(for: chatId)
+        let trainingId = await PhotoSessionManager.shared.getTrainingId(for: chatId)
+        
+        let statusText: String
+        if trainingState == .training, let id = trainingId {
+            statusText = """
+⏳ Обучение модели в процессе...
+
+ID обучения: \(id)
+
+Обычно это занимает 5-10 минут. Я сообщу, когда модель будет готова!
+"""
+        } else {
+            statusText = "Сейчас нет активного обучения."
+        }
+        
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: statusText,
+            client: req.client,
+            replyMarkup: keyboard
+        )
+    }
+    
+    private func handleCancelCommand(chatId: Int64, token: String, req: Request) async throws {
+        // Сбрасываем состояние составления промпта
+        await PhotoSessionManager.shared.setPromptCollectionState(.idle, for: chatId)
+        await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+        
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: "❌ Составление промпта отменено. Выбери действие:",
+            client: req.client,
+            replyMarkup: keyboard
+        )
+    }
+    
+    private func handleHelpCommand(chatId: Int64, token: String, req: Request) async throws {
+        let helpText = """
+❓ Справка по Neurfotobot
+
+🎯 Как это работает:
+1. Загрузи 5-10 своих фотографий
+2. Запусти обучение модели (5-10 минут)
+3. Составь промпт и получи нейрофото!
+
+📝 Составление промпта:
+• Опиши место (например: "пляж на Мальдивах")
+• Опиши одежду (например: "белая футболка")
+• Добавь детали (опционально)
+
+🎨 Лимиты:
+• Обучение: 2 модели в сутки, 1 в час
+• Генерация: 20 фото в сутки, 2 в минуту
+• Размер фото: до 5 МБ
+
+💡 Команды:
+/start — главное меню
+/train — обучить модель
+/generate — составить промпт
+/model — информация о модели
+
+Возникли вопросы? Просто начни с /start! 😊
+"""
+        
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: helpText,
+            client: req.client,
+            replyMarkup: keyboard
+        )
+    }
+
+    private func buildReplyKeyboard(for chatId: Int64, req: Request) async -> ReplyKeyboardMarkup {
+        let trainingState = await PhotoSessionManager.shared.getTrainingState(for: chatId)
+        let promptState = await PhotoSessionManager.shared.getPromptCollectionState(for: chatId)
+        let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        
+        var keyboardRows: [[KeyboardButton]] = []
+        
+        // Проверяем состояние и строим соответствующую клавиатуру
+        if trainingState == .training {
+            // Модель обучается
+            keyboardRows.append([KeyboardButton(text: "⏳ Статус обучения")])
+            keyboardRows.append([KeyboardButton(text: "❓ Помощь")])
+        } else if modelVersion != nil && trainingState == .ready {
+            // Модель готова
+            if promptState != .idle && promptState != .readyToGenerate {
+                // Пользователь составляет промпт
+                keyboardRows.append([KeyboardButton(text: "❌ Отменить")])
+                keyboardRows.append([
+                    KeyboardButton(text: "ℹ️ Моя модель"),
+                    KeyboardButton(text: "📊 Статистика")
+                ])
+                keyboardRows.append([KeyboardButton(text: "❓ Помощь")])
+            } else {
+                // Главное меню с готовой моделью
+                keyboardRows.append([KeyboardButton(text: "📝 Составить промпт")])
+                keyboardRows.append([
+                    KeyboardButton(text: "ℹ️ Моя модель"),
+                    KeyboardButton(text: "📊 Статистика")
+                ])
+                keyboardRows.append([KeyboardButton(text: "❓ Помощь")])
+            }
+        } else {
+            // Нет модели
+            keyboardRows.append([KeyboardButton(text: "📸 Обучить модель")])
+            keyboardRows.append([KeyboardButton(text: "❓ Помощь")])
+        }
+        
+        return ReplyKeyboardMarkup(
+            keyboard: keyboardRows,
+            resize_keyboard: true,
+            one_time_keyboard: false
+        )
+    }
+
+    private func sendTelegramMessage(token: String, chatId: Int64, text: String, client: Client, replyMarkup: ReplyKeyboardMarkup? = nil) async throws {
+        if let markup = replyMarkup {
+            // Если есть reply markup, используем POST с JSON
+            struct Payload: Content {
+                let chat_id: Int64
+                let text: String
+                let disable_web_page_preview: Bool
+                let reply_markup: ReplyKeyboardMarkup
+            }
+            
+            let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false, reply_markup: markup)
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            _ = try await client.post(url) { req in
+                try req.content.encode(payload, as: .json)
+            }
+        } else {
+            // Без markup используем простой GET запрос
+            let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage?chat_id=\(chatId)&text=\(encodedText)")
+            _ = try await client.get(url)
+        }
     }
 
     private func sendSubscriptionRequiredMessage(token: String, chatId: Int64, channels: [String], client: Client) async throws {
@@ -543,7 +736,20 @@ final class NeurfotobotController: Sendable {
                 text: "Обучение модели можно запускать не чаще одного раза в час. Подожди немного, пожалуйста.",
                 client: req.client
             )
-            req.logger.info("Rate limit: пользователь \(chatId) попытался запустить обучение слишком часто")
+            req.logger.info("Rate limit: пользователь \(chatId) попытался запустить обучение слишком часто (часовой лимит)")
+            return
+        }
+        
+        // Проверка дневного лимита: не больше 2 обучений в сутки на пользователя
+        let trainingDailyAllowed = await NeurfotobotController.trainingDailyLimiter.checkLimit(for: chatId)
+        if !trainingDailyAllowed {
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Достигнут дневной лимит обучения (максимум 2 модели в сутки). Попробуй завтра.",
+                client: req.client
+            )
+            req.logger.info("Rate limit: пользователь \(chatId) попытался запустить обучение слишком часто (дневной лимит)")
             return
         }
         
@@ -635,41 +841,32 @@ final class NeurfotobotController: Sendable {
         // Если мы собираем промпт пошагово, обрабатываем текущий шаг
         switch promptState {
         case .styleSelected:
-            // Пользователь описал место (после нажатия кнопки "Опиши место действия")
+            // Пользователь описал место
             await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.locationSelected, for: chatId)
             
-            // Показываем кнопку для описания одежды
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Место сохранено! 📍\n\nГотов описать одежду?",
-                reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "👔 Опиши одежду и её цвет", callback_data: "ask_clothing")]
-                ])
+            // Сразу просим описать одежду без промежуточной кнопки
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Отлично! Место сохранено 📍\n\n👔 Теперь опиши одежду и её цвет\n\nНапример: «чёрное пальто», «белые джинсы и синяя футболка», «элегантное платье»",
+                client: req.client
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             return
             
         case .locationSelected:
-            // Пользователь описал одежду (после нажатия кнопки "Опиши одежду")
+            // Пользователь описал одежду
             await PhotoSessionManager.shared.setUserClothing(text, for: chatId)
-            await PhotoSessionManager.shared.setPromptCollectionState(.clothingSelected, for: chatId)
+            await PhotoSessionManager.shared.setPromptCollectionState(.selectingAdditionalParams, for: chatId)
             
-            // Показываем кнопку для дополнительных деталей
+            // Упрощённый этап дополнительных деталей - только текст и кнопка "Пропустить"
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             var request = ClientRequest(method: .POST, url: url)
             let payload = SendInlineMessagePayload(
                 chat_id: chatId,
-                text: "Одежда сохранена! 👔\n\nХочешь добавить дополнительные детали?",
+                text: "Супер! Одежда сохранена 👔\n\n✨ Хочешь добавить дополнительные детали? (освещение, угол камеры, поза и т.д.)\n\nНапиши текстом или нажми «Пропустить»",
                 reply_markup: ReplyMarkup(inline_keyboard: [
-                    [
-                        InlineKeyboardButton(text: "➕ Дополнительный промпт", callback_data: "ask_additional"),
-                        InlineKeyboardButton(text: "⏭ Пропустить", callback_data: "skip_additional")
-                    ]
+                    [InlineKeyboardButton(text: "⏭ Пропустить", callback_data: "skip_additional")]
                 ])
             )
             request.headers.add(name: .contentType, value: "application/json")
@@ -709,19 +906,13 @@ final class NeurfotobotController: Sendable {
             await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.locationSelected, for: chatId)
             
-            // Показываем кнопку для описания одежды
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Место сохранено! 📍\n\nГотов описать одежду?",
-                reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "👔 Опиши одежду и её цвет", callback_data: "ask_clothing")]
-                ])
+            // Сразу просим описать одежду без промежуточной кнопки
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Отлично! Место сохранено 📍\n\n👔 Теперь опиши одежду и её цвет\n\nНапример: «чёрное пальто», «белые джинсы и синяя футболка», «элегантное платье»",
+                client: req.client
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             return
             
         case .readyToGenerate:
@@ -763,20 +954,13 @@ final class NeurfotobotController: Sendable {
             await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
             await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
             
-            // УБРАНО: Выбор пола, так как он не используется в промпте
-            // Сразу переходим к описанию места
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Готов описать место действия?",
-                reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "📍 Опиши место действия", callback_data: "ask_location")]
-                ])
+            // Сразу просим описать место без промежуточной кнопки
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "📍 Опиши место, где ты хочешь себя увидеть\n\nНапример: «осенний Париж», «пляж на Мальдивах», «космическая станция»",
+                client: req.client
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             return
             
             // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
@@ -973,13 +1157,13 @@ final class NeurfotobotController: Sendable {
             return
         }
         
-        // Проверка дневного лимита: не больше 50 генераций в сутки на пользователя
+        // Проверка дневного лимита: не больше 20 генераций в сутки на пользователя
         let dailyAllowed = await NeurfotobotController.generationDailyLimiter.checkLimit(for: chatId)
         if !dailyAllowed {
             _ = try? await sendTelegramMessage(
                 token: token,
                 chatId: chatId,
-                text: "Дневной лимит генераций исчерпан (максимум 50 фото в сутки). Попробуй завтра.",
+                text: "Дневной лимит генераций исчерпан (максимум 20 фото в сутки). Попробуй завтра.",
                 client: req.client
             )
             req.logger.info("Daily limit: пользователь \(chatId) исчерпал дневной лимит генераций")
@@ -1099,20 +1283,15 @@ final class NeurfotobotController: Sendable {
         await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
         await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         
-        // УБРАНО: Выбор пола, так как он не используется в промпте (модель уже обучена на конкретном лице)
-        // Сразу переходим к описанию места
-        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-        var request = ClientRequest(method: .POST, url: url)
-        let payload = SendInlineMessagePayload(
-            chat_id: chatId,
-            text: "Готов описать место действия?",
-            reply_markup: ReplyMarkup(inline_keyboard: [
-                [InlineKeyboardButton(text: "📍 Опиши место действия", callback_data: "ask_location")]
-            ])
+        // Сразу просим описать место без промежуточной кнопки, обновляем клавиатуру
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: "📍 Опиши место, где ты хочешь себя увидеть\n\nНапример: «осенний Париж», «пляж на Мальдивах», «космическая станция»",
+            client: req.client,
+            replyMarkup: keyboard
         )
-        request.headers.add(name: .contentType, value: "application/json")
-        request.body = try .init(data: JSONEncoder().encode(payload))
-        _ = try await req.client.send(request)
         
         // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
         // let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
@@ -1330,39 +1509,6 @@ final class NeurfotobotController: Sendable {
             request.headers.add(name: .contentType, value: "application/json")
             request.body = try .init(data: JSONEncoder().encode(payload))
             _ = try await req.client.send(request)
-            
-        case "ask_location":
-            let chatId: Int64
-            if let messageChatId = callback.message?.chat.id {
-                chatId = messageChatId
-            } else {
-                chatId = callback.from.id
-            }
-            
-            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
-            await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "Опиши место, где ты хочешь себя увидеть. Например: \"осенний Париж\", \"пляж на Мальдивах\", \"космическая станция\"",
-                client: req.client
-            )
-            
-        case "ask_clothing":
-            let chatId: Int64
-            if let messageChatId = callback.message?.chat.id {
-                chatId = messageChatId
-            } else {
-                chatId = callback.from.id
-            }
-            
-            try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "Опиши одежду и её цвет. Например: \"чёрное пальто\", \"белые джинсы и синяя футболка\", \"элегантное платье\"",
-                client: req.client
-            )
             
         case "ask_additional":
             let chatId: Int64
@@ -2211,4 +2357,16 @@ private struct ReplyMarkup: Encodable {
 private struct InlineKeyboardButton: Encodable {
     let text: String
     let callback_data: String
+}
+
+// MARK: - Reply Keyboard Models
+
+private struct KeyboardButton: Codable {
+    let text: String
+}
+
+private struct ReplyKeyboardMarkup: Codable {
+    let keyboard: [[KeyboardButton]]
+    let resize_keyboard: Bool
+    let one_time_keyboard: Bool
 } 

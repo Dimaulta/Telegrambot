@@ -1,11 +1,15 @@
 import Foundation
 import NIOCore
 
-/// Ограничитель дневных запросов (50 генераций в день на пользователя)
+/// Ограничитель дневных запросов
 actor DailyLimiter {
     private var requests: [Int64: [Date]] = [:]
-    private let maxRequests: Int = 50
+    private let maxRequests: Int
     private let timeWindow: TimeInterval = 24 * 60 * 60 // 24 часа
+    
+    init(maxRequests: Int = 50) {
+        self.maxRequests = maxRequests
+    }
     
     func checkLimit(for userId: Int64) -> Bool {
         let now = Date()

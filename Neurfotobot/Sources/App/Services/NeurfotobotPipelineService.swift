@@ -107,9 +107,8 @@ actor NeurfotobotPipelineService {
                         try await sendMessage(
                             token: botToken,
                             chatId: chatId,
-                            text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".",
-                            application: application,
-                            replyMarkup: ReplyMarkup(inline_keyboard: [[InlineKeyboardButton(text: "📝 Составить промпт", callback_data: "start_generate")]])
+                            text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".\n\nИспользуй кнопку «📝 Составить промпт» внизу экрана.",
+                            application: application
                         )
                         return
                     case "failed", "canceled":

@@ -204,27 +204,12 @@ final class NeurfotobotController: Sendable {
             return Response(status: .ok)
         }
 
-        if !text.isEmpty && text != "/start" && text != "/model" && text != "/train" && text != "/generate" {
-            do {
-                try await handlePrompt(text: text, message: message, token: token, req: req)
-            } catch {
-                req.logger.error("Failed to process prompt: \(error)")
-                _ = try? await sendTelegramMessage(
-                    token: token,
-                    chatId: message.chat.id,
-                    text: "Не смогла обработать описание. Попробуй ещё раз позже, пожалуйста.",
-                    client: req.client
-                )
-            }
-            return Response(status: .ok)
-        }
-
         if text == "/model" {
             try await handleModelCommand(chatId: message.chat.id, token: token, req: req)
             return Response(status: .ok)
         }
         
-        // Обработка Reply Keyboard кнопок
+        // Обработка Reply Keyboard кнопок (ПЕРЕД handlePrompt!)
         if text == "📸 Обучить модель" {
             try await handleTrainCommand(chatId: message.chat.id, token: token, req: req)
             return Response(status: .ok)
@@ -257,6 +242,23 @@ final class NeurfotobotController: Sendable {
         
         if text == "❓ Помощь" {
             try await handleHelpCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+
+        // handlePrompt вызывается ПОСЛЕ проверки всех кнопок
+        if !text.isEmpty && text != "/start" && text != "/model" && text != "/train" && text != "/generate" {
+            req.logger.info("📝 Calling handlePrompt for chatId=\(message.chat.id), text='\(text)'")
+            do {
+                try await handlePrompt(text: text, message: message, token: token, req: req)
+            } catch {
+                req.logger.error("Failed to process prompt: \(error)")
+                _ = try? await sendTelegramMessage(
+                    token: token,
+                    chatId: message.chat.id,
+                    text: "Не смогла обработать описание. Попробуй ещё раз позже, пожалуйста.",
+                    client: req.client
+                )
+            }
             return Response(status: .ok)
         }
 
@@ -837,6 +839,7 @@ ID обучения: \(id)
         await PhotoSessionManager.shared.setLastActivity(for: chatId)
         
         let promptState = await PhotoSessionManager.shared.getPromptCollectionState(for: chatId)
+        req.logger.info("🔍 handlePrompt called: chatId=\(chatId), text='\(text)', promptState=\(promptState)")
         
         // Если мы собираем промпт пошагово, обрабатываем текущий шаг
         switch promptState {
@@ -1279,9 +1282,9 @@ ID обучения: \(id)
         }
 
         // Временно автоматически выбираем "Обычное фото" вместо показа меню
+        await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         await PhotoSessionManager.shared.setStyle("photo", for: chatId)
         await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
-        await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         
         // Сразу просим описать место без промежуточной кнопки, обновляем клавиатуру
         let keyboard = await buildReplyKeyboard(for: chatId, req: req)

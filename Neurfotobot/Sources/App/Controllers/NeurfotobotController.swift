@@ -63,6 +63,9 @@ final class NeurfotobotController: Sendable {
 
         let text = message.text ?? ""
         
+        // Логирование для отладки
+        req.logger.info("📩 Received message: text='\(text)', chatId=\(message.chat.id)")
+        
         // Если пользователь нажал кнопку "Я подписался, проверить" —
         // повторно проверяем подписку и либо разблокируем, либо снова показываем требование.
         if text == "✅ Я подписался, проверить" {
@@ -136,6 +139,7 @@ final class NeurfotobotController: Sendable {
         }
         
         if text == "/start" {
+            req.logger.info("🚀 Processing /start command for chatId=\(message.chat.id)")
             // Не сбрасываем сессию при /start, чтобы сохранить модель если она есть
             var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: message.chat.id)
             let photosCount = await PhotoSessionManager.shared.getPhotos(for: message.chat.id).count
@@ -338,7 +342,16 @@ ID обучения: \(id)
     }
     
     private func handleCancelCommand(chatId: Int64, token: String, req: Request) async throws {
-        // Сбрасываем состояние составления промпта
+        let currentState = await PhotoSessionManager.shared.getPromptCollectionState(for: chatId)
+        
+        // Если пользователь редактирует что-то - возвращаем к превью
+        if currentState == .editingLocation || currentState == .editingClothing || currentState == .editingDetails {
+            await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            try await showPromptPreview(chatId: chatId, token: token, req: req)
+            return
+        }
+        
+        // Иначе - полностью отменяем составление промпта
         await PhotoSessionManager.shared.setPromptCollectionState(.idle, for: chatId)
         await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         
@@ -434,7 +447,7 @@ ID обучения: \(id)
         )
     }
 
-    private func sendTelegramMessage(token: String, chatId: Int64, text: String, client: Client, replyMarkup: ReplyKeyboardMarkup? = nil) async throws {
+    private func sendTelegramMessage(token: String, chatId: Int64, text: String, client: Client, replyMarkup: ReplyKeyboardMarkup? = nil, parseMode: String? = nil) async throws {
         if let markup = replyMarkup {
             // Если есть reply markup, используем POST с JSON
             struct Payload: Content {
@@ -442,9 +455,10 @@ ID обучения: \(id)
                 let text: String
                 let disable_web_page_preview: Bool
                 let reply_markup: ReplyKeyboardMarkup
+                let parse_mode: String?
             }
             
-            let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false, reply_markup: markup)
+            let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false, reply_markup: markup, parse_mode: parseMode)
             let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
             _ = try await client.post(url) { req in
                 try req.content.encode(payload, as: .json)
@@ -452,7 +466,11 @@ ID обучения: \(id)
         } else {
             // Без markup используем простой GET запрос
             let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage?chat_id=\(chatId)&text=\(encodedText)")
+            var urlString = "https://api.telegram.org/bot\(token)/sendMessage?chat_id=\(chatId)&text=\(encodedText)"
+            if let mode = parseMode {
+                urlString += "&parse_mode=\(mode)"
+            }
+            let url = URI(string: urlString)
             _ = try await client.get(url)
         }
     }
@@ -952,37 +970,26 @@ ID обучения: \(id)
             return
             
         case .idle:
-            // Временно автоматически выбираем "Обычное фото" вместо показа меню
+            // Автоматически выбираем "Обычное фото"
             await PhotoSessionManager.shared.setStyle("photo", for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
             await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
             
-            // Сразу просим описать место без промежуточной кнопки
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "📍 Опиши место, где ты хочешь себя увидеть\n\nНапример: «осенний Париж», «пляж на Мальдивах», «космическая станция»",
-                client: req.client
+            // Спрашиваем пол
+            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+            var request = ClientRequest(method: .POST, url: url)
+            let payload = SendInlineMessagePayload(
+                chat_id: chatId,
+                text: "👤 Выбери свой пол:",
+                reply_markup: ReplyMarkup(inline_keyboard: [
+                    [InlineKeyboardButton(text: "👨 Мужской", callback_data: "gender_male")],
+                    [InlineKeyboardButton(text: "👩 Женский", callback_data: "gender_female")]
+                ])
             )
+            request.headers.add(name: .contentType, value: "application/json")
+            request.body = try .init(data: JSONEncoder().encode(payload))
+            _ = try await req.client.send(request)
             return
-            
-            // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
-            // let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            // var request = ClientRequest(method: .POST, url: url)
-            // let payload = SendInlineMessagePayload(
-            //     chat_id: chatId,
-            //     text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
-            //     reply_markup: ReplyMarkup(inline_keyboard: [
-            //         [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
-            //         [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
-            //         [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
-            //         [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
-            //     ])
-            // )
-            // request.headers.add(name: .contentType, value: "application/json")
-            // request.body = try .init(data: JSONEncoder().encode(payload))
-            // _ = try await req.client.send(request)
-            // return
         }
     }
     
@@ -1100,6 +1107,20 @@ ID обучения: \(id)
         
         let finalPrompt = promptParts.joined(separator: ", ")
         
+        // Проверяем, что промпт не пустой
+        guard !finalPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Промпт пустой! Пожалуйста, опиши место и одежду.",
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+            return
+        }
+        
         // Проверяем модерацию текста (если не отключена)
         let promptModerationDisabled = Environment.get("DISABLE_PROMPT_MODERATION")?.lowercased() == "true"
         if !promptModerationDisabled {
@@ -1177,17 +1198,19 @@ ID обучения: \(id)
         // Сохраняем промпт
         await PhotoSessionManager.shared.setPrompt(translatedPrompt, for: chatId)
         
+        // Получаем пол пользователя для передачи в генерацию
+        let userGender = await PhotoSessionManager.shared.getUserGender(for: chatId)
+        
         // Очищаем состояние сбора промпта
         await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         
         let application = req.application
         let logger = req.logger
         Task.detached {
-            // УБРАНО: userGender, так как пол не используется в промпте (модель уже обучена на конкретном лице)
             await NeurfotobotPipelineService.shared.generateImages(
                 chatId: chatId,
                 prompt: translatedPrompt,
-                userGender: nil,
+                userGender: userGender,
                 botToken: token,
                 application: application,
                 logger: logger
@@ -1281,37 +1304,25 @@ ID обучения: \(id)
             return
         }
 
-        // Временно автоматически выбираем "Обычное фото" вместо показа меню
+        // Очищаем предыдущие данные и устанавливаем стиль "photo"
         await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
         await PhotoSessionManager.shared.setStyle("photo", for: chatId)
         await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
         
-        // Сразу просим описать место без промежуточной кнопки, обновляем клавиатуру
-        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
-        _ = try? await sendTelegramMessage(
-            token: token,
-            chatId: chatId,
-            text: "📍 Опиши место, где ты хочешь себя увидеть\n\nНапример: «осенний Париж», «пляж на Мальдивах», «космическая станция»",
-            client: req.client,
-            replyMarkup: keyboard
+        // Спрашиваем пол пользователя
+        let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
+        var request = ClientRequest(method: .POST, url: url)
+        let payload = SendInlineMessagePayload(
+            chat_id: chatId,
+            text: "👤 Выбери свой пол:",
+            reply_markup: ReplyMarkup(inline_keyboard: [
+                [InlineKeyboardButton(text: "👨 Мужской", callback_data: "gender_male")],
+                [InlineKeyboardButton(text: "👩 Женский", callback_data: "gender_female")]
+            ])
         )
-        
-        // ЗАКОММЕНТИРОВАНО: Меню выбора стиля
-        // let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-        // var request = ClientRequest(method: .POST, url: url)
-        // let payload = SendInlineMessagePayload(
-        //     chat_id: chatId,
-        //     text: "Выбери стиль генерации, затем опиши образ. Например: \"я в чёрном пальто в осеннем Париже\"",
-        //     reply_markup: ReplyMarkup(inline_keyboard: [
-        //         [InlineKeyboardButton(text: "🎬 Кинематографично", callback_data: "style_cinematic")],
-        //         [InlineKeyboardButton(text: "🎨 Аниме", callback_data: "style_anime")],
-        //         [InlineKeyboardButton(text: "🤖 Киберпанк", callback_data: "style_cyberpunk")],
-        //         [InlineKeyboardButton(text: "📸 Обычное фото", callback_data: "style_photo")]
-        //     ])
-        // )
-        // request.headers.add(name: .contentType, value: "application/json")
-        // request.body = try .init(data: JSONEncoder().encode(payload))
-        // _ = try await req.client.send(request)
+        request.headers.add(name: .contentType, value: "application/json")
+        request.body = try .init(data: JSONEncoder().encode(payload))
+        _ = try await req.client.send(request)
     }
 
     private func handleCallback(_ callback: NeurfotobotCallbackQuery, token: String, req: Request) async throws {
@@ -1444,46 +1455,6 @@ ID обучения: \(id)
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Запускаю генерацию...", req: req)
             try await finalizeAndGeneratePrompt(chatId: chatId, token: token, req: req)
             
-        // ЗАКОММЕНТИРОВАНО: Обработчики выбора стиля (временно отключены, автоматически выбирается "Обычное фото")
-        // case "style_cinematic", "style_anime", "style_cyberpunk", "style_photo":
-        case "style_photo": // Оставляем только для совместимости, но не используется
-            let chatId: Int64
-            if let messageChatId = callback.message?.chat.id {
-                chatId = messageChatId
-            } else {
-                chatId = callback.from.id
-            }
-            
-            let style = String(data.dropFirst(6)) // Убираем "style_" префикс
-            await PhotoSessionManager.shared.setStyle(style, for: chatId)
-            await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
-            await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId) // Очищаем предыдущие данные
-            
-            let styleNames: [String: String] = [
-                "cinematic": "🎬 Кинематографично",
-                "anime": "🎨 Аниме",
-                "cyberpunk": "🤖 Киберпанк",
-                "photo": "📸 Обычное фото"
-            ]
-            let styleName = styleNames[style] ?? style
-            
-            try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Выбран стиль: \(styleName)", req: req)
-            
-            // Спрашиваем пол
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Стиль \(styleName) выбран! 🎨\n\nВыбери пол:",
-                reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "👨 Мужской", callback_data: "gender_male")],
-                    [InlineKeyboardButton(text: "👩 Женский", callback_data: "gender_female")]
-                ])
-            )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
-            
         case "gender_male", "gender_female":
             let chatId: Int64
             if let messageChatId = callback.message?.chat.id {
@@ -1499,19 +1470,15 @@ ID обучения: \(id)
             let genderName = gender == "male" ? "👨 Мужской" : "👩 Женский"
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Выбран пол: \(genderName)", req: req)
             
-            // Показываем кнопку для описания места
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Пол выбран! 🎯\n\nГотов описать место действия?",
-                reply_markup: ReplyMarkup(inline_keyboard: [
-                    [InlineKeyboardButton(text: "📍 Опиши место действия", callback_data: "ask_location")]
-                ])
+            // Сразу просим описать место без промежуточной кнопки
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Пол выбран! 🎯\n\n📍 Опиши место, где ты хочешь себя увидеть\n\nНапример: «осенний Париж», «пляж на Мальдивах», «космическая станция»",
+                client: req.client,
+                replyMarkup: keyboard
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             
         case "ask_additional":
             let chatId: Int64
@@ -1826,16 +1793,21 @@ ID обучения: \(id)
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем место", req: req)
             await PhotoSessionManager.shared.setPromptCollectionState(.editingLocation, for: chatId)
             
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Опиши место действия заново:",
-                reply_markup: ReplyMarkup(inline_keyboard: [])
+            // Получаем текущее значение места
+            let currentLocation = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
+            
+            // Формируем сообщение с текущим значением в моноширинном формате
+            let messageText = "Опиши место действия заново:\n\n`\(currentLocation)`"
+            
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                client: req.client,
+                replyMarkup: keyboard,
+                parseMode: "Markdown"
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             
         case "edit_clothing":
             let chatId: Int64
@@ -1848,16 +1820,21 @@ ID обучения: \(id)
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем одежду", req: req)
             await PhotoSessionManager.shared.setPromptCollectionState(.editingClothing, for: chatId)
             
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Опиши одежду и её цвет заново:",
-                reply_markup: ReplyMarkup(inline_keyboard: [])
+            // Получаем текущее значение одежды
+            let currentClothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
+            
+            // Формируем сообщение с текущим значением в моноширинном формате
+            let messageText = "Опиши одежду и её цвет заново:\n\n`\(currentClothing)`"
+            
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                client: req.client,
+                replyMarkup: keyboard,
+                parseMode: "Markdown"
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             
         case "edit_details":
             let chatId: Int64
@@ -1870,16 +1847,26 @@ ID обучения: \(id)
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: "Редактируем детали", req: req)
             await PhotoSessionManager.shared.setPromptCollectionState(.editingDetails, for: chatId)
             
-            let url = URI(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            var request = ClientRequest(method: .POST, url: url)
-            let payload = SendInlineMessagePayload(
-                chat_id: chatId,
-                text: "Добавь дополнительные детали заново (или напиши \"готово\" чтобы пропустить):",
-                reply_markup: ReplyMarkup(inline_keyboard: [])
+            // Получаем текущее значение дополнительных деталей
+            let currentDetails = await PhotoSessionManager.shared.getAdditionalDetails(for: chatId) ?? ""
+            
+            // Формируем сообщение с текущим значением в моноширинном формате
+            let messageText: String
+            if !currentDetails.isEmpty {
+                messageText = "Добавь дополнительные детали заново (или напиши \"готово\" чтобы пропустить):\n\n`\(currentDetails)`"
+            } else {
+                messageText = "Добавь дополнительные детали (или напиши \"готово\" чтобы пропустить):"
+            }
+            
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                client: req.client,
+                replyMarkup: keyboard,
+                parseMode: "Markdown"
             )
-            request.headers.add(name: .contentType, value: "application/json")
-            request.body = try .init(data: JSONEncoder().encode(payload))
-            _ = try await req.client.send(request)
             
         default:
             try await answerCallbackQuery(token: token, callbackId: callback.id, text: nil, req: req)
@@ -2268,18 +2255,19 @@ ID обучения: \(id)
         }
         let russianPrompt = promptParts.joined(separator: ", ")
         
-        // Переводим на английский
+        // Переводим на английский для превью
         let translationDisabled = Environment.get("DISABLE_TRANSLATION")?.lowercased() == "true"
         let englishPrompt: String
         if !translationDisabled {
             do {
                 let translator = try YandexTranslationClient(request: req)
                 englishPrompt = try await translator.translateToEnglish(russianPrompt)
+                // Сохраняем перевод только при успехе
                 await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
             } catch {
-                req.logger.warning("Translation failed for preview chatId=\(chatId): \(error). Using Russian.")
+                req.logger.warning("Translation failed for preview chatId=\(chatId): \(error). Using Russian for preview only, will retry on generation.")
                 englishPrompt = russianPrompt
-                await PhotoSessionManager.shared.setTranslatedPrompt(englishPrompt, for: chatId)
+                // НЕ сохраняем русский промпт как "переведённый" - дадим возможность повторить перевод при генерации
             }
         } else {
             englishPrompt = russianPrompt

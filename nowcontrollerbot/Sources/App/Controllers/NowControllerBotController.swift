@@ -58,6 +58,31 @@ private actor ProcessedMessagesStore {
 }
 
 final class NowControllerBotController {
+    // MARK: - Bot name mapping для коротких названий на кнопках
+    private static let botDisplayNames: [String: String] = [
+        "nowmttbot": "Тикток",
+        "gsfortextbot": "Голос",
+        "roundsvideobot": "Кружочек",
+        "neurfotobot": "Нейрофото",
+        "contentfabrikabot": "Посты",
+        "pereskaznowbot": "Пересказ"
+    ]
+    
+    private static func displayName(for botName: String) -> String {
+        return botDisplayNames[botName.lowercased()] ?? botName
+    }
+    
+    private static func botName(from displayName: String) -> String? {
+        // Ищем системное имя по короткому названию
+        for (systemName, display) in botDisplayNames {
+            if display.lowercased() == displayName.lowercased() {
+                return systemName
+            }
+        }
+        // Если не нашли - возможно это уже системное имя
+        return displayName
+    }
+    
     // MARK: - Entry point
 
     func handleWebhook(_ req: Request) async throws -> Response {
@@ -476,9 +501,11 @@ final class NowControllerBotController {
         }
 
         // Обработка динамических кнопок включения/выключения подписки для всех ботов
-        if text.hasPrefix("✅ Включить подписку ") {
-            let botName = String(text.dropFirst("✅ Включить подписку ".count))
-            let synthetic = "/set_require \(botName) on"
+        // ✅ показывает статус "включено", нажатие выключает
+        if text.hasPrefix("✅ ") {
+            let displayName = String(text.dropFirst("✅ ".count))
+            let botName = Self.botName(from: displayName) ?? displayName
+            let synthetic = "/set_require \(botName) off"
             let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
             let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
             _ = try? await sendTelegramMessage(
@@ -491,9 +518,11 @@ final class NowControllerBotController {
             return Response(status: .ok)
         }
 
-        if text.hasPrefix("⛔️ Выключить подписку ") {
-            let botName = String(text.dropFirst("⛔️ Выключить подписку ".count))
-            let synthetic = "/set_require \(botName) off"
+        // ⛔️ показывает статус "выключено", нажатие включает
+        if text.hasPrefix("⛔️ ") {
+            let displayName = String(text.dropFirst("⛔️ ".count))
+            let botName = Self.botName(from: displayName) ?? displayName
+            let synthetic = "/set_require \(botName) on"
             let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
             let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
             _ = try? await sendTelegramMessage(
@@ -760,23 +789,43 @@ final class NowControllerBotController {
         // Получаем список ботов со спонсорами
         let botsWithSponsors = MonetizationDatabase.botsWithActiveSponsors(logger: logger, env: env)
         
-        // Показываем кнопки для всех ботов:
-        // - Если есть спонсоры: показываем кнопку включения/выключения в зависимости от статуса
-        // - Если нет спонсоров, но подписка включена: показываем кнопку выключения (для старых случаев)
+        // Собираем кнопки для всех ботов (по две в ряд):
+        // ✅ = статус "включено" (нажатие выключает)
+        // ⛔️ = статус "выключено" (нажатие включает)
+        var currentRow: [KeyboardButton] = []
         for botName in managedBots {
             let hasSponsors = botsWithSponsors.contains(botName)
+            var buttonText: String?
+            
             if let setting = MonetizationDatabase.botSetting(for: botName, logger: logger, env: env) {
+                let displayName = Self.displayName(for: botName)
                 if setting.requireSubscription {
-                    // Если включено - показываем кнопку выключения
-                    keyboardRows.append([KeyboardButton(text: "⛔️ Выключить подписку \(botName)")])
+                    // Если включено - показываем статус ✅
+                    buttonText = "✅ \(displayName)"
                 } else if hasSponsors {
-                    // Если выключено, но есть спонсоры - показываем кнопку включения
-                    keyboardRows.append([KeyboardButton(text: "✅ Включить подписку \(botName)")])
+                    // Если выключено, но есть спонсоры - показываем статус ⛔️
+                    buttonText = "⛔️ \(displayName)"
                 }
             } else if hasSponsors {
-                // Если настройки нет, но есть спонсоры - показываем кнопку включения
-                keyboardRows.append([KeyboardButton(text: "✅ Включить подписку \(botName)")])
+                // Если настройки нет, но есть спонсоры - показываем статус ⛔️ (выключено)
+                let displayName = Self.displayName(for: botName)
+                buttonText = "⛔️ \(displayName)"
             }
+            
+            if let text = buttonText {
+                currentRow.append(KeyboardButton(text: text))
+                
+                // Если набрали 2 кнопки в ряд - добавляем строку и начинаем новую
+                if currentRow.count == 2 {
+                    keyboardRows.append(currentRow)
+                    currentRow = []
+                }
+            }
+        }
+        
+        // Добавляем оставшуюся кнопку, если она одна
+        if !currentRow.isEmpty {
+            keyboardRows.append(currentRow)
         }
         
         return ReplyKeyboardMarkup(

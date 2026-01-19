@@ -49,31 +49,56 @@
 
 ### 1. Убедись, что Docker запущен
 
+**Проверка:**
 ```bash
 docker --version
 ```
 
-### 2. Создай временные папки (если их нет)
+**Если Docker не запущен:**
+- Открой Docker Desktop из Applications
+- Дождись полной загрузки (иконка Docker в строке меню перестанет мигать)
+- Docker daemon запустится автоматически
+
+**Если видишь ошибку "Cannot connect to the Docker daemon":**
+- Docker Desktop не запущен — открой его вручную
+- После запуска Docker Desktop подожди 10-20 секунд, пока daemon полностью загрузится
+
+**Проверка что Docker работает:**
+```bash
+docker ps
+```
+
+Если команда выполнилась без ошибок — Docker готов к работе.
+
+### 2. Запусти nginx (reverse proxy для всех сервисов)
+
+```bash
+brew services start nginx
+```
+
+Nginx работает на порту 8080 и проксирует запросы на Docker-сервисы по путям. Это позволяет использовать один ngrok URL для всех ботов.
+
+### 3. Создай временные папки (если их нет)
 
 ```bash
 mkdir -p Roundsvideobot/Resources/temporaryvideoFiles
 mkdir -p Neurfotobot/tmp
 ```
 
-### 3. Запусти один сервис для теста
+### 4. Запусти один сервис для теста
 
 ```bash
 docker compose -f docker-compose.dev.yml up nowcontrollerbot
 ```
 
-### 4. Проверь логи
+### 5. Проверь логи
 
 Должно быть:
 ```
 [ INFO ] Server started on http://0.0.0.0:8084
 ```
 
-### 5. Останови (Ctrl+C) и запусти все сервисы
+### 6. Останови (Ctrl+C) и запусти все сервисы
 
 ```bash
 docker compose -f docker-compose.dev.yml up
@@ -111,10 +136,17 @@ Telegrambot/
    docker compose -f docker-compose.dev.yml restart neurfotobot
    ```
 
-4. **Тестируй через ngrok** (на Mac, не в контейнере):
+4. **Запусти nginx** (если ещё не запущен):
+   ```bash
+   brew services start nginx
+   ```
+   Nginx работает как reverse proxy на порту 8080, проксируя запросы на Docker-сервисы по путям.
+
+5. **Тестируй через ngrok** (на Mac, не в контейнере):
    ```bash
    ngrok http 8080
    ```
+   Используй порт 8080 (nginx), а не порты отдельных сервисов — так один ngrok URL будет работать для всех ботов.
 
 ### Деплой:
 
@@ -209,6 +241,18 @@ docker compose -f docker-compose.dev.yml build --no-cache neurfotobot
 
 **Q: Почему код не обновляется в контейнере?**  
 A: Убедись, что volumes правильно настроены в `docker-compose.dev.yml`. Код должен монтироваться, а не копироваться.
+
+**Q: Нужен ли nginx для Docker варианта?**  
+A: Да, nginx обязателен. Он работает как reverse proxy на порту 8080, проксируя запросы на Docker-сервисы по путям. Это позволяет использовать один ngrok URL для всех ботов. Конфиг: `/opt/homebrew/etc/nginx/nginx.conf` (уже настроен).
+
+**Q: На какой порт настраивать ngrok?**  
+A: Всегда на порт 8080 (nginx), а не на порты отдельных сервисов. Nginx автоматически проксирует запросы на нужные сервисы по путям.
+
+**Q: Как запустить Docker daemon?**  
+A: Открой Docker Desktop из Applications. Docker daemon запустится автоматически. Если видишь ошибку "Cannot connect to the Docker daemon", проверь что Docker Desktop запущен и подожди 10-20 секунд после запуска.
+
+**Q: Docker Desktop не запускается или работает медленно?**  
+A: Убедись что у Docker Desktop достаточно ресурсов (память, CPU) в настройках. На Mac с M1/M2 может потребоваться больше времени на первый запуск. Проверь что нет других приложений, занимающих много ресурсов.
 
 ---
 

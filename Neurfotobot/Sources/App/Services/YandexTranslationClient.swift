@@ -15,6 +15,11 @@ struct YandexTranslationClient {
     }
 
     func translateToEnglish(_ text: String) async throws -> String {
+        // Проверяем, что текст не пустой
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw Abort(.badRequest, reason: "Translation text is empty")
+        }
+        
         let url = URI(string: "https://translate.api.cloud.yandex.net/translate/v2/translate")
         
         struct TranslationRequest: Encodable {
@@ -38,28 +43,43 @@ struct YandexTranslationClient {
         request.headers.add(name: .contentType, value: "application/json")
         request.body = buffer
 
-        let response = try await client.send(request)
-        
-        guard response.status == .ok else {
-            let errorBody = response.body.flatMap { buffer -> String in
-                var copy = buffer
-                return copy.readString(length: copy.readableBytes) ?? ""
-            } ?? ""
-            throw Abort(.badRequest, reason: "Yandex translation error: \(response.status) - \(errorBody)")
-        }
+        // Retry логика: пытаемся 2 раза с задержкой
+        var lastError: Error?
+        for attempt in 1...2 {
+            do {
+                let response = try await client.send(request)
+                
+                guard response.status == .ok else {
+                    let errorBody = response.body.flatMap { buffer -> String in
+                        var copy = buffer
+                        return copy.readString(length: copy.readableBytes) ?? ""
+                    } ?? ""
+                    throw Abort(.badRequest, reason: "Yandex translation error: \(response.status) - \(errorBody)")
+                }
 
-        guard let body = response.body else {
-            throw Abort(.badRequest, reason: "Yandex translation response is empty")
-        }
+                guard let body = response.body else {
+                    throw Abort(.badRequest, reason: "Yandex translation response is empty")
+                }
 
-        let responseData = body.getData(at: 0, length: body.readableBytes) ?? Data()
-        let decoded = try JSONDecoder().decode(TranslationResponse.self, from: responseData)
-        
-        guard let translatedText = decoded.translations.first?.text else {
-            throw Abort(.badRequest, reason: "Yandex translation response has no text")
+                let responseData = body.getData(at: 0, length: body.readableBytes) ?? Data()
+                let decoded = try JSONDecoder().decode(TranslationResponse.self, from: responseData)
+                
+                guard let translatedText = decoded.translations.first?.text else {
+                    throw Abort(.badRequest, reason: "Yandex translation response has no text")
+                }
+                
+                return translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                lastError = error
+                if attempt < 2 {
+                    // Ждём 2 секунды перед повторной попыткой
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
         }
         
-        return translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Если все попытки провалились, пробрасываем последнюю ошибку
+        throw lastError!
     }
 }
 

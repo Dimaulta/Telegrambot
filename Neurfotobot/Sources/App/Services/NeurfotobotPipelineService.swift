@@ -107,9 +107,8 @@ actor NeurfotobotPipelineService {
                         try await sendMessage(
                             token: botToken,
                             chatId: chatId,
-                            text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".",
-                            application: application,
-                            replyMarkup: ReplyMarkup(inline_keyboard: [[InlineKeyboardButton(text: "📝 Составить промпт", callback_data: "start_generate")]])
+                            text: "Модель обучена! Теперь опиши образ — например: \"я в чёрном пальто в осеннем Париже\".\n\nИспользуй кнопку «📝 Составить промпт» внизу экрана.",
+                            application: application
                         )
                         return
                     case "failed", "canceled":
@@ -168,40 +167,28 @@ actor NeurfotobotPipelineService {
         do {
             let replicate = try ReplicateClient(application: application, logger: logger)
             
-            // Получаем выбранный стиль
-            let style = await PhotoSessionManager.shared.getStyle(for: chatId) ?? "photo"
-            
-            // Добавляем стилевые промпты в зависимости от выбора
-            let stylePrompts: [String: String] = [
-                "cinematic": "cinematic lighting, film photography, professional photography, high quality, detailed, 8k, sharp focus, accurate representation, realistic",
-                "anime": "anime style, vibrant colors, detailed illustration, high quality, sharp focus, japanese animation style",
-                "cyberpunk": "cyberpunk style, neon lights, futuristic, detailed, high quality, sharp focus, sci-fi atmosphere",
-                "photo": "professional photography, high quality, detailed, sharp focus, natural lighting, realistic, accurate representation, photorealistic"
-            ]
-            
-            let stylePrompt = stylePrompts[style] ?? stylePrompts["photo"]!
+            // Используем только стиль "обычное фото"
+            let stylePrompt = "professional photography, high quality, detailed, sharp focus, natural lighting, realistic, accurate representation, photorealistic"
             
             // Автоматически добавляем trigger word в начало промпта
             let triggerWord = await PhotoSessionManager.shared.getTriggerWord(for: chatId) ?? "user\(chatId)"
             
-            // УБРАНО: Добавление пола в промпт, так как модель уже обучена на конкретном лице
-            // Добавление ", female person, woman" или ", male person, man" создаёт конфликт
-            // между обученным лицом и обобщённым описанием пола, что ухудшает похожесть
-            // var genderPrompt = ""
-            // if let gender = userGender {
-            //     genderPrompt = gender == "male" ? ", male person, man" : ", female person, woman"
-            // }
+            // Добавляем пол в промпт для более точной генерации
+            var genderPrompt = ""
+            if let gender = userGender {
+                genderPrompt = gender == "male" ? ", male person, man" : ", female person, woman"
+            }
             
             // Добавляем средний план по умолчанию для лучшей похожести лица
             // (крупный план может хуже работать, особенно на фантастических сценах)
             let defaultShotSize = ", medium shot"
             
-            // Собираем финальный промпт: trigger word + пользовательский промпт + стилевые улучшения
+            // Собираем финальный промпт: trigger word + пользовательский промпт + пол + стилевые улучшения
             // Добавляем негативный промпт для лучшего качества
             let negativePrompt = "blurry, low quality, distorted, deformed, bad anatomy, bad proportions, extra limbs, duplicate, watermark, signature, text, ugly, worst quality, low resolution"
-            let enhancedPrompt = "\(triggerWord) \(prompt)\(defaultShotSize), \(stylePrompt)"
+            let enhancedPrompt = "\(triggerWord) \(prompt)\(genderPrompt)\(defaultShotSize), \(stylePrompt)"
             
-            logger.info("Using enhanced prompt for chatId=\(chatId), style=\(style): \(enhancedPrompt)")
+            logger.info("Using enhanced prompt for chatId=\(chatId): \(enhancedPrompt)")
             
             try await sendMessage(token: botToken, chatId: chatId, text: "Запускаю генерацию, подожди немного...", application: application)
 

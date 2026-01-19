@@ -38,6 +38,9 @@ public func configure(_ app: Application) async throws {
         app.logger.warning("config/.env not found while configuring Neurfotobot — using process environment only")
     }
 
+    // Настройка HTTP клиента с увеличенным timeout для Yandex API
+    app.http.client.configuration.timeout = .init(connect: .seconds(10), read: .seconds(30))
+    
     // Настройка базы данных SQLite
     let dbPath = "Neurfotobot/db.sqlite"
     app.databases.use(.sqlite(.file(dbPath)), as: .sqlite)

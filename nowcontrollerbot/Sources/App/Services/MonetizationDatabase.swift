@@ -183,7 +183,8 @@ enum MonetizationDatabase {
                 
                 for botName in managedBots {
                     sqlite3_reset(initStmt)
-                    botName.withCString { cBotName in
+                    let normalizedBotName = botName.lowercased()
+                    normalizedBotName.withCString { cBotName in
                         sqlite3_bind_text(initStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
                     }
                     
@@ -260,7 +261,8 @@ enum MonetizationDatabase {
         }
         defer { sqlite3_finalize(stmt) }
 
-        botName.withCString { cBotname in
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotname in
             sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int(stmt, 2, Int32(now))
@@ -317,7 +319,8 @@ enum MonetizationDatabase {
         }
         defer { sqlite3_finalize(stmt) }
 
-        botName.withCString { cBotname in
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotname in
             sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
         }
 
@@ -367,7 +370,8 @@ enum MonetizationDatabase {
         }
         defer { sqlite3_finalize(stmt) }
 
-        botName.withCString { cBotname in
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotname in
             sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int(stmt, 2, require ? 1 : 0)
@@ -415,7 +419,8 @@ enum MonetizationDatabase {
 
         let now = Int(Date().timeIntervalSince1970)
 
-        botName.withCString { cBotname in
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotname in
             sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
         }
         channelUsername.withCString { cChannelusername in
@@ -544,7 +549,8 @@ enum MonetizationDatabase {
         }
         defer { sqlite3_finalize(stmt) }
         
-        botName.withCString { cBotname in
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotname in
             sqlite3_bind_text(stmt, 1, cBotname, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int(stmt, 2, Int32(now))
@@ -595,7 +601,8 @@ enum MonetizationDatabase {
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             let botName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            bots.append(botName)
+            // Нормализуем имя к нижнему регистру для консистентности
+            bots.append(botName.lowercased())
         }
 
         return bots

@@ -76,11 +76,11 @@ final class NowControllerBotController {
         // Ищем системное имя по короткому названию
         for (systemName, display) in botDisplayNames {
             if display.lowercased() == displayName.lowercased() {
-                return systemName
+                return systemName.lowercased()
             }
         }
-        // Если не нашли - возможно это уже системное имя
-        return displayName
+        // Если не нашли - возможно это уже системное имя, приводим к нижнему регистру
+        return displayName.lowercased()
     }
     
     // MARK: - Entry point
@@ -133,7 +133,10 @@ final class NowControllerBotController {
         }
 
         // Проверяем, что это админ
-        guard isAdmin(chatId: chatId) else {
+        req.logger.info("🔍 Checking admin status for chatId=\(chatId)")
+        let adminCheckResult = isAdmin(chatId: chatId)
+        req.logger.info("🔍 Admin check result: \(adminCheckResult)")
+        guard adminCheckResult else {
             req.logger.info("Non-admin user tried to use NowControllerBot: chatId=\(chatId)")
             // Можем молча игнорировать или отправить вежливое сообщение
             _ = try? await sendTelegramMessage(
@@ -150,6 +153,7 @@ final class NowControllerBotController {
 
         // Обработка /start: сбрасываем состояние и показываем главное меню
         if text.hasPrefix("/start") {
+            req.logger.info("✅ Command /start received for chatId=\(chatId)")
             await AdminSessionStore.shared.reset(chatId: chatId)
 
             let help = """
@@ -171,15 +175,27 @@ final class NowControllerBotController {
             /delete_sponsor <bot> <@канал> – удалить спонсора для бота
             """
 
+            req.logger.info("📤 Building main keyboard...")
             let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            req.logger.info("✅ Keyboard built successfully")
 
-            _ = try? await sendTelegramMessage(
-                token: botToken,
-                chatId: chatId,
-                text: help,
-                client: req.client,
-                replyMarkup: keyboard
-            )
+            req.logger.info("📤 Attempting to send start message to chatId=\(chatId)")
+            do {
+                let success = try await sendTelegramMessage(
+                    token: botToken,
+                    chatId: chatId,
+                    text: help,
+                    client: req.client,
+                    replyMarkup: keyboard
+                )
+                if success {
+                    req.logger.info("✅ Start message sent successfully to chatId=\(chatId)")
+            } else {
+                    req.logger.error("❌ Failed to send start message: HTTP status was not OK")
+            }
+    } catch {
+                req.logger.error("❌ Error sending start message: \(error)")
+            }
             return Response(status: .ok)
         }
 
@@ -452,14 +468,14 @@ final class NowControllerBotController {
                     client: req.client,
                     replyMarkup: keyboard
                 )
-            } else {
+                } else {
                 let reply = "Канал @\(channelUsername) не найден среди активных спонсоров для бота \(botName)."
                 _ = try? await sendTelegramMessage(token: botToken, chatId: chatId, text: reply, client: req.client)
             }
             return Response(status: .ok)
 
         case .idle:
-            break
+                            break
         }
 
         // Кнопка "📊 Статус" обрабатывается как /status
@@ -503,11 +519,20 @@ final class NowControllerBotController {
         // Обработка динамических кнопок включения/выключения подписки для всех ботов
         // ✅ показывает статус "включено", нажатие выключает
         if text.hasPrefix("✅ ") {
+            req.logger.info("🔘 Button pressed: ✅ (turn off subscription)")
             let displayName = String(text.dropFirst("✅ ".count))
+            req.logger.info("🔘 Display name: \(displayName)")
             let botName = Self.botName(from: displayName) ?? displayName
+            req.logger.info("🔘 Bot name (normalized): \(botName)")
+            
+            // Логирование для отладки проблемных ботов
+            if botName == "roundsvideobot" || botName == "neurfotobot" {
+                req.logger.info("🔍 DEBUG: Processing button for \(botName), displayName was: \(displayName)")
+            }
+            
             let synthetic = "/set_require \(botName) off"
             let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
-            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment, skipSyncBot: botName)
             _ = try? await sendTelegramMessage(
                 token: botToken,
                 chatId: chatId,
@@ -520,11 +545,20 @@ final class NowControllerBotController {
 
         // ⛔️ показывает статус "выключено", нажатие включает
         if text.hasPrefix("⛔️ ") {
+            req.logger.info("🔘 Button pressed: ⛔️ (turn on subscription)")
             let displayName = String(text.dropFirst("⛔️ ".count))
+            req.logger.info("🔘 Display name: \(displayName)")
             let botName = Self.botName(from: displayName) ?? displayName
+            req.logger.info("🔘 Bot name (normalized): \(botName)")
+            
+            // Логирование для отладки проблемных ботов
+            if botName == "roundsvideobot" || botName == "neurfotobot" {
+                req.logger.info("🔍 DEBUG: Processing button for \(botName), displayName was: \(displayName)")
+            }
+            
             let synthetic = "/set_require \(botName) on"
             let reply = handleSetRequireCommand(text: synthetic, logger: req.logger, env: req.application.environment)
-            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment)
+            let keyboard = buildMainKeyboard(logger: req.logger, env: req.application.environment, skipSyncBot: botName)
             _ = try? await sendTelegramMessage(
                 token: botToken,
                 chatId: chatId,
@@ -590,7 +624,8 @@ final class NowControllerBotController {
 
     /// Синхронизирует состояние подписки для всех ботов:
     /// если у бота нет активных спонсоров, но подписка включена - отключает её.
-    private func syncBotSubscriptionSettings(logger: Logger, env: Environment) {
+    /// skipBotName: если указан, пропускает синхронизацию для этого бота (чтобы не отменить только что сделанное изменение)
+    private func syncBotSubscriptionSettings(logger: Logger, env: Environment, skipBotName: String? = nil) {
         let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
         let managedBots = managedBotsEnv
             .split(separator: ",")
@@ -601,21 +636,38 @@ final class NowControllerBotController {
             return
         }
         
-        for botName in managedBots {
-            // Проверяем, есть ли активные спонсоры у бота
-            let campaigns = MonetizationDatabase.activeCampaigns(for: botName, logger: logger, env: env)
+        for botNameInList in managedBots {
+            // Пропускаем бота, для которого только что изменили статус
+            let normalizedBotNameInList = botNameInList.lowercased()
+            if let skip = skipBotName, normalizedBotNameInList == skip.lowercased() {
+                continue
+            }
+            
+            // Проверяем, есть ли активные спонсоры у бота (используем нормализованное имя для БД)
+            let campaigns = MonetizationDatabase.activeCampaigns(for: normalizedBotNameInList, logger: logger, env: env)
             
             // Если нет активных спонсоров, но подписка включена - отключаем
             if campaigns.isEmpty {
-                if let setting = MonetizationDatabase.botSetting(for: botName, logger: logger, env: env),
+                if let setting = MonetizationDatabase.botSetting(for: normalizedBotNameInList, logger: logger, env: env),
                    setting.requireSubscription {
+                    // Дополнительная проверка: убеждаемся, что действительно нет спонсоров
+                    // Получаем список всех ботов со спонсорами
+                    let allBotsWithSponsors = MonetizationDatabase.botsWithActiveSponsors(logger: logger, env: env)
+                    let normalizedAllBotsWithSponsors = allBotsWithSponsors.map { $0.lowercased() }
+                    
+                    // Если бот есть в списке ботов со спонсорами - не отключаем подписку
+                    if normalizedAllBotsWithSponsors.contains(normalizedBotNameInList) {
+                        logger.info("Синхронизация: у бота \(botNameInList) есть активные спонсоры (найдены в общем списке), пропускаем отключение")
+                        continue
+                    }
+                    
                     MonetizationDatabase.setRequireSubscription(
-                        botName: botName,
+                        botName: normalizedBotNameInList,
                         require: false,
                         logger: logger,
                         env: env
                     )
-                    logger.info("Синхронизация: у бота \(botName) нет активных спонсоров, подписка автоматически отключена")
+                    logger.info("Синхронизация: у бота \(botNameInList) нет активных спонсоров, подписка автоматически отключена")
                 }
             }
         }
@@ -658,7 +710,7 @@ final class NowControllerBotController {
             if let setting = MonetizationDatabase.botSetting(for: bot, logger: logger, env: env) {
                 let flag = setting.requireSubscription ? "ON" : "OFF"
                 lines.append("  • \(bot): \(flag) (спонсоров: \(sponsorCount))")
-            } else {
+                    } else {
                 lines.append("  • \(bot): (не настроено, по умолчанию OFF) (спонсоров: \(sponsorCount))")
             }
         }
@@ -673,7 +725,7 @@ final class NowControllerBotController {
             return "Использование: /set_require <bot_name> <on|off>\nНапример: /set_require Roundsvideobot on"
         }
 
-        let botName = parts[1]
+        let botName = parts[1].lowercased()
         let flagRaw = parts[2].lowercased()
 
         let require: Bool
@@ -681,7 +733,7 @@ final class NowControllerBotController {
             require = true
         } else if flagRaw == "off" || flagRaw == "0" || flagRaw == "false" {
             require = false
-        } else {
+                } else {
             return "Второй параметр должен быть on или off. Пример: /set_require Roundsvideobot on"
         }
 
@@ -730,7 +782,7 @@ final class NowControllerBotController {
         if let expires = expiresAt {
             let days = Int((expires - Int(Date().timeIntervalSince1970)) / (24 * 60 * 60))
             return "Добавлен спонсор @\(normalized) для бота \(botName) на \(days) дн."
-        } else {
+                    } else {
             return "Добавлен спонсор @\(normalized) для бота \(botName) без срока окончания."
         }
     }
@@ -759,7 +811,7 @@ final class NowControllerBotController {
                 let remainingSeconds = max(0, expires - now)
                 let days = remainingSeconds / (24 * 60 * 60)
                 lines.append("- @\(name) (осталось примерно \(days) дн.)")
-            } else {
+                } else {
                 lines.append("- @\(name) (без срока)")
             }
         }
@@ -767,9 +819,9 @@ final class NowControllerBotController {
         return lines.joined(separator: "\n")
     }
 
-    private func buildMainKeyboard(logger: Logger, env: Environment) -> ReplyKeyboardMarkup {
-        // Синхронизируем состояние перед построением клавиатуры
-        syncBotSubscriptionSettings(logger: logger, env: env)
+    private func buildMainKeyboard(logger: Logger, env: Environment, skipSyncBot: String? = nil) -> ReplyKeyboardMarkup {
+        // Синхронизируем состояние перед построением клавиатуры (но не для бота, который только что изменили)
+        syncBotSubscriptionSettings(logger: logger, env: env, skipBotName: skipSyncBot)
         
         var keyboardRows: [[KeyboardButton]] = []
         
@@ -779,26 +831,40 @@ final class NowControllerBotController {
             KeyboardButton(text: "➕ Спонсор")
         ])
         
-        // Получаем список всех управляемых ботов
+        // Получаем список всех управляемых ботов и сортируем для стабильного порядка
         let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
         let managedBots = managedBotsEnv
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+            .sorted() // Сортируем для стабильного порядка кнопок
         
-        // Получаем список ботов со спонсорами
+        // Получаем список ботов со спонсорами (уже нормализованы к нижнему регистру)
         let botsWithSponsors = MonetizationDatabase.botsWithActiveSponsors(logger: logger, env: env)
         
         // Собираем кнопки для всех ботов (по две в ряд):
         // ✅ = статус "включено" (нажатие выключает)
         // ⛔️ = статус "выключено" (нажатие включает)
         var currentRow: [KeyboardButton] = []
-        for botName in managedBots {
-            let hasSponsors = botsWithSponsors.contains(botName)
+        for botNameInList in managedBots {
+            // Используем нормализованное имя для работы с БД (всегда в нижнем регистре)
+            let normalizedBotName = botNameInList.lowercased()
+            
+            // Проверяем наличие спонсоров (имена уже нормализованы)
+            let hasSponsors = botsWithSponsors.contains(normalizedBotName)
+            
             var buttonText: String?
             
-            if let setting = MonetizationDatabase.botSetting(for: botName, logger: logger, env: env) {
-                let displayName = Self.displayName(for: botName)
+            // Получаем настройку по нормализованному имени
+            if let setting = MonetizationDatabase.botSetting(for: normalizedBotName, logger: logger, env: env) {
+                // Важно: используем нормализованное имя для displayName, чтобы всегда получить правильный маппинг
+                let displayName = Self.displayName(for: normalizedBotName)
+                
+                // Логирование для отладки
+                if normalizedBotName == "roundsvideobot" || normalizedBotName == "neurfotobot" {
+                    logger.info("🔍 Building button for \(normalizedBotName): displayName=\(displayName), requireSubscription=\(setting.requireSubscription), hasSponsors=\(hasSponsors)")
+                }
+                
                 if setting.requireSubscription {
                     // Если включено - показываем статус ✅
                     buttonText = "✅ \(displayName)"
@@ -808,7 +874,7 @@ final class NowControllerBotController {
                 }
             } else if hasSponsors {
                 // Если настройки нет, но есть спонсоры - показываем статус ⛔️ (выключено)
-                let displayName = Self.displayName(for: botName)
+                let displayName = Self.displayName(for: normalizedBotName)
                 buttonText = "⛔️ \(displayName)"
             }
             
@@ -873,7 +939,7 @@ final class NowControllerBotController {
             }
             
             return reply
-        } else {
+                } else {
             return "Спонсор @\(channelUsername) не найден среди активных кампаний для бота \(botName)."
         }
     }
@@ -899,8 +965,8 @@ final class NowControllerBotController {
             }
         }
 
-        return nil
-    }
+    return nil
+}
 }
 
 // MARK: - Helper Functions
@@ -921,10 +987,33 @@ private func sendTelegramMessage(
 
     let payload = Payload(chat_id: chatId, text: text, disable_web_page_preview: false, reply_markup: replyMarkup)
     let url = "https://api.telegram.org/bot\(token)/sendMessage"
+    
+    do {
     let res = try await client.post(URI(string: url)) { req in
+            // Увеличиваем таймаут для запроса
+            req.timeout = .seconds(30)
         try req.content.encode(payload, as: .json)
+        }
+        
+        if res.status != .ok {
+            let body = try? res.content.decode(String.self)
+            throw Abort(.internalServerError, reason: "Telegram API returned status \(res.status): \(body ?? "no body")")
+        }
+        
+        return true
+    } catch {
+        // Логируем ошибку, но не прерываем выполнение
+        if let error = error as? HTTPClientError {
+            switch error {
+            case .connectTimeout:
+                // Таймаут подключения - возможно проблемы с сетью/ngrok
+                throw Abort(.gatewayTimeout, reason: "Telegram API connection timeout. Check network/ngrok connection.")
+            default:
+                throw error
+            }
+        }
+        throw error
     }
-    return res.status == .ok
 }
 
 // MARK: - Telegram Keyboard Models

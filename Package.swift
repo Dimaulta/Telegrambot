@@ -131,6 +131,6 @@ let package = Package(
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
             path: "pereskaznowbot/Sources/App"
-        )// test: trigger CI/CD
+        )
     ]
 )

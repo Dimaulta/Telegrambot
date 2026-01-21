@@ -256,7 +256,9 @@ enum MonetizationService {
         }
         defer { sqlite3_finalize(settingStmt) }
 
-        botName.withCString { cBotName in
+        // Нормализуем имя бота к нижнему регистру для поиска в БД
+        let normalizedBotName = botName.lowercased()
+        normalizedBotName.withCString { cBotName in
             sqlite3_bind_text(settingStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
         }
 
@@ -295,7 +297,8 @@ enum MonetizationService {
         }
         defer { sqlite3_finalize(campaignsStmt) }
 
-        botName.withCString { cBotName in
+        // Используем нормализованное имя для поиска кампаний
+        normalizedBotName.withCString { cBotName in
             sqlite3_bind_text(campaignsStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int(campaignsStmt, 2, Int32(now))

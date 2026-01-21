@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import AsyncHTTPClient
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -41,6 +42,14 @@ public func configure(_ app: Application) async throws {
     // Получаем порт из конфига
     let port = try await getPortFromConfig(serviceName: "video-processing")
     app.http.server.configuration.port = port
+
+    // Настраиваем таймауты для HTTP клиента (для работы с Telegram API)
+    app.http.client.configuration.timeout = HTTPClient.Configuration.Timeout(
+        connect: .seconds(30),
+        read: .seconds(30),
+        write: .seconds(30)
+    )
+    app.http.client.configuration.connectionPool.idleTimeout = .seconds(60)
 
     // Настраиваем маршруты
     try await routes(app)

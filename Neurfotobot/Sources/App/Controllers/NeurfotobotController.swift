@@ -224,6 +224,11 @@ final class NeurfotobotController: Sendable {
             return Response(status: .ok)
         }
         
+        if text == "🔄 Повторить" {
+            try await handleRepeatCommand(chatId: message.chat.id, token: token, req: req)
+            return Response(status: .ok)
+        }
+        
         if text == "ℹ️ Моя модель" {
             try await handleModelCommand(chatId: message.chat.id, token: token, req: req)
             return Response(status: .ok)
@@ -408,6 +413,8 @@ ID обучения: \(id)
         let promptState = await PhotoSessionManager.shared.getPromptCollectionState(for: chatId)
         let modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
         
+        req.logger.info("🔧 buildReplyKeyboard: chatId=\(chatId), trainingState=\(trainingState), promptState=\(promptState), modelVersion=\(modelVersion != nil ? "exists" : "nil")")
+        
         var keyboardRows: [[KeyboardButton]] = []
         
         // Проверяем состояние и строим соответствующую клавиатуру
@@ -419,6 +426,7 @@ ID обучения: \(id)
             // Модель готова
             if promptState != .idle && promptState != .readyToGenerate {
                 // Пользователь составляет промпт
+                req.logger.info("⚠️ Showing 'Отменить' button for chatId=\(chatId) because promptState=\(promptState)")
                 keyboardRows.append([KeyboardButton(text: "❌ Отменить")])
                 keyboardRows.append([
                     KeyboardButton(text: "ℹ️ Моя модель"),
@@ -427,7 +435,22 @@ ID обучения: \(id)
                 keyboardRows.append([KeyboardButton(text: "❓ Помощь")])
             } else {
                 // Главное меню с готовой моделью
-                keyboardRows.append([KeyboardButton(text: "📝 Составить промпт")])
+                // Проверяем наличие сохранённого промпта
+                let savedPrompt = await PhotoSessionManager.shared.getPrompt(for: chatId)
+                req.logger.info("🔍 buildReplyKeyboard: chatId=\(chatId), savedPrompt=\(savedPrompt != nil ? "exists(\(savedPrompt!.prefix(50))...)" : "nil")")
+                
+                if savedPrompt != nil && !savedPrompt!.isEmpty {
+                    // Есть сохранённый промпт - показываем "Повторить" рядом с "Составить промпт"
+                    req.logger.info("✅ Showing 'Повторить' button for chatId=\(chatId)")
+                    keyboardRows.append([
+                        KeyboardButton(text: "📝 Составить промпт"),
+                        KeyboardButton(text: "🔄 Повторить")
+                    ])
+                } else {
+                    // Нет промпта - только "Составить промпт"
+                    req.logger.info("❌ No saved prompt, showing only 'Составить промпт' for chatId=\(chatId)")
+                    keyboardRows.append([KeyboardButton(text: "📝 Составить промпт")])
+                }
                 keyboardRows.append([
                     KeyboardButton(text: "ℹ️ Моя модель"),
                     KeyboardButton(text: "📊 Статистика")
@@ -922,18 +945,26 @@ ID обучения: \(id)
             return
             
         case .genderSelected:
-            // Пол выбран (старый flow, теперь не используется, но оставляем для совместимости)
-            // Переходим к описанию места
+            // Пол выбран - переходим к описанию места
+            req.logger.info("📍 Processing location for chatId=\(chatId), text='\(text)'")
             await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.locationSelected, for: chatId)
             
-            // Сразу просим описать одежду без промежуточной кнопки
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "Отлично! Место сохранено 📍\n\n👔 Теперь опиши одежду и её цвет\n\nНапример: «чёрное пальто», «белые джинсы и синяя футболка», «элегантное платье»",
-                client: req.client
-            )
+            // Сразу просим описать одежду без промежуточной кнопки, обновляем клавиатуру
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            req.logger.info("👔 Sending clothing request for chatId=\(chatId)")
+            do {
+                try await sendTelegramMessage(
+                    token: token,
+                    chatId: chatId,
+                    text: "Отлично! Место сохранено 📍\n\n👔 Теперь опиши одежду и её цвет\n\nНапример: «чёрное пальто», «белые джинсы и синяя футболка», «элегантное платье»",
+                    client: req.client,
+                    replyMarkup: keyboard
+                )
+                req.logger.info("✅ Clothing request sent successfully for chatId=\(chatId)")
+            } catch {
+                req.logger.error("❌ Failed to send clothing request for chatId=\(chatId): \(error)")
+            }
             return
             
         case .readyToGenerate:
@@ -944,6 +975,8 @@ ID обучения: \(id)
             // Пользователь редактирует место
             await PhotoSessionManager.shared.setUserLocation(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Очищаем сохранённый перевод, чтобы перевести промпт заново с новыми данными
+            await PhotoSessionManager.shared.setTranslatedPrompt(nil, for: chatId)
             // Показываем обновленное превью
             try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
             return
@@ -952,6 +985,8 @@ ID обучения: \(id)
             // Пользователь редактирует одежду
             await PhotoSessionManager.shared.setUserClothing(text, for: chatId)
             await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Очищаем сохранённый перевод, чтобы перевести промпт заново с новыми данными
+            await PhotoSessionManager.shared.setTranslatedPrompt(nil, for: chatId)
             // Показываем обновленное превью
             try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
             return
@@ -965,6 +1000,8 @@ ID обучения: \(id)
                 await PhotoSessionManager.shared.setAdditionalDetails(text, for: chatId)
             }
             await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+            // Очищаем сохранённый перевод, чтобы перевести промпт заново с новыми данными
+            await PhotoSessionManager.shared.setTranslatedPrompt(nil, for: chatId)
             // Показываем обновленное превью
             try await showPromptPreview(chatId: message.chat.id, token: token, req: req)
             return
@@ -1197,12 +1234,25 @@ ID обучения: \(id)
         
         // Сохраняем промпт
         await PhotoSessionManager.shared.setPrompt(translatedPrompt, for: chatId)
+        req.logger.info("💾 Saved prompt for chatId=\(chatId), length=\(translatedPrompt.count) chars")
         
         // Получаем пол пользователя для передачи в генерацию
         let userGender = await PhotoSessionManager.shared.getUserGender(for: chatId)
         
-        // Очищаем состояние сбора промпта
-        await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+        // НЕ очищаем данные промпта - они нужны для кнопки "Повторить"
+        // Только устанавливаем состояние в idle, чтобы данные остались в памяти
+        await PhotoSessionManager.shared.setPromptCollectionState(.idle, for: chatId)
+        req.logger.info("🔄 Set promptState to .idle for chatId=\(chatId), prompt should remain in memory")
+        
+        // Обновляем Reply Keyboard сразу после установки состояния, чтобы пользователь видел правильные кнопки
+        let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+        _ = try? await sendTelegramMessage(
+            token: token,
+            chatId: chatId,
+            text: "Запускаю генерацию, подожди немного...",
+            client: req.client,
+            replyMarkup: keyboard
+        )
         
         let application = req.application
         let logger = req.logger
@@ -1306,6 +1356,7 @@ ID обучения: \(id)
 
         // Очищаем предыдущие данные и устанавливаем стиль "photo"
         await PhotoSessionManager.shared.clearPromptCollectionData(for: chatId)
+        await PhotoSessionManager.shared.clearPrompt(for: chatId) // Очищаем старый промпт при создании нового
         await PhotoSessionManager.shared.setStyle("photo", for: chatId)
         await PhotoSessionManager.shared.setPromptCollectionState(.styleSelected, for: chatId)
         
@@ -1323,6 +1374,71 @@ ID обучения: \(id)
         request.headers.add(name: .contentType, value: "application/json")
         request.body = try .init(data: JSONEncoder().encode(payload))
         _ = try await req.client.send(request)
+    }
+
+    private func handleRepeatCommand(chatId: Int64, token: String, req: Request) async throws {
+        // Проверяем наличие модели
+        var modelVersion = await PhotoSessionManager.shared.getModelVersion(for: chatId)
+        
+        if modelVersion == nil {
+            do {
+                if let userModel = try await UserModel.query(on: req.db)
+                    .filter(\.$chatId == chatId)
+                    .first() {
+                    modelVersion = userModel.modelVersion
+                    await PhotoSessionManager.shared.setModelVersion(userModel.modelVersion, for: chatId)
+                    await PhotoSessionManager.shared.setTriggerWord(userModel.triggerWord, for: chatId)
+                    await PhotoSessionManager.shared.setTrainingState(.ready, for: chatId)
+                }
+            } catch {
+                req.logger.warning("Failed to check database for model version in handleRepeatCommand: \(error)")
+            }
+        }
+        
+        guard modelVersion != nil else {
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "У тебя пока нет обученной модели. Сначала пришли \(minimumPhotoCount)-\(maximumPhotoCount) фото и обучи модель командой /train.",
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return
+        }
+        
+        let trainingState = await PhotoSessionManager.shared.getTrainingState(for: chatId)
+        guard trainingState == .ready else {
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Модель ещё не готова. Дождись завершения обучения.",
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return
+        }
+        
+        // Проверяем наличие сохранённого промпта
+        let savedPrompt = await PhotoSessionManager.shared.getPrompt(for: chatId)
+        guard let prompt = savedPrompt, !prompt.isEmpty else {
+            let keyboard = await buildReplyKeyboard(for: chatId, req: req)
+            _ = try? await sendTelegramMessage(
+                token: token,
+                chatId: chatId,
+                text: "Нет сохранённого промпта. Составь новый промпт.",
+                client: req.client,
+                replyMarkup: keyboard
+            )
+            return
+        }
+        
+        // Восстанавливаем состояние для показа превью
+        await PhotoSessionManager.shared.setPromptCollectionState(.readyToGenerate, for: chatId)
+        
+        // Показываем превью с кнопками редактирования
+        try await showPromptPreview(chatId: chatId, token: token, req: req)
     }
 
     private func handleCallback(_ callback: NeurfotobotCallbackQuery, token: String, req: Request) async throws {
@@ -1797,7 +1913,7 @@ ID обучения: \(id)
             let currentLocation = await PhotoSessionManager.shared.getUserLocation(for: chatId) ?? ""
             
             // Формируем сообщение с текущим значением в моноширинном формате
-            let messageText = "Опиши место действия заново:\n\n`\(currentLocation)`"
+            let messageText = "Опиши место действия заново:\n\n> 💡 Кликни на текст ниже, он скопируется — вставь в сообщение и отредактируй\n\n`\(currentLocation)`"
             
             let keyboard = await buildReplyKeyboard(for: chatId, req: req)
             _ = try? await sendTelegramMessage(
@@ -1824,7 +1940,7 @@ ID обучения: \(id)
             let currentClothing = await PhotoSessionManager.shared.getUserClothing(for: chatId) ?? ""
             
             // Формируем сообщение с текущим значением в моноширинном формате
-            let messageText = "Опиши одежду и её цвет заново:\n\n`\(currentClothing)`"
+            let messageText = "Опиши одежду и её цвет заново:\n\n> 💡 Кликни на текст ниже, он скопируется — вставь в сообщение и отредактируй\n\n`\(currentClothing)`"
             
             let keyboard = await buildReplyKeyboard(for: chatId, req: req)
             _ = try? await sendTelegramMessage(
@@ -1853,7 +1969,7 @@ ID обучения: \(id)
             // Формируем сообщение с текущим значением в моноширинном формате
             let messageText: String
             if !currentDetails.isEmpty {
-                messageText = "Добавь дополнительные детали заново (или напиши \"готово\" чтобы пропустить):\n\n`\(currentDetails)`"
+                messageText = "Добавь дополнительные детали заново (или напиши \"готово\" чтобы пропустить):\n\n> 💡 Кликни на текст ниже, он скопируется — вставь в сообщение и отредактируй\n\n`\(currentDetails)`"
             } else {
                 messageText = "Добавь дополнительные детали (или напиши \"готово\" чтобы пропустить):"
             }
@@ -2256,9 +2372,16 @@ ID обучения: \(id)
         let russianPrompt = promptParts.joined(separator: ", ")
         
         // Переводим на английский для превью
+        // Сначала проверяем, есть ли уже сохранённый перевод
+        let savedTranslatedPrompt = await PhotoSessionManager.shared.getTranslatedPrompt(for: chatId)
         let translationDisabled = Environment.get("DISABLE_TRANSLATION")?.lowercased() == "true"
         let englishPrompt: String
-        if !translationDisabled {
+        
+        if let saved = savedTranslatedPrompt, !saved.isEmpty {
+            // Используем сохранённый перевод (не переводим заново)
+            englishPrompt = saved
+        } else if !translationDisabled {
+            // Нет сохранённого перевода - переводим заново
             do {
                 let translator = try YandexTranslationClient(request: req)
                 englishPrompt = try await translator.translateToEnglish(russianPrompt)
@@ -2306,11 +2429,11 @@ ID обучения: \(id)
             text: preview,
             reply_markup: ReplyMarkup(inline_keyboard: [
                 [
-                    InlineKeyboardButton(text: "✏️ Изменить место", callback_data: "edit_location"),
-                    InlineKeyboardButton(text: "✏️ Изменить одежду", callback_data: "edit_clothing")
+                    InlineKeyboardButton(text: "✏️ Место", callback_data: "edit_location"),
+                    InlineKeyboardButton(text: "✏️ Одежда", callback_data: "edit_clothing")
                 ],
                 [
-                    InlineKeyboardButton(text: "✏️ Изменить детали", callback_data: "edit_details")
+                    InlineKeyboardButton(text: "✏️ Детали", callback_data: "edit_details")
                 ],
                 [
                     InlineKeyboardButton(text: "✅ Сгенерировать", callback_data: "finalize_generate")

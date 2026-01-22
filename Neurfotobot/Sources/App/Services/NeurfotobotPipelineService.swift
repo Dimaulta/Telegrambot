@@ -190,7 +190,7 @@ actor NeurfotobotPipelineService {
             
             logger.info("Using enhanced prompt for chatId=\(chatId): \(enhancedPrompt)")
             
-            try await sendMessage(token: botToken, chatId: chatId, text: "Запускаю генерацию, подожди немного...", application: application)
+            // Сообщение "Запускаю генерацию..." уже отправлено в finalizeAndGeneratePrompt с обновлённой клавиатурой
 
             // Пытаемся создать prediction с retry при ошибках
             let prediction: ReplicateClient.PredictionResponse
@@ -222,7 +222,8 @@ actor NeurfotobotPipelineService {
             }
 
             await PhotoSessionManager.shared.setTrainingState(.ready, for: chatId)
-            await PhotoSessionManager.shared.clearPrompt(for: chatId)
+            // НЕ очищаем промпт - он нужен для кнопки "Повторить"
+            // await PhotoSessionManager.shared.clearPrompt(for: chatId)
 
             try await sendMessage(token: botToken, chatId: chatId, text: "Готово! Модель сохранена на нашей стороне. Управлять моделью можно командой /model.", application: application)
         } catch {

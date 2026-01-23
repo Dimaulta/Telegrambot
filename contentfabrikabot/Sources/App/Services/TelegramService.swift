@@ -11,12 +11,14 @@ struct TelegramService {
         chatId: Int64,
         text: String,
         client: Client,
-        replyToMessageId: Int? = nil
+        replyToMessageId: Int? = nil,
+        parseMode: String? = nil
     ) async throws -> Int? {
         let payload = TelegramSendMessageRequest(
             chat_id: chatId,
             text: text,
-            reply_to_message_id: replyToMessageId
+            reply_to_message_id: replyToMessageId,
+            parse_mode: parseMode
         )
         
         let response = try await client.post("https://api.telegram.org/bot\(token)/sendMessage") { request in
@@ -43,13 +45,15 @@ struct TelegramService {
         text: String,
         keyboard: InlineKeyboardMarkup,
         client: Client,
-        replyToMessageId: Int? = nil
+        replyToMessageId: Int? = nil,
+        parseMode: String? = nil
     ) async throws -> Int? {
         let payload = TelegramSendMessageWithKeyboardRequest(
             chat_id: chatId,
             text: text,
             reply_markup: keyboard,
-            reply_to_message_id: replyToMessageId
+            reply_to_message_id: replyToMessageId,
+            parse_mode: parseMode
         )
         
         let response = try await client.post("https://api.telegram.org/bot\(token)/sendMessage") { request in
@@ -98,6 +102,7 @@ private struct TelegramSendMessageRequest: Content {
     let chat_id: Int64
     let text: String
     let reply_to_message_id: Int?
+    let parse_mode: String?
 }
 
 private struct TelegramSendMessageWithKeyboardRequest: Content {
@@ -105,6 +110,7 @@ private struct TelegramSendMessageWithKeyboardRequest: Content {
     let text: String
     let reply_markup: InlineKeyboardMarkup
     let reply_to_message_id: Int?
+    let parse_mode: String?
 }
 
 struct InlineKeyboardMarkup: Content {

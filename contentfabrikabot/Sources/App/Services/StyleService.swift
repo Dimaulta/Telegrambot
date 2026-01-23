@@ -12,13 +12,15 @@ struct StyleService {
     ///   - isRelearn: Флаг переобучения
     ///   - channelId: Опциональный ID канала (UUID в строковом формате). Если не указан, используется первый канал пользователя
     ///   - replyToMessageId: ID сообщения для reply (опционально)
+    ///   - backCallback: Callback для кнопки "Назад" (по умолчанию "back_to_main")
     static func analyzeChannel(
         userId: Int64,
         token: String,
         req: Request,
         isRelearn: Bool,
         channelId: String? = nil,
-        replyToMessageId: Int? = nil
+        replyToMessageId: Int? = nil,
+        backCallback: String = "back_to_main"
     ) async throws {
         // Находим каналы пользователя
         var channel: Channel?
@@ -91,24 +93,52 @@ struct StyleService {
             return
         }
         
+        // Проверяем, есть ли уже изученный стиль
+        let channelId = try channel.requireID()
+        let currentProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db)
+        
+        // Если стиль уже изучен и это не переобучение, проверяем, были ли новые посты
+        if let profile = currentProfile, !isRelearn {
+            // Получаем количество постов, которые были проанализированы
+            let analyzedPostsCount = profile.analyzedPostsCount
+            
+            // Если количество постов с текстом не изменилось, стиль уже изучен
+            if postsWithText.count <= analyzedPostsCount {
+                let chatId = TelegramService.getChatIdFromUserId(userId: userId)
+                let keyboard = KeyboardService.createGeneratePostKeyboardWithBack()
+                let message = "✅ Стиль твоего канала уже изучен на основе \(KeyboardService.pluralizePost(analyzedPostsCount)) с текстом.\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в твоём стиле, который ты сможешь вручную опубликовать в канале"
+                try await TelegramService.sendMessageWithKeyboard(
+                    token: token,
+                    chatId: chatId,
+                    text: message,
+                    keyboard: keyboard,
+                    client: req.client,
+                    replyToMessageId: replyToMessageId
+                )
+                return
+            }
+        }
+        
         // Проверяем минимальное количество постов С ТЕКСТОМ для анализа
         let minPostsWithTextRequired = 3
         if postsWithText.count < minPostsWithTextRequired {
             let chatId = TelegramService.getChatIdFromUserId(userId: userId)
             var errorMessage = "❌ Недостаточно постов с текстом\n\n"
-            errorMessage += "У тебя сохранено \(stats.total) постов, но только \(stats.withText) из них содержат текст.\n\n"
+            errorMessage += "У тебя сохранено \(KeyboardService.pluralizePost(stats.total)), но только \(KeyboardService.pluralizePost(stats.withText)) из них содержат текст.\n\n"
             errorMessage += "Для изучения стиля нужно минимум 3 поста с текстом или подписью к медиа.\n\n"
             
             if stats.mediaOnly > 0 {
-                errorMessage += "⚠️ Обрати внимание: \(stats.mediaOnly) из твоих постов содержат только медиа без подписи. Такие посты не помогут мне понять стиль написания.\n\n"
+                errorMessage += "⚠️ Обрати внимание: \(KeyboardService.pluralizePost(stats.mediaOnly)) из твоих постов содержат только медиа без подписи. Такие посты не помогут мне понять стиль написания.\n\n"
             }
             
             errorMessage += "Перешли еще посты с текстом, и кнопка «Изучить канал» станет активной."
             
-            try await TelegramService.sendMessage(
+            let keyboard = KeyboardService.createBackCancelKeyboard(backCallback: backCallback)
+            try await TelegramService.sendMessageWithKeyboard(
                 token: token,
                 chatId: chatId,
                 text: errorMessage,
+                keyboard: keyboard,
                 client: req.client,
                 replyToMessageId: replyToMessageId
             )
@@ -123,7 +153,7 @@ struct StyleService {
             try await TelegramService.sendMessage(
                 token: token,
                 chatId: chatId,
-                text: "⚠️ В твоём канале найдено только \(postsWithText.count) пост(а) с текстом. Для лучшего изучения стиля рекомендуется минимум \(minPostsRequired) поста.\n\nЯ проанализирую то, что есть, но результат может быть менее точным. Рекомендую добавить больше постов с текстом в канал и переизучить стиль позже.",
+                text: "⚠️ В твоём канале найдено только \(KeyboardService.pluralizePost(postsWithText.count)) с текстом. Для лучшего изучения стиля рекомендуется минимум \(minPostsRequired) поста.\n\nЯ проанализирую то, что есть, но результат может быть менее точным. Рекомендую добавить больше постов с текстом в канал и переизучить стиль позже.",
                 client: req.client,
                 replyToMessageId: replyToMessageId
             )
@@ -170,8 +200,8 @@ struct StyleService {
             ? "✅ Стиль твоего канала переизучен на основе \(postsWithText.count) постов с текстом\n\nТеперь отправь мне тему и я подготовлю текст в твоём стиле, ты сможешь скопировать его у себя в чате"
             : "✅ Стиль твоего канала изучен на основе \(postsWithText.count) постов с текстом\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в твоём стиле, который ты сможешь вручную опубликовать в канале"
         
-        // Добавляем кнопки для быстрого создания нового поста и удаления данных
-        let keyboard = KeyboardService.createGeneratePostKeyboard(totalCount: stats.total)
+        // Добавляем кнопки для быстрого создания нового поста и удаления данных с кнопкой "Назад"
+        let keyboard = KeyboardService.createGeneratePostKeyboardWithBack(totalCount: stats.total)
         
         try await TelegramService.sendMessageWithKeyboard(
             token: token,

@@ -338,7 +338,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
 
         // Обработка команды /relearn
         if text == "/relearn" {
-            try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: true)
+            try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: true, backCallback: "back_to_main")
             return Response(status: .ok)
         }
         
@@ -360,7 +360,31 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 db: req.db
             )
             
+            // Проверяем лимит каналов перед созданием нового
             if channel == nil {
+                let existingChannels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+                let maxChannels = 3
+                
+                if existingChannels.count >= maxChannels {
+                    // Достигнут лимит каналов
+                    let chatId = TelegramService.getChatIdFromUserId(userId: userId)
+                    let limitMessage = """
+⚠️ Достигнут лимит каналов (\(maxChannels)/\(maxChannels))
+
+Чтобы добавить новый канал, сначала удали один из существующих.
+
+"""
+                    let keyboard = KeyboardService.createMainMenuKeyboard(channelsCount: existingChannels.count, maxChannels: maxChannels)
+                    try await TelegramService.sendMessageWithKeyboard(
+                        token: token,
+                        chatId: chatId,
+                        text: limitMessage,
+                        keyboard: keyboard,
+                        client: req.client
+                    )
+                    return Response(status: .ok)
+                }
+                
                 channel = try await ChannelService.createOrUpdateChannel(
                     telegramChatId: forwardedChatId,
                     telegramChatTitle: forwardedChat.title,
@@ -383,7 +407,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     consecutiveMediaOnly = await ContentFabrikaBotController.mediaOnlyTracker.registerMediaOnlyPost(userId: userId)
                 }
                 
-                let postsCount = try await PostService.saveForwardedPost(
+                _ = try await PostService.saveForwardedPost(
                     message: message,
                     userId: userId,
                     token: token,
@@ -400,11 +424,11 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 let chatId = TelegramService.getChatIdFromUserId(userId: userId)
                 
                 // Формируем сообщение со статистикой
-                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(stats.total) постов\n• С текстом: \(stats.withText) постов (нужно минимум 3 для анализа)\n• Только медиа: \(stats.mediaOnly) постов"
+                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(KeyboardService.pluralizePost(stats.total))\n• С текстом: \(KeyboardService.pluralizePost(stats.withText)) (нужно минимум 3 для анализа)\n• Только медиа: \(KeyboardService.pluralizePost(stats.mediaOnly))"
                 
                 // Предупреждение при 2 постах подряд без текста
                 if consecutiveMediaOnly >= 2 {
-                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(consecutiveMediaOnly) пост(а) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
+                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(KeyboardService.pluralizePost(consecutiveMediaOnly)) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
                 }
                 
                 // Создаем клавиатуру с учетом статистики
@@ -421,9 +445,10 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 } else {
                     let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
                     if stats.total < 3 {
-                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(3 - stats.withText) пост(а) с текстом."
+                        let needed = 3 - stats.withText
+                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(KeyboardService.pluralizePost(needed)) с текстом."
                     } else {
-                        messageText += "\n\n⚠️ У тебя \(stats.total) постов, но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
+                        messageText += "\n\n⚠️ У тебя \(KeyboardService.pluralizePost(stats.total)), но только \(KeyboardService.pluralizePost(stats.withText)) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
                     }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
@@ -448,34 +473,32 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             return Response(status: .ok)
         }
         
-        // Обычное сообщение от пользователя
-        let channel = try await ChannelService.findUserChannel(ownerUserId: userId, db: req.db)
-        
-        // Если нет постов/каналов и это не команда - напоминаем переслать публикации
-        if channel == nil && !text.hasPrefix("/") {
-            req.logger.info("📩 User message without saved posts — sending reminder")
-            try await WelcomeService.sendForwardReminder(userId: userId, chatId: chatId, token: token, req: req)
-            return Response(status: .ok)
-        }
-        
-        // Проверяем, есть ли у пользователя каналы
-        let allChannels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
-        
-        if allChannels.isEmpty {
-            // У пользователя нет каналов - просим переслать посты
-            try await TelegramService.sendMessage(
-                token: token,
-                chatId: chatId,
-                text: "Сначала перешли мне от 3 до 10 постов из своего канала через Forward. Как только появится минимум 3 публикации, кнопка «Изучить канал» станет активной.",
-                client: req.client
-            )
-        } else if allChannels.count == 1 {
-            // Один канал - работаем с ним
-            let channel = allChannels.first!
-            let channelId = try channel.requireID()
-            
-            if let styleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) {
-                // Профиль готов - проверяем подписку перед генерацией
+        // Обычное сообщение от пользователя (не команда)
+        if !text.hasPrefix("/") {
+            // Сначала проверяем, есть ли сохраненный выбранный канал
+            if let savedChannelId = await ChannelSelectionManager.shared.getChannel(userId: userId) {
+                // Есть сохраненный канал - используем его для генерации
+                let topic = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Находим канал
+                guard let channel = try await Channel.query(on: req.db)
+                    .filter(\.$id == savedChannelId)
+                    .filter(\.$ownerUserId == userId)
+                    .filter(\.$isActive == true)
+                    .first(),
+                   let styleProfile = try await StyleService.getStyleProfile(channelId: savedChannelId, db: req.db) else {
+                    // Канал не найден или стиль не изучен - очищаем и просим выбрать заново
+                    await ChannelSelectionManager.shared.clearChannel(userId: userId)
+                    try await TelegramService.sendMessage(
+                        token: token,
+                        chatId: chatId,
+                        text: "❌ Канал не найден или стиль не изучен. Выбери канал заново.",
+                        client: req.client
+                    )
+                    return Response(status: .ok)
+                }
+                
+                // Проверяем подписку перед генерацией
                 let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
                     botName: "contentfabrikabot",
                     userId: userId,
@@ -486,7 +509,8 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 
                 guard subscriptionAllowed else {
                     // Пользователь не подписан - сохраняем тему и отправляем сообщение с требованием подписки
-                    await TopicSessionManager.shared.saveTopic(userId: userId, topic: text, channelId: channelId)
+                    // НЕ очищаем канал - пользователь может подписаться и продолжить
+                    await TopicSessionManager.shared.saveTopic(userId: userId, topic: topic, channelId: savedChannelId)
                     try await sendSubscriptionRequiredMessage(
                         chatId: chatId,
                         channels: channels,
@@ -496,15 +520,10 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     return Response(status: .ok)
                 }
                 
-                // Генерируем пост в фоне (чтобы быстро ответить Telegram)
-                let client = req.client
-                let logger = req.logger
-                let app = req.application
-                let eventLoop = req.eventLoop
-                
-                let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
-                guard allowed else {
-                    try await TelegramService.sendMessage(
+                // Проверяем rate limit
+                guard await ContentFabrikaBotController.rateLimiter.allow(userId: userId) else {
+                    // НЕ очищаем канал - пользователь может попробовать позже
+                    _ = try await TelegramService.sendMessage(
                         token: token,
                         chatId: chatId,
                         text: "⚠️ Давай не торопиться — можно сгенерировать не больше двух постов в минуту. Попробуй ещё раз чуть позже 💛",
@@ -513,71 +532,123 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     return Response(status: .ok)
                 }
                 
-                // Отправляем сообщение о начале генерации
-                _ = try? await TelegramService.sendMessage(
-                    token: token,
-                    chatId: chatId,
-                    text: "Генерирую пост в твоём стиле... ✨",
-                    client: client
-                )
-                
-                        // Запускаем генерацию в фоне
-                        Task { [token, userId, text] in
-                            logger.info("🚀 Background task started for post generation")
-                            do {
-                                // Создаём новый Request для фоновой обработки
-                                // Request автоматически получает client из application
-                                let backgroundReq = Request(application: app, method: .GET, url: URI(string: "/"), on: eventLoop)
-                                
-                                try await PostGenerationService.generatePostForUser(
-                                    topic: text,
-                                    styleProfile: styleProfile,
-                                    channel: channel,
-                                    userId: userId,
-                                    token: token,
-                                    req: backgroundReq
-                                )
-                                logger.info("✅ Post generation completed")
-                            } catch {
-                                logger.error("❌ Error in background post generation: \(error)")
-                                logger.error("❌ Error details: \(error)")
-                                if let abortError = error as? Abort {
-                                    logger.error("❌ Abort error: status=\(abortError.status), reason=\(abortError.reason)")
-                                }
-                                let errorChatId = TelegramService.getChatIdFromUserId(userId: userId)
-                                _ = try? await TelegramService.sendMessage(
-                                    token: token,
-                                    chatId: errorChatId,
-                                    text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
-                                    client: client
-                                )
-                            }
-                        }
-                
-                // Возвращаем ответ сразу, обработка продолжается в фоне
-                return Response(status: .ok)
-            } else {
-                // Профиль не готов - проверяем, есть ли посты в БД
-                let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
-                
-                if stats.total == 0 {
-                    // Нет постов - просим переслать
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
-                    try await TelegramService.sendMessageWithKeyboard(
+                // Генерируем пост
+                do {
+                    // Очищаем канал СРАЗУ перед генерацией, чтобы избежать повторных вызовов
+                    await ChannelSelectionManager.shared.clearChannel(userId: userId)
+                    try await PostGenerationService.generatePostForUser(
+                        topic: topic,
+                        styleProfile: styleProfile,
+                        channel: channel,
+                        userId: userId,
+                        token: token,
+                        req: req
+                    )
+                    return Response(status: .ok)
+                } catch {
+                    req.logger.error("Error generating post: \(error)")
+                    // При ошибке НЕ очищаем канал - пользователь может попробовать еще раз
+                    _ = try await TelegramService.sendMessage(
                         token: token,
                         chatId: chatId,
-                        text: "Сначала нужно изучить стиль канала.\n\n📝 Перешли мне от 3 до 10 постов из канала (Forward), затем нажми «Изучить канал».",
-                        keyboard: keyboard,
+                        text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
                         client: req.client
                     )
+                    return Response(status: .ok)
+                }
+            }
+            
+            // Нет сохраненного канала - используем старую логику
+            let allChannels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+            
+            if allChannels.isEmpty {
+                // У пользователя нет каналов - просим переслать посты
+                try await WelcomeService.sendForwardReminder(userId: userId, chatId: chatId, token: token, req: req)
+                return Response(status: .ok)
+            } else if allChannels.count == 1 {
+                // Один канал - работаем с ним напрямую
+                let channel = allChannels.first!
+                let channelId = try channel.requireID()
+                
+                if let styleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) {
+                    // Профиль готов - проверяем подписку и генерируем
+                    let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
+                        botName: "contentfabrikabot",
+                        userId: userId,
+                        logger: req.logger,
+                        env: req.application.environment,
+                        client: req.client
+                    )
+                    
+                    guard subscriptionAllowed else {
+                        await TopicSessionManager.shared.saveTopic(userId: userId, topic: text, channelId: channelId)
+                        try await sendSubscriptionRequiredMessage(
+                            chatId: chatId,
+                            channels: channels,
+                            token: token,
+                            req: req
+                        )
+                        return Response(status: .ok)
+                    }
+                    
+                    let allowed = await ContentFabrikaBotController.rateLimiter.allow(userId: userId)
+                    guard allowed else {
+                        try await TelegramService.sendMessage(
+                            token: token,
+                            chatId: chatId,
+                            text: "⚠️ Давай не торопиться — можно сгенерировать не больше двух постов в минуту. Попробуй ещё раз чуть позже 💛",
+                            client: req.client
+                        )
+                        return Response(status: .ok)
+                    }
+                    
+                    _ = try? await TelegramService.sendMessage(
+                        token: token,
+                        chatId: chatId,
+                        text: "Генерирую пост в твоём стиле... ✨",
+                        client: req.client
+                    )
+                    
+                    let client = req.client
+                    let logger = req.logger
+                    let app = req.application
+                    let eventLoop = req.eventLoop
+                    
+                    Task { [token, userId, text] in
+                        logger.info("🚀 Background task started for post generation")
+                        do {
+                            let backgroundReq = Request(application: app, method: .GET, url: URI(string: "/"), on: eventLoop)
+                            try await PostGenerationService.generatePostForUser(
+                                topic: text,
+                                styleProfile: styleProfile,
+                                channel: channel,
+                                userId: userId,
+                                token: token,
+                                req: backgroundReq
+                            )
+                            logger.info("✅ Post generation completed")
+                        } catch {
+                            logger.error("❌ Error in background post generation: \(error)")
+                            let errorChatId = TelegramService.getChatIdFromUserId(userId: userId)
+                            _ = try? await TelegramService.sendMessage(
+                                token: token,
+                                chatId: errorChatId,
+                                text: "❌ Ошибка при генерации поста: \(error.localizedDescription)",
+                                client: client
+                            )
+                        }
+                    }
+                    return Response(status: .ok)
                 } else {
-                    // Есть посты, но стиль не изучен - предлагаем изучить
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
-                    var messageText = "Найдено \(stats.total) пост(ов) в базе данных"
+                    // Стиль не изучен - предлагаем изучить
+                    let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+                    let keyboard = KeyboardService.createBackCancelKeyboard()
+                    var messageText = "Сначала нужно изучить стиль канала.\n\n"
                     if stats.withText < 3 {
-                        messageText += ", но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом."
+                        let needed = 3 - stats.withText
+                        messageText += "Перешли еще \(KeyboardService.pluralizePost(needed)) с текстом, затем нажми «Изучить канал»."
                     } else {
-                        messageText += ". Нажми 'Изучить канал' для анализа стиля."
+                        messageText += "Нажми «Изучить канал» для анализа стиля."
                     }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
@@ -586,69 +657,15 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         keyboard: keyboard,
                         client: req.client
                     )
+                    return Response(status: .ok)
                 }
-            }
-        } else {
-            // Несколько каналов - проверяем подписку перед показом кнопок выбора канала
-            let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
-                botName: "contentfabrikabot",
-                userId: userId,
-                logger: req.logger,
-                env: req.application.environment,
-                client: req.client
-            )
-            
-            guard subscriptionAllowed else {
-                // Пользователь не подписан - сохраняем тему и отправляем сообщение с требованием подписки
-                await TopicSessionManager.shared.saveTopic(userId: userId, topic: text)
-                try await sendSubscriptionRequiredMessage(
-                    chatId: chatId,
-                    channels: channels,
-                    token: token,
-                    req: req
-                )
+            } else {
+                // Несколько каналов - показываем выбор
+                try await handleGeneratePostMenu(userId: userId, chatId: chatId, token: token, req: req)
                 return Response(status: .ok)
             }
-            
-            // Просим выбрать канал для генерации поста
-            var buttons: [[InlineKeyboardButton]] = []
-            for channel in allChannels {
-                let channelId = try channel.requireID()
-                let channelTitle = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
-                
-                // Проверяем, есть ли у канала изученный стиль
-                let hasStyleProfile = (try? await StyleProfile.query(on: req.db)
-                    .filter(\.$channel.$id == channelId)
-                    .filter(\.$isReady == true)
-                    .first()) != nil
-                
-                if hasStyleProfile {
-                    buttons.append([
-                        InlineKeyboardButton(text: "📝 \(channelTitle)", callback_data: "generate_post:\(channelId.uuidString):\(text)")
-                    ])
-                }
-            }
-            
-            if buttons.isEmpty {
-                // Нет каналов с изученным стилем
-                try await TelegramService.sendMessage(
-                    token: token,
-                    chatId: chatId,
-                    text: "У тебя несколько каналов, но ни у одного не изучен стиль. Сначала изучи стиль канала через /start",
-                    client: req.client
-                )
-            } else {
-                let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
-                try await TelegramService.sendMessageWithKeyboard(
-                    token: token,
-                    chatId: chatId,
-                    text: "У тебя несколько каналов. Выбери канал для генерации поста на тему: \"\(text)\"",
-                    keyboard: keyboard,
-                    client: req.client
-                )
-            }
         }
-
+        
         return Response(status: .ok)
     }
 
@@ -707,7 +724,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
 
     // MARK: - Обработка пересланных сообщений
     
-    private func handleChannelMessage(message: ContentFabrikaBotMessage, token: String, userId: Int64, req: Request) async throws {
+    private func handleChannelMessage(message: ContentFabrikaBotMessage, token: String, userId: Int64, req: Request) async throws -> Response {
         // Используем text или caption (подпись к фото/видео)
         let text = message.text ?? message.caption ?? ""
         req.logger.info("📨 handleChannelMessage: text=\(text.prefix(50)), caption=\(message.caption?.prefix(50) ?? "nil"), forward_from_chat=\(message.forward_from_chat != nil ? "yes" : "no")")
@@ -729,7 +746,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             }
             
             do {
-                let postsCount = try await PostService.saveForwardedPost(
+                _ = try await PostService.saveForwardedPost(
                     message: message,
                     userId: userId,
                     token: token,
@@ -737,7 +754,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 )
                 
                 // Получаем статистику постов
-                var channel = try await Channel.query(on: req.db)
+                let channel = try await Channel.query(on: req.db)
                     .filter(\.$telegramChatId == forwardedChat.id)
                     .first()
                 
@@ -752,11 +769,11 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 let chatId = TelegramService.getChatIdFromUserId(userId: userId)
                 
                 // Формируем сообщение со статистикой
-                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(stats.total) постов\n• С текстом: \(stats.withText) постов (нужно минимум 3 для анализа)\n• Только медиа: \(stats.mediaOnly) постов"
+                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(KeyboardService.pluralizePost(stats.total))\n• С текстом: \(KeyboardService.pluralizePost(stats.withText)) (нужно минимум 3 для анализа)\n• Только медиа: \(KeyboardService.pluralizePost(stats.mediaOnly))"
                 
                 // Предупреждение при 2 постах подряд без текста
                 if consecutiveMediaOnly >= 2 {
-                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(consecutiveMediaOnly) пост(а) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
+                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(KeyboardService.pluralizePost(consecutiveMediaOnly)) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
                 }
                 
                 // Создаем клавиатуру с учетом статистики
@@ -773,9 +790,10 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 } else {
                     let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
                     if stats.total < 3 {
-                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(3 - stats.withText) пост(а) с текстом."
+                        let needed = 3 - stats.withText
+                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(KeyboardService.pluralizePost(needed)) с текстом."
                     } else {
-                        messageText += "\n\n⚠️ У тебя \(stats.total) постов, но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
+                        messageText += "\n\n⚠️ У тебя \(KeyboardService.pluralizePost(stats.total)), но только \(KeyboardService.pluralizePost(stats.withText)) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
                     }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
@@ -796,30 +814,10 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     client: req.client
                 )
             }
-        } else {
-            // Обычное текстовое сообщение (не пересланное) - возможно пользователь хочет создать пост
-            // Но если стиль не изучен, напоминаем об этом
-            let chatId = TelegramService.getChatIdFromUserId(userId: userId)
-            
-            if let channel = try await ChannelService.findUserChannel(ownerUserId: userId, db: req.db) {
-                let channelId = try channel.requireID()
-                let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) != nil
-                
-                if !hasStyleProfile {
-                    // Стиль не изучен - напоминаем
-                    let keyboard = InlineKeyboardMarkup(inline_keyboard: [[
-                        InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
-                    ]])
-                    try await TelegramService.sendMessageWithKeyboard(
-                        token: token,
-                        chatId: chatId,
-                        text: "Сначала нужно изучить стиль канала. Перешли мне от 3 до 10 постов из канала (Forward), затем нажми «Изучить канал».",
-                        keyboard: keyboard,
-                        client: req.client
-                    )
-                }
-            }
         }
+        
+        // Если это не пересланное сообщение, возвращаем OK (обычные текстовые сообщения обрабатываются в handleWebhook)
+        return Response(status: .ok)
     }
 
     // MARK: - Обработка callback query
@@ -842,7 +840,16 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 text: "Начинаю анализ канала...",
                 req: req
             )
-            try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: false, channelId: channelIdString, replyToMessageId: replyToMessageId)
+            // Если пришли из меню выбора каналов, возврат должен быть в меню выбора
+            try await StyleService.analyzeChannel(
+                userId: userId,
+                token: token,
+                req: req,
+                isRelearn: false,
+                channelId: channelIdString,
+                replyToMessageId: replyToMessageId,
+                backCallback: "analyze_channel_menu"
+            )
         } else if data == "analyze_channel" {
             // Показываем список каналов, если их несколько
             let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
@@ -872,7 +879,15 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     req: req
                 )
                 let channelId = try channels.first!.requireID()
-                try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: false, channelId: channelId.uuidString, replyToMessageId: replyToMessageId)
+                try await StyleService.analyzeChannel(
+                    userId: userId,
+                    token: token,
+                    req: req,
+                    isRelearn: false,
+                    channelId: channelId.uuidString,
+                    replyToMessageId: replyToMessageId,
+                    backCallback: "back_to_main"
+                )
             } else {
                 // Если каналов несколько - показываем список для выбора
                 try await TelegramService.answerCallbackQuery(
@@ -913,7 +928,18 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 text: "Переизучаю стиль канала...",
                 req: req
             )
-            try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: true, channelId: channelIdString, replyToMessageId: replyToMessageId)
+            // Определяем, откуда пришли - если из меню выбора, возврат в меню, иначе в главное
+            let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+            let backCallback = channels.count > 1 ? "relearn_style" : "back_to_main"
+            try await StyleService.analyzeChannel(
+                userId: userId,
+                token: token,
+                req: req,
+                isRelearn: true,
+                channelId: channelIdString,
+                replyToMessageId: replyToMessageId,
+                backCallback: backCallback
+            )
         } else if data == "relearn_style" {
             // Показываем список каналов для переобучения
             let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
@@ -942,7 +968,15 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     req: req
                 )
                 let channelId = try channels.first!.requireID()
-                try await StyleService.analyzeChannel(userId: userId, token: token, req: req, isRelearn: true, channelId: channelId.uuidString, replyToMessageId: replyToMessageId)
+                try await StyleService.analyzeChannel(
+                    userId: userId,
+                    token: token,
+                    req: req,
+                    isRelearn: true,
+                    channelId: channelId.uuidString,
+                    replyToMessageId: replyToMessageId,
+                    backCallback: "back_to_main"
+                )
             } else {
                 try await TelegramService.answerCallbackQuery(
                     token: token,
@@ -977,7 +1011,63 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         } else if data.hasPrefix("generate_post:") {
             // Генерация поста для конкретного канала
             let parts = data.split(separator: ":")
-            if parts.count >= 3 {
+            
+            if parts.count == 2 {
+                // Выбор канала без темы - запрашиваем тему
+                let channelIdString = String(parts[1])
+                if let channelUUID = UUID(uuidString: channelIdString),
+                   let channel = try await Channel.query(on: req.db)
+                    .filter(\.$id == channelUUID)
+                    .filter(\.$ownerUserId == userId)
+                    .first() {
+                    let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+                    
+                    // Проверяем, изучен ли стиль
+                    if let _ = try await StyleService.getStyleProfile(channelId: channelUUID, db: req.db) {
+                        // Сохраняем выбранный канал в сессии
+                        await ChannelSelectionManager.shared.saveChannel(userId: userId, channelId: channelUUID)
+                        let keyboard = KeyboardService.createBackCancelKeyboard()
+                        try await TelegramService.sendMessageWithKeyboard(
+                            token: token,
+                            chatId: chatId,
+                            text: "Выбран канал: \(title)\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
+                            keyboard: keyboard,
+                            client: req.client
+                        )
+                    } else {
+                        // Стиль не изучен
+                        let stats = try await PostService.getPostsStatistics(channelId: channelUUID, db: req.db)
+                        let keyboard = KeyboardService.createBackCancelKeyboard()
+                        var messageText = "❌ Стиль канала \"\(title)\" не изучен\n\n"
+                        if stats.withText < 3 {
+                            messageText += "• Всего постов: \(KeyboardService.pluralizePost(stats.total))\n"
+                            messageText += "• С текстом: \(KeyboardService.pluralizePost(stats.withText))\n"
+                            let needed = 3 - stats.withText
+                            messageText += "• Нужно еще: \(KeyboardService.pluralizePost(needed)) с текстом\n\n"
+                            messageText += "Для изучения стиля нужно минимум 3 поста с текстом."
+                        } else {
+                            messageText += "У тебя достаточно постов с текстом (\(stats.withText)), но стиль еще не изучен.\n\n"
+                            messageText += "Нажми «Изучить канал» для анализа стиля."
+                        }
+                        try await TelegramService.sendMessageWithKeyboard(
+                            token: token,
+                            chatId: chatId,
+                            text: messageText,
+                            keyboard: keyboard,
+                            client: req.client
+                        )
+                    }
+                } else {
+                    let keyboard = KeyboardService.createBackCancelKeyboard()
+                    try await TelegramService.sendMessageWithKeyboard(
+                        token: token,
+                        chatId: chatId,
+                        text: "❌ Канал не найден",
+                        keyboard: keyboard,
+                        client: req.client
+                    )
+                }
+            } else if parts.count >= 3 {
                 let channelIdString = String(parts[1])
                 let topic = parts.dropFirst(2).joined(separator: ":") // Восстанавливаем тему (может содержать :)
                 
@@ -1095,6 +1185,80 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     )
                 }
             }
+        } else if data == "back_to_main" {
+            // Возврат в главное меню - очищаем сохраненный канал
+            await ChannelSelectionManager.shared.clearChannel(userId: userId)
+            try await TelegramService.answerCallbackQuery(
+                token: token,
+                callbackId: callback.id,
+                text: "↩️ Возвращаюсь в главное меню",
+                req: req
+            )
+            try await WelcomeService.sendWelcome(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "cancel" {
+            // Отмена действия - очищаем сохраненный канал
+            await ChannelSelectionManager.shared.clearChannel(userId: userId)
+            try await TelegramService.answerCallbackQuery(
+                token: token,
+                callbackId: callback.id,
+                text: "↩️ Возвращаюсь в главное меню",
+                req: req
+            )
+            try await WelcomeService.sendWelcome(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "generate_post_menu" {
+            // Меню выбора канала для генерации
+            try await handleGeneratePostMenu(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "analyze_channel_menu" {
+            // Меню выбора канала для изучения
+            try await handleAnalyzeChannelMenu(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "show_statistics" {
+            // Показать статистику по каналам
+            try await handleShowStatistics(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "delete_channel_menu" {
+            // Меню выбора канала для удаления
+            try await handleDeleteChannelMenu(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data.hasPrefix("delete_channel:") {
+            // Показать подтверждение удаления канала
+            let channelIdString = String(data.dropFirst("delete_channel:".count))
+            try await handleDeleteChannelConfirmation(
+                userId: userId,
+                chatId: chatId,
+                channelIdString: channelIdString,
+                token: token,
+                req: req
+            )
+        } else if data.hasPrefix("confirm_delete_channel:") {
+            // Подтверждение удаления канала
+            let channelIdString = String(data.dropFirst("confirm_delete_channel:".count))
+            try await handleConfirmDeleteChannel(
+                userId: userId,
+                chatId: chatId,
+                channelIdString: channelIdString,
+                token: token,
+                req: req
+            )
+        } else if data.hasPrefix("cancel_delete:") {
+            // Отмена удаления канала
+            try await TelegramService.answerCallbackQuery(
+                token: token,
+                callbackId: callback.id,
+                text: "↩️ Удаление отменено",
+                req: req
+            )
+            try await handleDeleteChannelMenu(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data.hasPrefix("channel_stats:") {
+            // Детальная статистика по каналу
+            let channelIdString = String(data.dropFirst("channel_stats:".count))
+            try await handleChannelStatistics(
+                userId: userId,
+                chatId: chatId,
+                channelIdString: channelIdString,
+                token: token,
+                req: req
+            )
+        } else if data == "help" {
+            // Помощь
+            try await handleHelp(userId: userId, chatId: chatId, token: token, req: req)
         } else if data == "create_new_post" {
             // Кнопка "Сгенерировать пост" - отправляем инструкцию
             try await TelegramService.answerCallbackQuery(
@@ -1128,6 +1292,509 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 req: req
             )
         }
+    }
+    
+    // MARK: - Новые флоу обработки
+    
+    /// Обработка меню выбора канала для генерации поста
+    private func handleGeneratePostMenu(userId: Int64, chatId: Int64, token: String, req: Request) async throws {
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        
+        if channels.isEmpty {
+            try await TelegramService.sendMessage(
+                token: token,
+                chatId: chatId,
+                text: "❌ Нет каналов для генерации\n\nПерешли мне от 3 до 10 постов из канала через Forward.",
+                client: req.client
+            )
+            return
+        }
+        
+        var channelList: [(id: UUID, title: String, canUse: Bool)] = []
+        for channel in channels {
+            let channelId = try channel.requireID()
+            let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+            let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) != nil
+            channelList.append((id: channelId, title: title, canUse: hasStyleProfile))
+        }
+        
+        if channelList.count == 1 {
+            // Один канал - сразу запрашиваем тему
+            let channel = channelList.first!
+            if channel.canUse {
+                try await TelegramService.sendMessage(
+                    token: token,
+                    chatId: chatId,
+                    text: "Выбран канал: \(channel.title)\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
+                    client: req.client
+                )
+            } else {
+                let keyboard = KeyboardService.createBackCancelKeyboard()
+                try await TelegramService.sendMessageWithKeyboard(
+                    token: token,
+                    chatId: chatId,
+                    text: "❌ Стиль канала \"\(channel.title)\" не изучен\n\nСначала изучи стиль канала, затем сможешь генерировать посты.",
+                    keyboard: keyboard,
+                    client: req.client
+                )
+            }
+        } else {
+            // Несколько каналов - показываем выбор
+            let keyboard = KeyboardService.createChannelSelectionKeyboard(
+                channels: channelList,
+                actionPrefix: "generate_post"
+            )
+            var messageText = "Выбери канал для генерации поста:\n\n"
+            for (index, channel) in channelList.enumerated() {
+                let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+                let status = channel.canUse ? "✅ Стиль изучен" : "⏳ Стиль не изучен"
+                messageText += "\(emoji) \(channel.title)\n   • \(status)\n\n"
+            }
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                keyboard: keyboard,
+                client: req.client
+            )
+        }
+    }
+    
+    /// Обработка меню выбора канала для изучения
+    private func handleAnalyzeChannelMenu(userId: Int64, chatId: Int64, token: String, req: Request) async throws {
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        
+        if channels.isEmpty {
+            let keyboard = KeyboardService.createBackCancelKeyboard()
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: "❌ Нет каналов для изучения\n\nПерешли мне от 3 до 10 постов из канала через Forward.",
+                keyboard: keyboard,
+                client: req.client
+            )
+            return
+        }
+        
+        var channelList: [(id: UUID, title: String, canUse: Bool)] = []
+        for channel in channels {
+            let channelId = try channel.requireID()
+            let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+            let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+            // Проверяем, есть ли уже изученный стиль
+            let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) != nil
+            // Канал готов к изучению только если есть минимум 3 поста с текстом И стиль еще не изучен
+            let canUse = stats.withText >= 3 && !hasStyleProfile
+            channelList.append((id: channelId, title: title, canUse: canUse))
+        }
+        
+        if channelList.count == 1 {
+            // Один канал - сразу анализируем или показываем ошибку
+            let channel = channelList.first!
+            if channel.canUse {
+                try await StyleService.analyzeChannel(
+                    userId: userId,
+                    token: token,
+                    req: req,
+                    isRelearn: false,
+                    channelId: channel.id.uuidString,
+                    replyToMessageId: nil,
+                    backCallback: "back_to_main"
+                )
+            } else {
+                let stats = try await PostService.getPostsStatistics(channelId: channel.id, db: req.db)
+                var messageText = "❌ Недостаточно постов с текстом\n\n"
+                messageText += "Канал: \(channel.title)\n"
+                messageText += "• Всего постов: \(KeyboardService.pluralizePost(stats.total))\n"
+                messageText += "• С текстом: \(KeyboardService.pluralizePost(stats.withText))\n"
+                if stats.mediaOnly > 0 {
+                            messageText += "• Только медиа: \(KeyboardService.pluralizePost(stats.mediaOnly))\n"
+                }
+                messageText += "\nДля изучения стиля нужно минимум 3 поста с текстом.\n"
+                let needed = 3 - stats.withText
+                messageText += "Перешли еще \(KeyboardService.pluralizePost(needed)) с текстом."
+                let backKeyboard = KeyboardService.createBackCancelKeyboard(backCallback: "back_to_main")
+                try await TelegramService.sendMessageWithKeyboard(
+                    token: token,
+                    chatId: chatId,
+                    text: messageText,
+                    keyboard: backKeyboard,
+                    client: req.client
+                )
+            }
+        } else {
+            // Несколько каналов - показываем выбор только тех, которые можно изучить
+            // Сначала проверяем статус всех каналов
+            var channelsWithStatus: [(id: UUID, title: String, canUse: Bool, hasStyleProfile: Bool)] = []
+            for channel in channelList {
+                let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channel.id, db: req.db) != nil
+                channelsWithStatus.append((id: channel.id, title: channel.title, canUse: channel.canUse, hasStyleProfile: hasStyleProfile))
+            }
+            
+            // Фильтруем каналы: показываем только те, которые готовы к изучению (не изучены)
+            let channelsToShow = channelsWithStatus.filter { !$0.hasStyleProfile && $0.canUse }
+            
+            if channelsToShow.isEmpty {
+                // Все каналы уже изучены
+                let keyboard = KeyboardService.createBackCancelKeyboard(backCallback: "back_to_main")
+                var messageText = "✅ Все твои каналы уже изучены!\n\n"
+                for (index, channel) in channelsWithStatus.enumerated() {
+                    let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+                    messageText += "\(emoji) \(channel.title) — стиль изучен\n"
+                }
+                messageText += "\nМожешь сгенерировать пост или переизучить стиль, если добавил новые посты."
+                try await TelegramService.sendMessageWithKeyboard(
+                    token: token,
+                    chatId: chatId,
+                    text: messageText,
+                    keyboard: keyboard,
+                    client: req.client
+                )
+                return
+            }
+            
+            // Преобразуем для клавиатуры
+            let channelsForKeyboard = channelsToShow.map { (id: $0.id, title: $0.title, canUse: $0.canUse) }
+            let keyboard = KeyboardService.createChannelSelectionKeyboard(
+                channels: channelsForKeyboard,
+                actionPrefix: "analyze_channel"
+            )
+            var messageText = "Выбери канал для изучения стиля:\n\n"
+            for (index, channel) in channelsWithStatus.enumerated() {
+                let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+                let status: String
+                if channel.hasStyleProfile {
+                    status = "✅ Стиль уже изучен"
+                } else if channel.canUse {
+                    status = "✅ Готов к изучению"
+                } else {
+                    status = "⏳ Нужно больше постов (минимум 3 с текстом)"
+                }
+                messageText += "\(emoji) \(channel.title)\n   • \(status)\n\n"
+            }
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                keyboard: keyboard,
+                client: req.client
+            )
+        }
+    }
+    
+    /// Показать статистику по каналам
+    private func handleShowStatistics(userId: Int64, chatId: Int64, token: String, req: Request) async throws {
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        let maxChannels = 3
+        
+        if channels.isEmpty {
+            let keyboard = KeyboardService.createBackCancelKeyboard()
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: "❌ Нет каналов для отображения\n\nПерешли мне от 3 до 10 постов из канала через Forward.",
+                keyboard: keyboard,
+                client: req.client
+            )
+            return
+        }
+        
+        var messageText = "📊 Твои каналы (\(channels.count)/\(maxChannels)):\n\n"
+        
+        for (index, channel) in channels.enumerated() {
+            let channelId = try channel.requireID()
+            let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+            let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+            let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) != nil
+            
+            let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+            messageText += "━━━━━━━━━━━━━━━━━━━━\n"
+            messageText += "\(emoji) \(title)\n"
+            messageText += "━━━━━━━━━━━━━━━━━━━━\n"
+            messageText += "• Всего постов: \(KeyboardService.pluralizePost(stats.total))\n"
+            messageText += "• С текстом: \(stats.withText)\n"
+            messageText += "• Только медиа: \(stats.mediaOnly)\n"
+            messageText += "• Статус: \(hasStyleProfile ? "✅ Стиль изучен" : "⏳ Нужно изучить")\n"
+            if hasStyleProfile {
+                if let profile = try await StyleProfile.query(on: req.db)
+                    .filter(\.$channel.$id == channelId)
+                    .filter(\.$isReady == true)
+                    .first() {
+                    messageText += "• Проанализировано: \(KeyboardService.pluralizePost(profile.analyzedPostsCount))\n"
+                }
+            } else {
+                if stats.withText < 3 {
+                    let needed = 3 - stats.withText
+                    messageText += "• Нужно еще: \(KeyboardService.pluralizePost(needed)) с текстом\n"
+                }
+            }
+            messageText += "\n"
+        }
+        
+        // Создаем кнопки для каждого канала
+        var buttons: [[InlineKeyboardButton]] = []
+        for (index, channel) in channels.enumerated() {
+            let channelId = try channel.requireID()
+            let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+            
+            let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+            buttons.append([
+                InlineKeyboardButton(text: "\(emoji) \(title)", callback_data: "channel_stats:\(channelId.uuidString)")
+            ])
+        }
+        
+        buttons.append([
+            InlineKeyboardButton(text: "↩️ Назад", callback_data: "back_to_main"),
+            InlineKeyboardButton(text: "🗑️ Удалить все данные", callback_data: "reset_all_data")
+        ])
+        
+        let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: messageText,
+            keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Обработка меню выбора канала для удаления
+    private func handleDeleteChannelMenu(userId: Int64, chatId: Int64, token: String, req: Request) async throws {
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        
+        if channels.isEmpty {
+            let keyboard = KeyboardService.createBackCancelKeyboard()
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: "❌ Нет каналов для удаления",
+                keyboard: keyboard,
+                client: req.client
+            )
+            return
+        }
+        
+        var channelList: [(id: UUID, title: String, canUse: Bool)] = []
+        for channel in channels {
+            let channelId = try channel.requireID()
+            let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+            channelList.append((id: channelId, title: title, canUse: true))
+        }
+        
+        let keyboard = KeyboardService.createChannelSelectionKeyboard(
+            channels: channelList,
+            actionPrefix: "delete_channel"
+        )
+        var messageText = "Выбери канал для удаления:\n\n"
+        for (index, channel) in channelList.enumerated() {
+            let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+            let stats = try await PostService.getPostsStatistics(channelId: channel.id, db: req.db)
+            messageText += "\(emoji) \(channel.title)\n   • Постов: \(stats.total)\n\n"
+        }
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: messageText,
+            keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Показать подтверждение удаления канала
+    private func handleDeleteChannelConfirmation(
+        userId: Int64,
+        chatId: Int64,
+        channelIdString: String,
+        token: String,
+        req: Request
+    ) async throws {
+        guard let channelUUID = UUID(uuidString: channelIdString),
+              let channel = try await Channel.query(on: req.db)
+                .filter(\.$id == channelUUID)
+                .filter(\.$ownerUserId == userId)
+                .first() else {
+            try await TelegramService.sendMessage(
+                token: token,
+                chatId: chatId,
+                text: "❌ Канал не найден",
+                client: req.client
+            )
+            return
+        }
+        
+        let channelId = try channel.requireID()
+        let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+        let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+        let profilesCount = try await StyleProfile.query(on: req.db)
+            .filter(\.$channel.$id == channelId)
+            .count()
+        
+        let keyboard = KeyboardService.createDeleteConfirmationKeyboard(channelId: channelId, channelTitle: title)
+        let messageText = """
+⚠️ Подтверди удаление канала
+
+Канал: \(title)
+• Удалено будет: \(KeyboardService.pluralizePost(stats.total)), \(KeyboardService.pluralizeProfile(profilesCount)) стиля
+
+Это действие нельзя отменить.
+"""
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: messageText,
+            keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Подтверждение удаления канала
+    private func handleConfirmDeleteChannel(
+        userId: Int64,
+        chatId: Int64,
+        channelIdString: String,
+        token: String,
+        req: Request
+    ) async throws {
+        guard let channelUUID = UUID(uuidString: channelIdString),
+              let channel = try await Channel.query(on: req.db)
+                .filter(\.$id == channelUUID)
+                .filter(\.$ownerUserId == userId)
+                .first() else {
+            try await TelegramService.sendMessage(
+                token: token,
+                chatId: chatId,
+                text: "❌ Канал не найден",
+                client: req.client
+            )
+            return
+        }
+        
+        let channelId = try channel.requireID()
+        let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+        
+        // Удаляем профили стиля
+        try await StyleProfile.query(on: req.db)
+            .filter(\.$channel.$id == channelId)
+            .delete()
+        
+        // Удаляем все посты
+        let postsCount = try await ChannelPost.query(on: req.db)
+            .filter(\.$channel.$id == channelId)
+            .count()
+        try await ChannelPost.query(on: req.db)
+            .filter(\.$channel.$id == channelId)
+            .delete()
+        
+        // Деактивируем канал
+        channel.isActive = false
+        try await channel.update(on: req.db)
+        
+        let keyboard = KeyboardService.createMainMenuKeyboard(
+            channelsCount: try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db).count,
+            maxChannels: 3
+        )
+        let messageText = """
+✅ Канал "\(title)" удален
+
+Удалено:
+• \(KeyboardService.pluralizePost(postsCount))
+• 1 профиль стиля
+
+"""
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: messageText,
+            keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Показать детальную статистику по каналу
+    private func handleChannelStatistics(
+        userId: Int64,
+        chatId: Int64,
+        channelIdString: String,
+        token: String,
+        req: Request
+    ) async throws {
+        guard let channelUUID = UUID(uuidString: channelIdString),
+              let channel = try await Channel.query(on: req.db)
+                .filter(\.$id == channelUUID)
+                .filter(\.$ownerUserId == userId)
+                .first() else {
+            try await TelegramService.sendMessage(
+                token: token,
+                chatId: chatId,
+                text: "❌ Канал не найден",
+                client: req.client
+            )
+            return
+        }
+        
+        let channelId = try channel.requireID()
+        let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+        let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+        let hasStyleProfile = try await StyleService.getStyleProfile(channelId: channelId, db: req.db) != nil
+        
+        var messageText = "📊 Статистика канала\n\n"
+        messageText += "\(title)\n"
+        messageText += "━━━━━━━━━━━━━━━━━━━━\n"
+        messageText += "• Всего постов: \(stats.total)\n"
+        messageText += "• С текстом: \(stats.withText)\n"
+        messageText += "• Только медиа: \(stats.mediaOnly)\n"
+        messageText += "• Статус: \(hasStyleProfile ? "✅ Стиль изучен" : "⏳ Нужно изучить")\n"
+        
+        if hasStyleProfile {
+            if let profile = try await StyleProfile.query(on: req.db)
+                .filter(\.$channel.$id == channelId)
+                .filter(\.$isReady == true)
+                .first() {
+                messageText += "• Проанализировано: \(profile.analyzedPostsCount) постов\n"
+            }
+        } else {
+            if stats.withText < 3 {
+                messageText += "• Нужно еще: \(3 - stats.withText) поста с текстом\n"
+            }
+        }
+        
+        let keyboard = KeyboardService.createChannelStatisticsKeyboard(channelId: channelId, channelTitle: title)
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: messageText,
+            keyboard: keyboard,
+            client: req.client
+        )
+    }
+    
+    /// Показать помощь
+    private func handleHelp(userId: Int64, chatId: Int64, token: String, req: Request) async throws {
+        let helpText = """
+❓ Помощь
+
+📝 Как использовать бота:
+
+1. Перешли мне от 3 до 10 постов из своего канала через Forward
+2. Нажми кнопку «Изучить канал» — я запомню стиль
+3. Отправь тему или промт — я сгенерирую текст в твоём стиле
+4. Скопируй текст и опубликуй его вручную от имени канала
+
+⚠️ Ограничения:
+• Максимум 3 канала на пользователя
+• До 2 генераций в минуту
+• Для изучения стиля нужно минимум 3 поста с текстом
+
+💡 Совет: Пересылай посты с текстом или подписью к медиа. Посты только с картинками без подписи не помогут понять стиль.
+"""
+        let keyboard = KeyboardService.createBackCancelKeyboard()
+        try await TelegramService.sendMessageWithKeyboard(
+            token: token,
+            chatId: chatId,
+            text: helpText,
+            keyboard: keyboard,
+            client: req.client
+        )
     }
     
     // MARK: - Обработка команды /reset
@@ -1186,7 +1853,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         _ = try await TelegramService.sendMessageWithKeyboard(
             token: token,
             chatId: chatId,
-            text: "✅ Все данные удалены!\n\n🗑️ Удалено:\n• \(deletedChannelsCount) канал(ов)\n• \(deletedPostsCount) пост(ов)\n• \(deletedProfilesCount) профиль(ей) стиля\n\nНачнём заново:\n1. Перешли мне от 3 до 10 постов (Forward) из нужного канала\n2. Дождись, когда появится кнопка «Изучить канал»\n3. Запусти анализ и отправляй темы для новых постов",
+            text: "✅ Все данные удалены!\n\n🗑️ Удалено:\n• \(KeyboardService.pluralizeChannel(deletedChannelsCount))\n• \(KeyboardService.pluralizePost(deletedPostsCount))\n• \(KeyboardService.pluralizeProfile(deletedProfilesCount)) стиля\n\nНачнём заново:\n1. Перешли мне от 3 до 10 постов (Forward) из нужного канала\n2. Дождись, когда появится кнопка «Изучить канал»\n3. Запусти анализ и отправляй темы для новых постов",
             keyboard: keyboard,
             client: req.client
         )

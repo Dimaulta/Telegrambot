@@ -20,26 +20,36 @@ struct PostGenerationService {
         
         let chatId = TelegramService.getChatIdFromUserId(userId: userId)
         
-        // Сначала отправляем только готовый текст поста
+        // Обертываем текст в моноширинный формат (используем HTML тег <pre>)
+        // Экранируем специальные символы HTML
+        let escapedText = generatedPost
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let monospaceText = "<pre>\(escapedText)</pre>"
+        
+        // Сначала отправляем только готовый текст поста в моноширинном формате
         _ = try await TelegramService.sendMessage(
             token: token,
             chatId: chatId,
-            text: generatedPost,
-            client: req.client
+            text: monospaceText,
+            client: req.client,
+            parseMode: "HTML"
         )
         
         // Затем отправляем напоминание и кнопки действий
-        let keyboard = KeyboardService.createPostResultKeyboard()
+        let keyboard = KeyboardService.createPostResultKeyboardWithBack()
         _ = try await TelegramService.sendMessageWithKeyboard(
             token: token,
             chatId: chatId,
-            text: "📌 Скопируй текст и опубликуй его вручную от имени канала. Можешь добавить медиа или поправить формулировки перед публикацией.",
+            text: "Тапни по тексту выше и он скопируется. Затем опубликуй его вручную от имени канала. Можешь добавить медиа или поправить формулировки перед публикацией.",
             keyboard: keyboard,
             client: req.client
         )
         
-        // Очищаем сохраненную тему после успешной генерации
-        await TopicSessionManager.shared.clearTopic(userId: userId)
+               // Очищаем сохраненную тему после успешной генерации
+               // Канал уже очищен в контроллере перед генерацией
+               await TopicSessionManager.shared.clearTopic(userId: userId)
     }
 }
 

@@ -11,90 +11,26 @@ struct WelcomeService {
         token: String,
         req: Request
     ) async throws {
+        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+        let channelsCount = channels.count
+        let maxChannels = 3
+        
         var welcomeMessage = """
-Привет! Я сгенерирую текст для публикации в твоём стиле! 
+Привет! Я сгенерирую текст для публикации в твоём стиле!
 
-1. Перешли мне три публикации из канала
+1. Перешли мне от 3 до 10 постов из канала
 2. Появится кнопка «Изучить канал», нажми её, и я запомню стиль
 3. Отправь тему или промт, а я верну готовый текст, который ты копируешь себе
 
 (Ограничение на частоту генераций: до двух генераций в минуту)
 
 """
-
-        welcomeMessage += "\n"
-        
-        let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
-        var totalSavedPosts = 0
         
         if channels.isEmpty {
-            welcomeMessage += """
-⚠️ Тут пока нет сохранённых постов. Перешли мне три публикации из канала
-"""
-        } else {
-            welcomeMessage += "\n\n📂 Что у меня уже есть:"
-            var summaries: [String] = []
-            var hasReadyStyle = false
-            var hasEnoughPosts = false
+            // Нет каналов
+            welcomeMessage += "⚠️ Тут пока нет сохранённых постов. Перешли мне от 3 до 10 постов из канала через Forward."
             
-            for channel in channels {
-                let channelId = try channel.requireID()
-                let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
-                let postsCount = try await ChannelPost.query(on: req.db)
-                    .filter(\.$channel.$id == channelId)
-                    .count()
-                totalSavedPosts += postsCount
-                let hasStyleProfile = (try? await StyleProfile.query(on: req.db)
-                    .filter(\.$channel.$id == channelId)
-                    .filter(\.$isReady == true)
-                    .first()) != nil
-                
-                if hasStyleProfile { hasReadyStyle = true }
-                if postsCount >= 3 { hasEnoughPosts = true }
-                
-                let status: String
-                if hasStyleProfile {
-                    status = "стиль изучен — можно сразу генерировать"
-                } else if postsCount >= 3 {
-                    status = "готов к анализу"
-                } else if postsCount == 0 {
-                    status = "пока нет сохранённых постов"
-                } else {
-                    status = "нужно ещё \(max(0, 3 - postsCount)) пост(а) для анализа"
-                }
-                
-                summaries.append("• \(title): \(status) (сохранено \(postsCount))")
-            }
-            
-            if !summaries.isEmpty {
-                welcomeMessage += "\n" + summaries.joined(separator: "\n")
-            }
-            
-            welcomeMessage += "\n\n📝 Готовые тексты я отправляю в этот чат — автор публикует их вручную, когда удобно."
-            
-            var buttons: [[InlineKeyboardButton]] = []
-            
-            if hasEnoughPosts {
-                buttons.append([
-                    InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
-                ])
-            }
-            
-            if hasReadyStyle {
-                buttons.append([
-                    InlineKeyboardButton(text: "🤖 Сгенерировать пост", callback_data: "create_new_post")
-                ])
-                buttons.append([
-                    InlineKeyboardButton(text: "🔄 Переизучить канал", callback_data: "relearn_style")
-                ])
-            }
-            
-            buttons.append([
-                InlineKeyboardButton(text: KeyboardService.deleteButtonTitle(totalCount: totalSavedPosts), callback_data: "reset_all_data")
-            ])
-            
-            let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
-            
+            let keyboard = KeyboardService.createMainMenuKeyboard(channelsCount: 0, maxChannels: maxChannels)
             try await TelegramService.sendMessageWithKeyboard(
                 token: token,
                 chatId: chatId,
@@ -102,18 +38,43 @@ struct WelcomeService {
                 keyboard: keyboard,
                 client: req.client
             )
-            return
+        } else {
+            // Есть каналы - показываем список
+            welcomeMessage += "📊 Твои каналы (\(channelsCount)/\(maxChannels)):\n\n"
+            
+            for (index, channel) in channels.enumerated() {
+                let channelId = try channel.requireID()
+                let title = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+                let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+                let hasStyleProfile = (try? await StyleProfile.query(on: req.db)
+                    .filter(\.$channel.$id == channelId)
+                    .filter(\.$isReady == true)
+                    .first()) != nil
+                
+                let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+                let status: String
+                if hasStyleProfile {
+                    status = "✅ Стиль изучен"
+                } else if stats.withText >= 3 {
+                    status = "⏳ Готов к изучению"
+                } else {
+                    status = "⏳ Нужно изучить"
+                }
+                
+                welcomeMessage += "\(emoji) \(title)\n"
+                welcomeMessage += "   • Постов: \(stats.total) (с текстом: \(stats.withText))\n"
+                welcomeMessage += "   • Статус: \(status)\n\n"
+            }
+            
+            let keyboard = KeyboardService.createMainMenuKeyboard(channelsCount: channelsCount, maxChannels: maxChannels)
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: welcomeMessage,
+                keyboard: keyboard,
+                client: req.client
+            )
         }
-        
-        let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: totalSavedPosts)
-        
-        try await TelegramService.sendMessageWithKeyboard(
-            token: token,
-            chatId: chatId,
-            text: welcomeMessage,
-            keyboard: keyboard,
-            client: req.client
-        )
     }
     
     /// Напоминание о необходимости переслать публикации

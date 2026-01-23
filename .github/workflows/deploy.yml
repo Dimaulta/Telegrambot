@@ -14,13 +14,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Нужно для сравнения с предыдущим коммитом
+          fetch-depth: 50  # Увеличиваем для сравнения с последним деплоем
+      
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -p ${{ secrets.VPS_SSH_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
       
       - name: Detect changed services
         id: changed
         run: |
-          # Определяем какие папки/сервисы изменились
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          # Получаем коммит последнего деплоя с VPS через SSH
+          LAST_DEPLOY_COMMIT=$(ssh -i ~/.ssh/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "cat /root/Telegrambot/.last_deploy_commit 2>/dev/null || echo 'none'")
+          
+          # Если файла нет или он пустой, используем HEAD~10 как fallback
+          if [ -z "$LAST_DEPLOY_COMMIT" ] || [ "$LAST_DEPLOY_COMMIT" = "none" ]; then
+            echo "⚠️ Файл .last_deploy_commit не найден, использую HEAD~10 как fallback"
+            LAST_DEPLOY_COMMIT="HEAD~10"
+          else
+            # Проверяем, что коммит существует в репозитории
+            if ! git rev-parse --verify "$LAST_DEPLOY_COMMIT" >/dev/null 2>&1; then
+              echo "⚠️ Коммит $LAST_DEPLOY_COMMIT не найден в репозитории, использую HEAD~10"
+              LAST_DEPLOY_COMMIT="HEAD~10"
+            else
+              echo "✅ Использую коммит последнего деплоя: $LAST_DEPLOY_COMMIT"
+            fi
+          fi
+          
+          # Определяем какие папки/сервисы изменились с момента последнего деплоя
+          CHANGED_FILES=$(git diff --name-only "$LAST_DEPLOY_COMMIT" HEAD)
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
@@ -42,7 +66,7 @@ jobs:
               SERVICES="all"
             elif echo "$CHANGED_FILES" | grep -qE "^Package.swift$"; then
               # Package.swift изменился - анализируем что именно
-              PACKAGE_DIFF=$(git diff HEAD~1 HEAD -- Package.swift)
+              PACKAGE_DIFF=$(git diff "$LAST_DEPLOY_COMMIT" HEAD -- Package.swift)
               
               # Проверяем, изменились ли общие зависимости (версии пакетов в секции dependencies)
               if echo "$PACKAGE_DIFF" | grep -qE "^\+.*\.package\(|^\-.*\.package\(|from:|\.upToNextMajor|\.upToNextMinor"; then
@@ -179,6 +203,11 @@ jobs:
             
             echo "📊 Статус контейнеров:"
             docker compose -f docker-compose.prod.yml ps
+            
+            # Сохраняем коммит текущего деплоя для следующего запуска
+            CURRENT_COMMIT=$(git rev-parse HEAD)
+            echo "$CURRENT_COMMIT" > /root/Telegrambot/.last_deploy_commit
+            echo "💾 Сохранён коммит последнего деплоя: $CURRENT_COMMIT"
             
             echo "✅ Деплой завершён!"
 

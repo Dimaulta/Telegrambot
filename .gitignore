@@ -32,3 +32,6 @@ SECURITY_AUDIT*.md
 *.sqlite3
 *.db
 contentfabrikabot/db.sqlite
+
+# Deployment tracking
+.last_deploy_commit

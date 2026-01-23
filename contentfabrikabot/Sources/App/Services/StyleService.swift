@@ -106,7 +106,8 @@ struct StyleService {
             if postsWithText.count <= analyzedPostsCount {
                 let chatId = TelegramService.getChatIdFromUserId(userId: userId)
                 let keyboard = KeyboardService.createGeneratePostKeyboardWithBack()
-                let message = "✅ Стиль твоего канала уже изучен на основе \(KeyboardService.pluralizePost(analyzedPostsCount)) с текстом.\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в твоём стиле, который ты сможешь вручную опубликовать в канале"
+                let channelTitle = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
+                let message = "✅ Стиль канала \"\(channelTitle)\" уже изучен на основе \(KeyboardService.pluralizePost(analyzedPostsCount)) с текстом.\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в стиле этого канала, который ты сможешь вручную опубликовать."
                 try await TelegramService.sendMessageWithKeyboard(
                     token: token,
                     chatId: chatId,
@@ -196,9 +197,10 @@ struct StyleService {
             try await profile.save(on: req.db)
         }
         
+        let channelTitle = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
         let successMessage = isRelearn 
-            ? "✅ Стиль твоего канала переизучен на основе \(postsWithText.count) постов с текстом\n\nТеперь отправь мне тему и я подготовлю текст в твоём стиле, ты сможешь скопировать его у себя в чате"
-            : "✅ Стиль твоего канала изучен на основе \(postsWithText.count) постов с текстом\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в твоём стиле, который ты сможешь вручную опубликовать в канале"
+            ? "✅ Стиль канала \"\(channelTitle)\" переизучен на основе \(postsWithText.count) постов с текстом\n\nТеперь отправь мне тему и я подготовлю текст в стиле этого канала, ты сможешь скопировать его у себя в чате"
+            : "✅ Стиль канала \"\(channelTitle)\" изучен на основе \(postsWithText.count) постов с текстом\n\nОтправь мне тему или несколько тезисов и я пришлю готовый пост в стиле этого канала, который ты сможешь вручную опубликовать."
         
         // Добавляем кнопки для быстрого создания нового поста и удаления данных с кнопкой "Назад"
         let keyboard = KeyboardService.createGeneratePostKeyboardWithBack(totalCount: stats.total)

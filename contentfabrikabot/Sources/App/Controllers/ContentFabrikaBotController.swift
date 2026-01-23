@@ -1030,7 +1030,7 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                         try await TelegramService.sendMessageWithKeyboard(
                             token: token,
                             chatId: chatId,
-                            text: "Выбран канал: \(title)\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
+                            text: "✅ Выбран канал: \"\(title)\"\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
                             keyboard: keyboard,
                             client: req.client
                         )
@@ -1276,7 +1276,37 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 client: req.client
             )
         } else if data == "reset_all_data" {
-            // Кнопка "Удалить все данные" - подтверждение
+            // Кнопка "Удалить все данные" - показываем подтверждение
+            let channels = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db)
+            let totalPosts = try await ChannelPost.query(on: req.db)
+                .join(Channel.self, on: \ChannelPost.$channel.$id == \Channel.$id)
+                .filter(Channel.self, \.$ownerUserId == userId)
+                .count()
+            let totalProfiles = try await StyleProfile.query(on: req.db)
+                .join(Channel.self, on: \StyleProfile.$channel.$id == \Channel.$id)
+                .filter(Channel.self, \.$ownerUserId == userId)
+                .count()
+            
+            let keyboard = KeyboardService.createResetConfirmationKeyboard()
+            let messageText = """
+⚠️ Подтверди удаление всех данных
+
+Будет удалено:
+• \(KeyboardService.pluralizeChannel(channels.count))
+• \(KeyboardService.pluralizePost(totalPosts))
+• \(KeyboardService.pluralizeProfile(totalProfiles)) стиля
+
+Это действие нельзя отменить.
+"""
+            try await TelegramService.sendMessageWithKeyboard(
+                token: token,
+                chatId: chatId,
+                text: messageText,
+                keyboard: keyboard,
+                client: req.client
+            )
+        } else if data == "confirm_reset_all_data" {
+            // Подтверждение удаления всех данных
             try await TelegramService.answerCallbackQuery(
                 token: token,
                 callbackId: callback.id,
@@ -1284,6 +1314,17 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 req: req
             )
             try await handleResetCommand(userId: userId, chatId: chatId, token: token, req: req)
+        } else if data == "cancel_reset_all_data" {
+            // Отмена удаления всех данных
+            try await TelegramService.answerCallbackQuery(
+                token: token,
+                callbackId: callback.id,
+                text: "↩️ Удаление отменено",
+                req: req
+            )
+            // Возвращаемся в главное меню
+            await ChannelSelectionManager.shared.clearChannel(userId: userId)
+            try await WelcomeService.sendWelcome(userId: userId, chatId: chatId, token: token, req: req)
         } else {
             try await TelegramService.answerCallbackQuery(
                 token: token,
@@ -1322,10 +1363,14 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             // Один канал - сразу запрашиваем тему
             let channel = channelList.first!
             if channel.canUse {
-                try await TelegramService.sendMessage(
+                // Сохраняем выбранный канал в сессии
+                await ChannelSelectionManager.shared.saveChannel(userId: userId, channelId: channel.id)
+                let keyboard = KeyboardService.createBackCancelKeyboard()
+                try await TelegramService.sendMessageWithKeyboard(
                     token: token,
                     chatId: chatId,
-                    text: "Выбран канал: \(channel.title)\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
+                    text: "✅ Выбран канал: \"\(channel.title)\"\n\nОтправь тему для поста, и я сгенерирую его в стиле этого канала.",
+                    keyboard: keyboard,
                     client: req.client
                 )
             } else {
@@ -1339,9 +1384,31 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 )
             }
         } else {
-            // Несколько каналов - показываем выбор
+            // Несколько каналов - показываем выбор только тех, у которых изучен стиль
+            // Фильтруем каналы: показываем только те, у которых изучен стиль
+            let channelsWithStyle = channelList.filter { $0.canUse }
+            
+            if channelsWithStyle.isEmpty {
+                // Все каналы без изученного стиля
+                let keyboard = KeyboardService.createBackCancelKeyboard(backCallback: "back_to_main")
+                var messageText = "❌ У всех твоих каналов стиль не изучен!\n\n"
+                for (index, channel) in channelList.enumerated() {
+                    let emoji = ["1️⃣", "2️⃣", "3️⃣"][index]
+                    messageText += "\(emoji) \(channel.title) — стиль не изучен\n"
+                }
+                messageText += "\nСначала изучи стиль хотя бы одного канала, затем сможешь генерировать посты."
+                try await TelegramService.sendMessageWithKeyboard(
+                    token: token,
+                    chatId: chatId,
+                    text: messageText,
+                    keyboard: keyboard,
+                    client: req.client
+                )
+                return
+            }
+            
             let keyboard = KeyboardService.createChannelSelectionKeyboard(
-                channels: channelList,
+                channels: channelsWithStyle,
                 actionPrefix: "generate_post"
             )
             var messageText = "Выбери канал для генерации поста:\n\n"
@@ -1488,7 +1555,8 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         let maxChannels = 3
         
         if channels.isEmpty {
-            let keyboard = KeyboardService.createBackCancelKeyboard()
+            // Если каналов нет, показываем главное меню
+            let keyboard = KeyboardService.createMainMenuKeyboard(channelsCount: 0, maxChannels: 3)
             try await TelegramService.sendMessageWithKeyboard(
                 token: token,
                 chatId: chatId,
@@ -1689,10 +1757,43 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         channel.isActive = false
         try await channel.update(on: req.db)
         
-        let keyboard = KeyboardService.createMainMenuKeyboard(
-            channelsCount: try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db).count,
-            maxChannels: 3
-        )
+        let remainingChannelsCount = try await ChannelService.findAllUserChannels(ownerUserId: userId, db: req.db).count
+        
+        // Создаем клавиатуру с главным меню и явной кнопкой "Главное меню"
+        var buttons: [[InlineKeyboardButton]] = []
+        
+        if remainingChannelsCount > 0 {
+            // Есть другие каналы - показываем полное главное меню
+            buttons.append([
+                InlineKeyboardButton(text: "📝 Сгенерировать пост", callback_data: "generate_post_menu")
+            ])
+            buttons.append([
+                InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel_menu")
+            ])
+            buttons.append([
+                InlineKeyboardButton(text: "📊 Статистика", callback_data: "show_statistics")
+            ])
+            buttons.append([
+                InlineKeyboardButton(text: "❌ Удалить канал", callback_data: "delete_channel_menu")
+            ])
+        } else {
+            // Нет каналов - показываем минимальное меню
+            buttons.append([
+                InlineKeyboardButton(text: "📊 Мои каналы (\(remainingChannelsCount)/3)", callback_data: "show_statistics")
+            ])
+        }
+        
+        buttons.append([
+            InlineKeyboardButton(text: "❓ Помощь", callback_data: "help")
+        ])
+        
+        // Добавляем явную кнопку "Главное меню"
+        buttons.append([
+            InlineKeyboardButton(text: "🏠 Главное меню", callback_data: "back_to_main")
+        ])
+        
+        let keyboard = InlineKeyboardMarkup(inline_keyboard: buttons)
+        
         let messageText = """
 ✅ Канал "\(title)" удален
 
@@ -1847,7 +1948,15 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         
         req.logger.info("🔄 Reset completed for user \(userId): \(deletedChannelsCount) channels, \(deletedPostsCount) posts, \(deletedProfilesCount) profiles")
         
-        let keyboard = KeyboardService.createSimpleAnalyzeKeyboard()
+        // Создаем клавиатуру с кнопкой "Изучить канал" и "Главное меню"
+        let keyboard = InlineKeyboardMarkup(inline_keyboard: [
+            [
+                InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
+            ],
+            [
+                InlineKeyboardButton(text: "🏠 Главное меню", callback_data: "back_to_main")
+            ]
+        ])
         
         // Отправляем сообщение об удалении данных
         _ = try await TelegramService.sendMessageWithKeyboard(

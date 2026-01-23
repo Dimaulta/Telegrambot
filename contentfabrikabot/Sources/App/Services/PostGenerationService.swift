@@ -38,11 +38,12 @@ struct PostGenerationService {
         )
         
         // Затем отправляем напоминание и кнопки действий
+        let channelTitle = channel.telegramChatTitle ?? "Канал \(channel.telegramChatId)"
         let keyboard = KeyboardService.createPostResultKeyboardWithBack()
         _ = try await TelegramService.sendMessageWithKeyboard(
             token: token,
             chatId: chatId,
-            text: "Тапни по тексту выше и он скопируется. Затем опубликуй его вручную от имени канала. Можешь добавить медиа или поправить формулировки перед публикацией.",
+            text: "✅ Пост для канала \"\(channelTitle)\" готов!\n\nТапни по тексту выше и он скопируется. Затем опубликуй его вручную от имени канала. Можешь добавить медиа или поправить формулировки перед публикацией.",
             keyboard: keyboard,
             client: req.client
         )

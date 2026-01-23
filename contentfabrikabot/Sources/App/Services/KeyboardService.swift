@@ -69,6 +69,9 @@ struct KeyboardService {
             ],
             [
                 InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")
+            ],
+            [
+                InlineKeyboardButton(text: "🏠 Главное меню", callback_data: "back_to_main")
             ]
         ])
     }
@@ -233,6 +236,19 @@ struct KeyboardService {
             ],
             [
                 InlineKeyboardButton(text: "↩️ Назад", callback_data: "delete_channel_menu")
+            ]
+        ])
+    }
+    
+    /// Создать клавиатуру подтверждения удаления всех данных
+    static func createResetConfirmationKeyboard() -> InlineKeyboardMarkup {
+        return InlineKeyboardMarkup(inline_keyboard: [
+            [
+                InlineKeyboardButton(text: "✅ Да, удалить всё", callback_data: "confirm_reset_all_data"),
+                InlineKeyboardButton(text: "❌ Отмена", callback_data: "cancel_reset_all_data")
+            ],
+            [
+                InlineKeyboardButton(text: "↩️ Назад", callback_data: "back_to_main")
             ]
         ])
     }

@@ -4,10 +4,20 @@ import Vapor
 struct KeyboardService {
     
     /// Создать клавиатуру с кнопкой "Изучить канал" и "Удалить все данные"
-    static func createAnalyzeChannelKeyboard(totalCount: Int = 0) -> InlineKeyboardMarkup {
+    /// - Parameters:
+    ///   - totalCount: Общее количество постов
+    ///   - postsWithText: Количество постов с текстом (для отображения статуса на кнопке)
+    static func createAnalyzeChannelKeyboard(totalCount: Int = 0, postsWithText: Int = 0) -> InlineKeyboardMarkup {
+        let buttonText: String
+        if postsWithText >= 3 {
+            buttonText = "📚 Изучить канал ✅"
+        } else {
+            buttonText = "📚 Изучить канал (\(postsWithText)/3)"
+        }
+        
         return InlineKeyboardMarkup(inline_keyboard: [
             [
-                InlineKeyboardButton(text: "📚 Изучить канал", callback_data: "analyze_channel")
+                InlineKeyboardButton(text: buttonText, callback_data: "analyze_channel")
             ],
             [
                 InlineKeyboardButton(text: deleteButtonTitle(totalCount: totalCount), callback_data: "reset_all_data")

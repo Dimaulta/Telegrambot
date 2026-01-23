@@ -26,10 +26,34 @@ actor UpdateIdDeduplicator {
     }
 }
 
+/// Actor для отслеживания последовательных постов без текста
+actor MediaOnlyPostsTracker {
+    private var userConsecutiveMediaOnly: [Int64: Int] = [:]
+    
+    /// Зарегистрировать пост без текста
+    func registerMediaOnlyPost(userId: Int64) -> Int {
+        let current = userConsecutiveMediaOnly[userId] ?? 0
+        let newCount = current + 1
+        userConsecutiveMediaOnly[userId] = newCount
+        return newCount
+    }
+    
+    /// Зарегистрировать пост с текстом (сбрасывает счетчик)
+    func registerPostWithText(userId: Int64) {
+        userConsecutiveMediaOnly[userId] = 0
+    }
+    
+    /// Получить текущий счетчик последовательных постов без текста
+    func getConsecutiveCount(userId: Int64) -> Int {
+        return userConsecutiveMediaOnly[userId] ?? 0
+    }
+}
+
 /// Основной контроллер для обработки webhook'ов от Telegram
 final class ContentFabrikaBotController: @unchecked Sendable {
     private static let deduplicator = UpdateIdDeduplicator()
     private static let rateLimiter = RateLimiter(limit: 2, interval: 60)
+    private static let mediaOnlyTracker = MediaOnlyPostsTracker()
     
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("🔔 handleWebhook called")
@@ -347,6 +371,18 @@ final class ContentFabrikaBotController: @unchecked Sendable {
             
             // Сохраняем пересланный пост и уведомляем пользователя
             do {
+                // Проверяем, есть ли текст в сообщении
+                let hasText = !(message.text ?? message.caption ?? "").isEmpty
+                
+                // Регистрируем в tracker
+                let consecutiveMediaOnly: Int
+                if hasText {
+                    await ContentFabrikaBotController.mediaOnlyTracker.registerPostWithText(userId: userId)
+                    consecutiveMediaOnly = 0
+                } else {
+                    consecutiveMediaOnly = await ContentFabrikaBotController.mediaOnlyTracker.registerMediaOnlyPost(userId: userId)
+                }
+                
                 let postsCount = try await PostService.saveForwardedPost(
                     message: message,
                     userId: userId,
@@ -354,25 +390,45 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     req: req
                 )
                 
+                // Получаем статистику постов
+                guard let channel = channel else {
+                    throw Abort(.internalServerError, reason: "Channel not found")
+                }
+                let channelId = try channel.requireID()
+                let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+                
                 let chatId = TelegramService.getChatIdFromUserId(userId: userId)
                 
-                if postsCount >= 3 {
-                    // Когда постов достаточно, предлагаем изучить канал с кнопкой
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
+                // Формируем сообщение со статистикой
+                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(stats.total) постов\n• С текстом: \(stats.withText) постов (нужно минимум 3 для анализа)\n• Только медиа: \(stats.mediaOnly) постов"
+                
+                // Предупреждение при 2 постах подряд без текста
+                if consecutiveMediaOnly >= 2 {
+                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(consecutiveMediaOnly) пост(а) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
+                }
+                
+                // Создаем клавиатуру с учетом статистики
+                if stats.withText >= 3 {
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "✅ Получена публикация \(postsCount)!\n\nВсего сохранено постов: \(postsCount)\n\nТеперь можешь изучить стиль канала!",
+                        text: messageText,
                         keyboard: keyboard,
                         client: req.client,
                         replyToMessageId: message.message_id
                     )
                 } else {
-                    let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: postsCount)
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
+                    if stats.total < 3 {
+                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(3 - stats.withText) пост(а) с текстом."
+                    } else {
+                        messageText += "\n\n⚠️ У тебя \(stats.total) постов, но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
+                    }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "✅ Получена публикация \(postsCount)!\n\nВсего сохранено постов: \(postsCount)\n\nДля изучения стиля нужно минимум 3 поста. Перешли еще \(3 - postsCount) пост(а).",
+                        text: messageText,
                         keyboard: keyboard,
                         client: req.client,
                         replyToMessageId: message.message_id
@@ -502,13 +558,11 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                 return Response(status: .ok)
             } else {
                 // Профиль не готов - проверяем, есть ли посты в БД
-                let postsCount = try await ChannelPost.query(on: req.db)
-                    .filter(\.$channel.$id == channelId)
-                    .count()
+                let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
                 
-                if postsCount == 0 {
+                if stats.total == 0 {
                     // Нет постов - просим переслать
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
@@ -518,11 +572,17 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     )
                 } else {
                     // Есть посты, но стиль не изучен - предлагаем изучить
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
+                    var messageText = "Найдено \(stats.total) пост(ов) в базе данных"
+                    if stats.withText < 3 {
+                        messageText += ", но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом."
+                    } else {
+                        messageText += ". Нажми 'Изучить канал' для анализа стиля."
+                    }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "Найдено \(postsCount) пост(ов) в базе данных. Нажми 'Изучить канал' для анализа стиля.",
+                        text: messageText,
                         keyboard: keyboard,
                         client: req.client
                     )
@@ -652,14 +712,21 @@ final class ContentFabrikaBotController: @unchecked Sendable {
         let text = message.text ?? message.caption ?? ""
         req.logger.info("📨 handleChannelMessage: text=\(text.prefix(50)), caption=\(message.caption?.prefix(50) ?? "nil"), forward_from_chat=\(message.forward_from_chat != nil ? "yes" : "no")")
         
-        guard !text.isEmpty else {
-            req.logger.warning("⚠️ Message has no text or caption, skipping")
-            return
-        }
-        
         // Если это пересланное сообщение из канала, сохраняем его
         if let forwardedChat = message.forward_from_chat, forwardedChat.type == "channel" {
             req.logger.info("✅ Forwarded message from channel: \(forwardedChat.id) (\(forwardedChat.title ?? "no title"))")
+            
+            // Проверяем, есть ли текст в сообщении
+            let hasText = !text.isEmpty
+            
+            // Регистрируем в tracker
+            let consecutiveMediaOnly: Int
+            if hasText {
+                await ContentFabrikaBotController.mediaOnlyTracker.registerPostWithText(userId: userId)
+                consecutiveMediaOnly = 0
+            } else {
+                consecutiveMediaOnly = await ContentFabrikaBotController.mediaOnlyTracker.registerMediaOnlyPost(userId: userId)
+            }
             
             do {
                 let postsCount = try await PostService.saveForwardedPost(
@@ -669,26 +736,51 @@ final class ContentFabrikaBotController: @unchecked Sendable {
                     req: req
                 )
                 
+                // Получаем статистику постов
+                var channel = try await Channel.query(on: req.db)
+                    .filter(\.$telegramChatId == forwardedChat.id)
+                    .first()
+                
+                guard let channel = channel else {
+                    throw Abort(.internalServerError, reason: "Channel not found")
+                }
+                
+                let channelId = try channel.requireID()
+                let stats = try await PostService.getPostsStatistics(channelId: channelId, db: req.db)
+                
                 // Уведомляем пользователя о сохранении
                 let chatId = TelegramService.getChatIdFromUserId(userId: userId)
                 
-                if postsCount >= 3 {
-                    // Когда постов достаточно, предлагаем изучить канал с кнопкой
-                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: postsCount)
+                // Формируем сообщение со статистикой
+                var messageText = "✅ Получена публикация!\n\n📊 Статистика:\n• Всего сохранено: \(stats.total) постов\n• С текстом: \(stats.withText) постов (нужно минимум 3 для анализа)\n• Только медиа: \(stats.mediaOnly) постов"
+                
+                // Предупреждение при 2 постах подряд без текста
+                if consecutiveMediaOnly >= 2 {
+                    messageText += "\n\n⚠️ Обрати внимание!\n\nТы переслал \(consecutiveMediaOnly) пост(а) подряд без текста или подписи к медиа.\n\nДля изучения стиля канала нужны посты с текстом:\n• Минимум 3 поста с текстом или подписью к фото/видео\n• Посты только с картинками без подписи не помогут мне понять твой стиль\n\nПерешли посты, где есть текст или подпись к медиа 📝"
+                }
+                
+                // Создаем клавиатуру с учетом статистики
+                if stats.withText >= 3 {
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "✅ Получена публикация \(postsCount)!\n\nВсего сохранено постов: \(postsCount)\n\nТеперь можешь изучить стиль канала!",
+                        text: messageText,
                         keyboard: keyboard,
                         client: req.client,
                         replyToMessageId: message.message_id
                     )
                 } else {
-                    let keyboard = KeyboardService.createDeleteDataKeyboard(totalCount: postsCount)
+                    let keyboard = KeyboardService.createAnalyzeChannelKeyboard(totalCount: stats.total, postsWithText: stats.withText)
+                    if stats.total < 3 {
+                        messageText += "\n\nДля изучения стиля нужно минимум 3 поста с текстом. Перешли еще \(3 - stats.withText) пост(а) с текстом."
+                    } else {
+                        messageText += "\n\n⚠️ У тебя \(stats.total) постов, но только \(stats.withText) из них содержат текст.\n\nДля изучения стиля нужно минимум 3 поста с текстом или подписью к медиа."
+                    }
                     try await TelegramService.sendMessageWithKeyboard(
                         token: token,
                         chatId: chatId,
-                        text: "✅ Получена публикация \(postsCount)!\n\nВсего сохранено постов: \(postsCount)\n\nДля изучения стиля нужно минимум 3 поста. Перешли еще \(3 - postsCount) пост(а).",
+                        text: messageText,
                         keyboard: keyboard,
                         client: req.client,
                         replyToMessageId: message.message_id

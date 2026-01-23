@@ -17,9 +17,8 @@ struct PostService {
         }
         
         let text = message.text ?? message.caption ?? ""
-        guard !text.isEmpty else {
-            throw Abort(.badRequest, reason: "Forwarded message has no text or caption")
-        }
+        // Если текста нет, используем маркер для медиа без текста
+        let postText = text.isEmpty ? "[Медиа без текста]" : text
         
         let forwardedChatId = forwardedChat.id
         
@@ -60,18 +59,43 @@ struct PostService {
             let post = ChannelPost(
                 channelID: channelId,
                 telegramMessageId: message.message_id,
-                text: text,
+                text: postText,
                 postDate: message.date ?? Int(Date().timeIntervalSince1970)
             )
             try await post.save(on: req.db)
             
-            req.logger.info("✅ Saved forwarded post from channel \(forwardedChatId) by user \(userId)")
+            req.logger.info("✅ Saved forwarded post from channel \(forwardedChatId) by user \(userId), hasText: \(!text.isEmpty)")
         }
         
         // Возвращаем количество постов в канале
         return try await ChannelPost.query(on: req.db)
             .filter(\.$channel.$id == channelId)
             .count()
+    }
+    
+    /// Получить статистику постов канала
+    static func getPostsStatistics(
+        channelId: UUID,
+        db: Database
+    ) async throws -> (total: Int, withText: Int, mediaOnly: Int) {
+        let allPosts = try await ChannelPost.query(on: db)
+            .filter(\.$channel.$id == channelId)
+            .all()
+        
+        let total = allPosts.count
+        let withText = allPosts.filter { post in
+            let text = post.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !text.isEmpty && text != "[Медиа без текста]"
+        }.count
+        let mediaOnly = total - withText
+        
+        return (total: total, withText: withText, mediaOnly: mediaOnly)
+    }
+    
+    /// Проверить, есть ли у поста текст (не маркер)
+    static func hasText(_ post: ChannelPost) -> Bool {
+        let text = post.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !text.isEmpty && text != "[Медиа без текста]"
     }
     
     /// Получить последние посты канала

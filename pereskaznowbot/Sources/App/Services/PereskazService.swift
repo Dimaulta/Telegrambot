@@ -355,6 +355,7 @@ struct PereskazService {
         
         // Запускаем yt-dlp для скачивания аудио
         // Используем более низкое качество, чтобы файл был меньше 25MB (лимит Whisper API)
+        // Добавляем user-agent для обхода блокировок YouTube на VPS
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlpPath)
         process.arguments = [
@@ -362,6 +363,7 @@ struct PereskazService {
             "--audio-format", "m4a",
             "--audio-quality", "7", // Качество 7 (еще более низкое) для меньшего размера файла
             "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1", // Более агрессивное сжатие через ffmpeg
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--output", audioFile.path,
             "--no-mtime", // Не сохранять время модификации
             "--no-playlist", // Только одно видео

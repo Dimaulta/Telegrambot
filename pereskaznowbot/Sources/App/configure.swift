@@ -36,6 +36,10 @@ public func configure(_ app: Application) async throws {
     let port = getPortFromConfig(serviceName: "pereskaznowbot")
     app.http.server.configuration.port = port
     
+    // Настройка HTTP клиента с увеличенным timeout для Telegram API
+    app.http.client.configuration.timeout = .init(connect: .seconds(30), read: .seconds(30))
+    app.http.client.configuration.connectionPool.idleTimeout = .seconds(60)
+    
     // Инициализация базы данных монетизации
     MonetizationService.ensureDatabase(app: app)
     

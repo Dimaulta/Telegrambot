@@ -524,12 +524,13 @@ final class PereskazNowBotController: @unchecked Sendable {
     
     // MARK: - Обработка YouTube ссылок
     
-    /// Извлекает video ID из YouTube URL
+    /// Извлекает video ID из YouTube URL (включая Shorts)
     private func extractVideoIdFromURL(_ url: String) -> String? {
         // Паттерны для извлечения video ID
         let patterns = [
             #"youtube\.com/watch\?v=([\w-]+)"#,
             #"youtu\.be/([\w-]+)"#,
+            #"youtube\.com/shorts/([\w-]+)"#, // YouTube Shorts
         ]
         
         for pattern in patterns {
@@ -543,7 +544,7 @@ final class PereskazNowBotController: @unchecked Sendable {
         return nil
     }
     
-    // Извлечение YouTube URL из текста
+    // Извлечение YouTube URL из текста (включая Shorts)
     private func extractYouTubeURL(from text: String) -> String? {
         // Поддерживаемые форматы YouTube URL
         let patterns = [
@@ -553,8 +554,14 @@ final class PereskazNowBotController: @unchecked Sendable {
             "https://youtu\\.be/[\\w-]+",
             // Мобильный формат: https://m.youtube.com/watch?v=VIDEO_ID
             "https://m\\.youtube\\.com/watch\\?v=[\\w-]+",
+            // YouTube Shorts: https://www.youtube.com/shorts/VIDEO_ID
+            "https://(www\\.)?youtube\\.com/shorts/[\\w-]+",
+            // Мобильный Shorts: https://m.youtube.com/shorts/VIDEO_ID
+            "https://m\\.youtube\\.com/shorts/[\\w-]+",
             // С дополнительными параметрами: https://www.youtube.com/watch?v=VIDEO_ID&t=123
-            "https://(www\\.)?youtube\\.com/watch\\?v=[\\w-]+[^\\s]*"
+            "https://(www\\.)?youtube\\.com/watch\\?v=[\\w-]+[^\\s]*",
+            // Shorts с параметрами: https://www.youtube.com/shorts/VIDEO_ID?feature=share
+            "https://(www\\.)?youtube\\.com/shorts/[\\w-]+[^\\s]*"
         ]
         
         for pattern in patterns {
@@ -573,6 +580,15 @@ final class PereskazNowBotController: @unchecked Sendable {
                     // Нормализуем короткие ссылки до полного формата
                     // Извлекаем video ID из youtu.be/VIDEO_ID
                     if let match = try? NSRegularExpression(pattern: #"youtu\.be/([\w-]+)"#).firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
+                       match.numberOfRanges > 1,
+                       let range = Range(match.range(at: 1), in: url) {
+                        let videoId = String(url[range])
+                        url = "https://www.youtube.com/watch?v=\(videoId)"
+                    }
+                } else if url.contains("youtube.com/shorts/") {
+                    // Нормализуем Shorts URL до стандартного формата
+                    // Извлекаем video ID из youtube.com/shorts/VIDEO_ID
+                    if let match = try? NSRegularExpression(pattern: #"youtube\.com/shorts/([\w-]+)"#).firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
                        match.numberOfRanges > 1,
                        let range = Range(match.range(at: 1), in: url) {
                         let videoId = String(url[range])
@@ -598,6 +614,8 @@ final class PereskazNowBotController: @unchecked Sendable {
         
         do {
         let response = try await client.post(url) { req in
+            // Увеличиваем таймаут для запроса к Telegram API
+            req.timeout = .seconds(30)
             try req.content.encode(payload, as: .json)
             }.get()
         

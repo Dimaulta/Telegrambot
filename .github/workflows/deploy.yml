@@ -52,7 +52,8 @@ jobs:
           NON_WORKING_SERVICES="veonowbot|banananowbot|soranowbot|golosnowbot|AntispamNowBot|NeurVideoBot"
           
           # Проверяем, изменились ли только неработающие сервисы или только services.json
-          ONLY_NON_WORKING=$(echo "$CHANGED_FILES" | grep -vE "^($NON_WORKING_SERVICES)/|^config/services.json$|^docs/|/docs/|^\.github/|^README|/README\.md$|^LICENSE$|^SECURITY|^TRANSFER|^check_ssl|^config/nginx|^config/traefik|\.code-workspace$|^NEURFOTOBOT_NOTES_TMP|^SECURITY_AUDIT_REPORT" || true)
+          # Игнорируем изменения в CI/CD, документации, конфигах и служебных файлах
+          ONLY_NON_WORKING=$(echo "$CHANGED_FILES" | grep -vE "^($NON_WORKING_SERVICES)/|^config/services.json$|^docs/|/docs/|^\.github/|^README|/README\.md$|^LICENSE$|^SECURITY|^TRANSFER|^check_ssl|^config/nginx|^config/traefik|\.code-workspace$|^NEURFOTOBOT_NOTES_TMP|^SECURITY_AUDIT_REPORT|^\.gitignore$|^\.cursorignore$" || true)
           
           if [ -z "$ONLY_NON_WORKING" ]; then
             # Изменились только неработающие сервисы или только services.json/docs - не пересобираем

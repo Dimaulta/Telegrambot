@@ -38,3 +38,6 @@ contentfabrikabot/db.sqlite
 
 # Deployment tracking
 .last_deploy_commit
+
+# Temporary files
+Neurfotobot/tmp/

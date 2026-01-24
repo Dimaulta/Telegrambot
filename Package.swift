@@ -76,15 +76,6 @@ let package = Package(
             ],
             path: "filenowbot/Sources/App"
         ),
-        .executableTarget(
-            name: "GSForTextBot",
-            dependencies: [
-                .product(name: "Vapor", package: "vapor"),
-                .product(name: "Fluent", package: "fluent"),
-                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
-            ],
-            path: "gsfortextbot/Sources/App"
-        ),
         // Временно отключено - в разработке
         // .executableTarget(
         //     name: "NeurVideoBot",

@@ -643,11 +643,12 @@ final class NowmttBotController {
         
         // Запускаем yt-dlp для скачивания видео
         // Используем формат без HLS (m3u8), так как YouTube блокирует HLS фрагменты на VPS
+        // Используем готовое видео (best) вместо объединения bestvideo+bestaudio для сохранения aspect ratio
         // Добавляем user-agent для обхода блокировок
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.arguments = [
-            "-f", "bestvideo[ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[ext=mp4][protocol!=m3u8]/best[protocol!=m3u8]",
+            "-f", "best[ext=mp4][protocol!=m3u8]/best[ext=mp4]/best[protocol!=m3u8]/best",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-o", tempFile.path,
             originalUrl

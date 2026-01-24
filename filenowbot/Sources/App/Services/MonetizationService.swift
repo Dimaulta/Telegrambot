@@ -66,7 +66,7 @@ let SQLITE_STATIC: sqlite3_destructor_type? = unsafeBitCast(0, to: sqlite3_destr
 let SQLITE_TRANSIENT: sqlite3_destructor_type? = unsafeBitCast(-1, to: sqlite3_destructor_type?.self)
 #endif
 
-/// Сервис монетизации для nowmttbot.
+/// Сервис монетизации для filenowbot.
 /// Отвечает за:
 /// - регистрацию пользователей в общей базе (user_sessions)
 /// - проверку необходимости подписки и факта подписки через Telegram API
@@ -91,7 +91,7 @@ enum MonetizationService {
                 withIntermediateDirectories: true
             )
         } catch {
-            app.logger.error("Failed to create directory for monetization DB (nowmttbot): \(error.localizedDescription)")
+            app.logger.error("Failed to create directory for monetization DB (filenowbot): \(error.localizedDescription)")
         }
 
         var db: OpaquePointer?
@@ -100,9 +100,9 @@ enum MonetizationService {
         }
         if result != SQLITE_OK {
             if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
-                app.logger.error("Failed to open monetization DB at \(path) (nowmttbot): \(errorMessage)")
+                app.logger.error("Failed to open monetization DB at \(path) (filenowbot): \(errorMessage)")
             } else {
-                app.logger.error("Failed to open monetization DB at \(path) (nowmttbot)")
+                app.logger.error("Failed to open monetization DB at \(path) (filenowbot)")
             }
             if db != nil {
                 sqlite3_close(db)
@@ -149,9 +149,9 @@ enum MonetizationService {
             }
             if execResult != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db).flatMap({ String(cString: $0) }) {
-                    app.logger.error("Failed to run schema SQL (nowmttbot): \(errorMessage)")
+                    app.logger.error("Failed to run schema SQL (filenowbot): \(errorMessage)")
                 } else {
-                    app.logger.error("Failed to run schema SQL (nowmttbot, unknown error)")
+                    app.logger.error("Failed to run schema SQL (filenowbot, unknown error)")
                 }
             }
         }
@@ -161,11 +161,11 @@ enum MonetizationService {
         ALTER TABLE bot_settings ADD COLUMN require_all_channels INTEGER NOT NULL DEFAULT 1;
         """
         // Игнорируем ошибку если колонка уже существует
-        migrationSQL.withCString { cSql in
+        _ = migrationSQL.withCString { cSql in
             sqlite3_exec(db, cSql, nil, nil, nil)
         }
 
-        app.logger.info("Monetization DB ensured at path (nowmttbot): \(path)")
+        app.logger.info("Monetization DB ensured at path (filenowbot): \(path)")
     }
 
     /// Регистрирует/обновляет пользователя в user_sessions.
@@ -200,7 +200,7 @@ enum MonetizationService {
         defer { sqlite3_finalize(stmt) }
 
         let now = Int(Date().timeIntervalSince1970)
-        botName.withCString { cBotName in
+        _ = botName.withCString { cBotName in
             sqlite3_bind_text(stmt, 1, cBotName, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int64(stmt, 2, chatId)
@@ -258,7 +258,7 @@ enum MonetizationService {
 
         // Нормализуем имя бота к нижнему регистру для поиска в БД
         let normalizedBotName = botName.lowercased()
-        normalizedBotName.withCString { cBotName in
+        _ = normalizedBotName.withCString { cBotName in
             sqlite3_bind_text(settingStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
         }
 
@@ -298,7 +298,7 @@ enum MonetizationService {
         defer { sqlite3_finalize(campaignsStmt) }
 
         // Используем нормализованное имя для поиска кампаний
-        normalizedBotName.withCString { cBotName in
+        _ = normalizedBotName.withCString { cBotName in
             sqlite3_bind_text(campaignsStmt, 1, cBotName, -1, SQLITE_TRANSIENT)
         }
         sqlite3_bind_int(campaignsStmt, 2, Int32(now))

@@ -12,7 +12,7 @@
 - ✅ **MVP (7 ботов):**
   - `nowcontrollerbot` — управление отправкой сообщений в боты NowBots и включение-выключение проверки на подписку каналов-спонсоров
   - `Roundsvideobot` — обработка видео в видеокружки с miniapp интерфейсом
-  - `nowmttbot` — скачивание TikTok видео без водяного знака
+  - `filenowbot` — скачивание TikTok видео без водяного знака
   - `gsfortextbot` — голос → текст через SaluteSpeech
   - `contentfabrikabot` — генерация постов в стиле автора через OpenAI
   - `Neurfotobot` — обработка изображений через AI, нейрофото с лицом пользователя
@@ -60,7 +60,7 @@
 
 ### 3. Bot Services
 
-#### 3.1. NowmttBot (Порт 8082) ✅ **MVP**
+#### 3.1. FileNowBot (Порт 8085) ✅ **MVP**
 **Статус:** Доведен до MVP, работает в продакшене
 
 **Назначение:** Бот для скачивания TikTok видео без водяного знака
@@ -71,9 +71,9 @@
 - Обработка различных форматов TikTok URL (vm.tiktok.com, tiktok.com, vt.tiktok.com)
 
 **Файлы:**
-- `nowmttbot/Sources/App/Controllers/NowmttBotController.swift` — основной контроллер
-- `nowmttbot/Sources/App/Internal/TikTokResolver.swift` — резолвер TikTok ссылок
-- `nowmttbot/Sources/App/Middleware/LoggingMiddleware.swift` — логирование
+- `filenowbot/Sources/App/Controllers/FileNowBotController.swift` — основной контроллер
+- `filenowbot/Sources/App/Internal/TikTokResolver.swift` — резолвер TikTok ссылок
+- `filenowbot/Sources/App/Middleware/LoggingMiddleware.swift` — логирование
 
 #### 3.2. GSForTextBot (Порт 8083) ✅ **MVP**
 **Статус:** Доведен до MVP, работает в продакшене
@@ -224,9 +224,9 @@
 Telegram → core-server/webhook → video-processing/webhook
 ```
 
-### Обработка TikTok видео (nowmttbot)
+### Обработка TikTok видео (filenowbot)
 ```
-Пользователь → Telegram → /webhook → NowmttBotController → TikTokResolver → Telegram API
+Пользователь → Telegram → /webhook → FileNowBotController → TikTokResolver → Telegram API
 ```
 
 **Процесс:**
@@ -259,7 +259,7 @@ Telegram → core-server/webhook → video-processing/webhook
 **Обязательные (для работающих ботов):**
 - `BASE_URL` — базовый URL для webhook'ов
 - `VIDEO_BOT_TOKEN` — Roundsvideobot
-- `NOWMTTBOT_TOKEN` — NowmttBot
+- `FILENOWBOT_TOKEN` — FileNowBot
 - `GSFORTEXTBOT_TOKEN`, `SALUTESPEECH_AUTH_KEY` — GSForTextBot (SaluteSpeech)
 - `CONTENTFABRIKABOT_TOKEN`, `OPENAI_API_KEY` — ContentFabrikaBot
 

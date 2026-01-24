@@ -67,12 +67,12 @@ else
     echo "⚠️  VIDEO_BOT_TOKEN не установлен, пропускаем VideoServiceRunner"
 fi
 
-# 3. NowmttBot
-if [ -n "$NOWMTTBOT_TOKEN" ]; then
-    open_terminal_tab "NowmttBot" \
-        "cd '$PROJECT_DIR' && set -a; source config/.env; set +a && swift run NowmttBot"
+# 3. FileNowBot
+if [ -n "$FILENOWBOT_TOKEN" ]; then
+    open_terminal_tab "FileNowBot" \
+        "cd '$PROJECT_DIR' && set -a; source config/.env; set +a && swift run FileNowBot"
 else
-    echo "⚠️  NOWMTTBOT_TOKEN не установлен, пропускаем NowmttBot"
+    echo "⚠️  FILENOWBOT_TOKEN не установлен, пропускаем FileNowBot"
 fi
 
 # 4. GSForTextBot

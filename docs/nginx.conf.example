@@ -7,7 +7,7 @@
 #   - Neurfotobot
 #   - GSForTextBot
 #   - NowControllerBot
-#   - NowmttBot
+#   - FileNowBot
 #   - NeurVideoBot
 #   - GolosNowBot
 #   - AntispamNowBot
@@ -113,8 +113,8 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # NowmttBot (TikTok без ватермарки)
-        location = /nowmtt/webhook {
+        # FileNowBot (TikTok без ватермарки)
+        location = /filenow/webhook {
             proxy_pass http://127.0.0.1:8085/webhook;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -122,7 +122,7 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        location = /nowmtt/health {
+        location = /filenow/health {
             proxy_pass http://127.0.0.1:8085/health;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

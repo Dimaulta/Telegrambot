@@ -80,15 +80,15 @@ services:
       nowcontrollerbot:
         condition: service_healthy
 
-  # NowmttBot
-  nowmttbot:
+  # FileNowBot
+  filenowbot:
     build:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        PRODUCT: NowmttBot
+        PRODUCT: FileNowBot
         PORT: 8085
-    container_name: telegrambot_nowmttbot
+    container_name: telegrambot_filenowbot
     restart: unless-stopped
     env_file:
       - config/.env
@@ -101,10 +101,10 @@ services:
       - telegrambot_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.nowmttbot.rule=Host(`nowbots.ru`) && PathPrefix(`/nowmtt/webhook`)"
-      - "traefik.http.routers.nowmttbot.entrypoints=websecure"
-      - "traefik.http.routers.nowmttbot.tls.certresolver=letsencrypt"
-      - "traefik.http.services.nowmttbot.loadbalancer.server.port=8085"
+      - "traefik.http.routers.filenowbot.rule=Host(`nowbots.ru`) && PathPrefix(`/filenow/webhook`)"
+      - "traefik.http.routers.filenowbot.entrypoints=websecure"
+      - "traefik.http.routers.filenowbot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.filenowbot.loadbalancer.server.port=8085"
     depends_on:
       nowcontrollerbot:
         condition: service_healthy

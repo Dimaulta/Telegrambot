@@ -1,7 +1,7 @@
 import Vapor
 import Foundation
 
-final class NowmttBotController {
+final class FileNowBotController {
     // Rate limiter: 2 запроса/видео в минуту на пользователя
     private static let rateLimiter = RateLimiter(maxRequests: 2, timeWindow: 60)
     // Дедупликатор для предотвращения обработки дубликатов
@@ -9,12 +9,12 @@ final class NowmttBotController {
     
     func handleWebhook(_ req: Request) async throws -> Response {
         req.logger.info("═══════════════════════════════════════════════")
-        req.logger.info("🔔 NowmttBot webhook hit!")
+        req.logger.info("🔔 FileNowBot webhook hit!")
         req.logger.info("Method: \(req.method), Path: \(req.url.path)")
         
-        let token = Environment.get("NOWMTTBOT_TOKEN")
+        let token = Environment.get("FILENOWBOT_TOKEN")
         guard let token = token, token.isEmpty == false else {
-            req.logger.error("NOWMTTBOT_TOKEN is missing")
+            req.logger.error("FILENOWBOT_TOKEN is missing")
             return Response(status: .internalServerError)
         }
 
@@ -24,13 +24,13 @@ final class NowmttBotController {
             req.logger.debug("Raw body: \(rawBody)")
         }
 
-        req.logger.info("🔍 Decoding NowmttBotUpdate...")
-        let update = try? req.content.decode(NowmttBotUpdate.self)
+        req.logger.info("🔍 Decoding FileNowBotUpdate...")
+        let update = try? req.content.decode(FileNowBotUpdate.self)
         guard let safeUpdate = update else {
-            req.logger.error("❌ Failed to decode NowmttBotUpdate - check raw body above")
+            req.logger.error("❌ Failed to decode FileNowBotUpdate - check raw body above")
             return Response(status: .ok)
         }
-        req.logger.info("✅ NowmttBotUpdate decoded successfully")
+        req.logger.info("✅ FileNowBotUpdate decoded successfully")
         
         // Проверяем дедупликацию: если этот update_id уже обработан, игнорируем
         let updateId = safeUpdate.update_id
@@ -59,7 +59,7 @@ final class NowmttBotController {
 
         // Регистрируем пользователя в общей базе монетизации
         MonetizationService.registerUser(
-            botName: "nowmttbot",
+            botName: "filenowbot",
             chatId: chatId,
             logger: req.logger,
             env: req.application.environment
@@ -69,7 +69,7 @@ final class NowmttBotController {
         // повторно проверяем подписку и либо разблокируем, либо снова показываем требование.
         if text == "✅ Я подписался, проверить" {
             let (allowed, channels) = await MonetizationService.checkAccess(
-                botName: "nowmttbot",
+                botName: "filenowbot",
                 userId: userId,
                 logger: req.logger,
                 env: req.application.environment,
@@ -271,27 +271,32 @@ final class NowmttBotController {
         let videoUrl: String?
         let videoType: VideoType
         
+        req.logger.info("🔍 Checking for TikTok URL in text: \(text.prefix(200))")
         if let tiktokUrl = extractTikTokURL(from: text) {
             videoUrl = tiktokUrl
             videoType = .tiktok
             req.logger.info("✅ Detected TikTok URL: \(tiktokUrl)")
-        } else if let youtubeUrl = extractYouTubeShortsURL(from: text) {
-            videoUrl = youtubeUrl
-            videoType = .youtubeShorts
-            req.logger.info("✅ Detected YouTube Shorts URL: \(youtubeUrl)")
         } else {
-            req.logger.info("ℹ️ No video URL found in message (text: \(text.prefix(100)))")
-            // Отправляем сообщение с инструкцией, если это не ссылка и не команда
-            if !text.isEmpty && !text.hasPrefix("/") {
-                _ = try? await sendTelegramMessage(
-                    token: token,
-                    chatId: message.chat.id,
-                    text: "Привет! 👋 Отправь мне ссылку на TikTok или YouTube Shorts видео, и я верну его без водяного знака! 🎬",
-                    client: req.client,
-                    logger: req.logger
-                )
+            req.logger.info("❌ TikTok URL not found, checking YouTube Shorts...")
+            req.logger.info("🔍 Checking for YouTube Shorts URL in text: \(text.prefix(200))")
+            if let youtubeUrl = extractYouTubeShortsURL(from: text) {
+                videoUrl = youtubeUrl
+                videoType = .youtubeShorts
+                req.logger.info("✅ Detected YouTube Shorts URL: \(youtubeUrl)")
+            } else {
+                req.logger.info("ℹ️ No video URL found in message (text: \(text.prefix(100)))")
+                // Отправляем сообщение с инструкцией, если это не ссылка и не команда
+                if !text.isEmpty && !text.hasPrefix("/") {
+                    _ = try? await sendTelegramMessage(
+                        token: token,
+                        chatId: message.chat.id,
+                        text: "Привет! 👋 Отправь мне ссылку на TikTok или YouTube Shorts видео, и я верну его без водяного знака! 🎬",
+                        client: req.client,
+                        logger: req.logger
+                    )
+                }
+                return Response(status: .ok)
             }
-            return Response(status: .ok)
         }
         
         guard let url = videoUrl else {
@@ -315,7 +320,7 @@ final class NowmttBotController {
 
         // Проверяем подписку перед обработкой ссылки
         let (subscriptionAllowed, channels) = await MonetizationService.checkAccess(
-            botName: "nowmttbot",
+            botName: "filenowbot",
             userId: userId,
             logger: req.logger,
             env: req.application.environment,
@@ -477,7 +482,7 @@ final class NowmttBotController {
         let patterns = [
             "https://www\\.youtube\\.com/shorts/[^\\s]+",
             "https://youtube\\.com/shorts/[^\\s]+",
-            "https://youtu\\.be/[^\\s]+"
+            "https://m\\.youtube\\.com/shorts/[^\\s]+"
         ]
         
         for pattern in patterns {
@@ -485,13 +490,10 @@ final class NowmttBotController {
                let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
                let range = Range(match.range, in: text) {
                 let url = String(text[range])
-                // Для youtu.be нужно проверить, что это Shorts (обычно короткие ID)
-                // Но лучше просто проверить наличие /shorts/ в URL
+                // Проверяем наличие /shorts/ в URL
                 if url.contains("/shorts/") {
                     return url
                 }
-                // Для youtu.be можно попробовать, но это менее надежно
-                // Пока оставим только явные /shorts/ ссылки
             }
         }
         return nil

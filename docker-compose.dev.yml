@@ -61,14 +61,14 @@ services:
     depends_on:
       - nowcontrollerbot
 
-  # NowmttBot
-  nowmttbot:
+  # FileNowBot
+  filenowbot:
     build:
       context: .
       dockerfile: Dockerfile.dev
       args:
-        PRODUCT: NowmttBot
-    container_name: telegrambot_dev_nowmttbot
+        PRODUCT: FileNowBot
+    container_name: telegrambot_dev_filenowbot
     restart: unless-stopped
     env_file:
       - config/.env
@@ -78,7 +78,7 @@ services:
       - .:/app
       - ./config:/app/config
     working_dir: /app
-    command: swift run NowmttBot serve --hostname 0.0.0.0 --port 8085
+    command: swift run FileNowBot serve --hostname 0.0.0.0 --port 8085
     ports:
       - "8085:8085"
     networks:

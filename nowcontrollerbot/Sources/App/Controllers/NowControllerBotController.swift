@@ -60,7 +60,7 @@ private actor ProcessedMessagesStore {
 final class NowControllerBotController {
     // MARK: - Bot name mapping для коротких названий на кнопках
     private static let botDisplayNames: [String: String] = [
-        "nowmttbot": "Тикток",
+        "filenowbot": "Тикток",
         "gsfortextbot": "Голос",
         "roundsvideobot": "Кружочек",
         "neurfotobot": "Нейрофото",

@@ -27,7 +27,7 @@ https://nowbots.ru/<путь>/webhook
 
 **Примеры для разных ботов:**
 - Neurfotobot: `https://nowbots.ru/neurfoto/webhook`
-- NowmttBot: `https://nowbots.ru/nowmtt/webhook`
+- FileNowBot: `https://nowbots.ru/filenow/webhook`
 - Roundsvideobot: `https://nowbots.ru/rounds/webhook`
 - GSForTextBot: `https://nowbots.ru/gs/text/webhook`
 - ContentFabrikaBot: `https://nowbots.ru/contentfabrika/webhook`

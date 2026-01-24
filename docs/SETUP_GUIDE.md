@@ -121,7 +121,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 
 > **Важно:** Обязательно заполни переменную `NOWCONTROLLERBOT_BROADCAST_BOTS` — это список ботов, которыми будет управлять `NowControllerBot` для монетизации. Укажи имена ботов через запятую без пробелов, например:
 > ```env
-> NOWCONTROLLERBOT_BROADCAST_BOTS=Roundsvideobot,nowmttbot,contentfabrikabot,gsfortextbot,Neurfotobot,pereskaznowbot
+> NOWCONTROLLERBOT_BROADCAST_BOTS=Roundsvideobot,filenowbot,contentfabrikabot,gsfortextbot,Neurfotobot,pereskaznowbot
 > ```
 > Имена ботов должны точно совпадать с теми, что используются в коде (регистр имеет значение). При первом запуске `NowControllerBot` автоматически создаст записи для всех указанных ботов в базе данных монетизации.
 
@@ -166,7 +166,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /nowmtt/webhook {
+    location /filenow/webhook {
         proxy_pass http://127.0.0.1:8085/webhook;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -178,7 +178,7 @@ server {
 
 9.4. Сохранить файл и закрыть редактор.
 
-> 💡 Полный пример рабочего `nginx.conf` для локальной отладки NowControllerBot и NowmttBot см. в файле [`docs/nginx.conf.example`](./nginx.conf.example). Его можно использовать как основу, если конфигурация сильно отличается от стандартной.
+> 💡 Полный пример рабочего `nginx.conf` для локальной отладки NowControllerBot и FileNowBot см. в файле [`docs/nginx.conf.example`](./nginx.conf.example). Его можно использовать как основу, если конфигурация сильно отличается от стандартной.
 
 9.5. Проверить конфигурацию nginx:
 

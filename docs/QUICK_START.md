@@ -112,7 +112,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'NOWMTTBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|ANTISPAMNOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
+env | grep -E 'FILENOWBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|ANTISPAMNOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
 ./config/set-webhooks.sh
 ```
 
@@ -161,11 +161,11 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   LOG_LEVEL=debug swift run VideoServiceRunner
   ```
 
-- NowmttBot — скачивание TikTok без водяного знака
+- FileNowBot — скачивание TikTok без водяного знака
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run NowmttBot
+  swift run FileNowBot
   ```
 
 - GSForTextBot — голос в текст (SaluteSpeech)
@@ -269,7 +269,7 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 
 Вкладки с сервисами (оставляй открытыми, если запускаешь соответствующий бот):
 - Четвёртая вкладка (шаг 6): VideoServiceRunner (Roundsvideobot) — основной сервис формирования видеокружков
-- Пятая вкладка (шаг 6): NowmttBot — загрузка TikTok без водяного знака
+- Пятая вкладка (шаг 6): FileNowBot — загрузка TikTok без водяного знака
 - Шестая вкладка (шаг 6): GSForTextBot — распознавание голосовых через SaluteSpeech
 - Седьмая вкладка (шаг 6): ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
 - Восьмая вкладка (шаг 6): Neurfotobot — нейрофотографии (AI обработка изображений)
@@ -310,7 +310,7 @@ cd /Users/a1111/Desktop/projects/Telegrambot
 docker compose -f docker-compose.dev.yml up neurfotobot
 
 # Или другой сервис:
-# docker compose -f docker-compose.dev.yml up nowmttbot
+# docker compose -f docker-compose.dev.yml up filenowbot
 # docker compose -f docker-compose.dev.yml up contentfabrikabot
 # docker compose -f docker-compose.dev.yml up gsfortextbot
 # docker compose -f docker-compose.dev.yml up pereskaznowbot
@@ -382,7 +382,7 @@ docker compose -f docker-compose.dev.yml build --no-cache neurfotobot
 
 **Вкладки с сервисами (оставляй открытыми, если запускаешь соответствующий бот):**
 - VideoServiceRunner (Roundsvideobot) — порт 8081
-- NowmttBot — порт 8085
+- FileNowBot — порт 8085
 - GSForTextBot — порт 8083
 - ContentFabrikaBot — порт 8089
 - Neurfotobot — порт 8082

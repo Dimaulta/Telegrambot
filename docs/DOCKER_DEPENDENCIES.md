@@ -75,7 +75,7 @@
 
 **Статус:** ✅ Готово - только HTTP запросы и SQLite
 
-### 6. NowmttBot
+### 6. FileNowBot
 **Зависимости:**
 - ✅ `curl` - для HTTP запросов
 - ❌ Нет системных зависимостей (все через HTTP API)
@@ -134,7 +134,7 @@ process.executableURL = URL(fileURLWithPath: ffmpeg)
 | Neurfotobot | ❌ | ❌ | ✅ | HTTP API |
 | GSForTextBot | ❌ | ❌ | ✅ | HTTP API |
 | ContentFabrikaBot | ❌ | ❌ | ✅ | SQLite |
-| NowmttBot | ❌ | ❌ | ✅ | HTTP API |
+| FileNowBot | ❌ | ❌ | ✅ | HTTP API |
 | NowControllerBot | ❌ | ❌ | ✅ | SQLite |
 
 ## ✅ Все зависимости установлены!

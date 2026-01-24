@@ -4,7 +4,7 @@ import NIOCore
 import NIOPosix
 
 @main
-enum NowmttEntrypoint {
+enum FileNowEntrypoint {
     static func main() async throws {
         var env = try Environment.detect()
         try LoggingSystem.bootstrap(from: &env)

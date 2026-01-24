@@ -69,13 +69,13 @@ let package = Package(
             path: "nowcontrollerbot/Sources/App"
         ),
         .executableTarget(
-            name: "NowmttBot",
+            name: "FileNowBot",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
             ],
-            path: "nowmttbot/Sources/App"
+            path: "filenowbot/Sources/App"
         ),
         .executableTarget(
             name: "GSForTextBot",

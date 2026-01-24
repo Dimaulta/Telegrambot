@@ -224,7 +224,7 @@ set -a; source config/.env; set +a
 
 Или вручную через Telegram API:
 - `https://nowbots.ru/neurfoto/webhook` для Neurfotobot
-- `https://nowbots.ru/nowmtt/webhook` для NowmttBot
+- `https://nowbots.ru/filenow/webhook` для FileNowBot
 - `https://nowbots.ru/rounds/webhook` для Roundsvideobot
 - `https://nowbots.ru/gs/text/webhook` для GSForTextBot
 - `https://nowbots.ru/contentfabrika/webhook` для ContentFabrikaBot

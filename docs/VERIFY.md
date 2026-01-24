@@ -3,8 +3,8 @@ curl -i http://127.0.0.1:8080/nowcontroller/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
-# NowmttBot
-curl -i http://127.0.0.1:8080/nowmtt/webhook \
+# FileNowBot
+curl -i http://127.0.0.1:8080/filenow/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
 
@@ -34,8 +34,8 @@ curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowcontroller/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"/start"}}'
 
-# NowmttBot
-curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/nowmtt/webhook \
+# FileNowBot
+curl -i https://ВАШ-URL-ОТ-NGROK.ngrok-free.app/filenow/webhook \
   -H "Content-Type: application/json" \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":123},"text":"https://www.tiktok.com/@demo/video/123"}}'
 

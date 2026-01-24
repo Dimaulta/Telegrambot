@@ -16,7 +16,7 @@ config/monetization.sqlite
 - ✅ **Neurfotobot** - проверка подписки на каналы
 - ✅ **GSForTextBot** - проверка подписки на каналы
 - ✅ **ContentFabrikaBot** - проверка подписки на каналы
-- ✅ **NowmttBot** - проверка подписки на каналы
+- ✅ **FileNowBot** - проверка подписки на каналы
 - ✅ **PereskazNowBot** - проверка подписки на каналы
 - ✅ **Roundsvideobot** - проверка подписки на каналы
 
@@ -89,7 +89,7 @@ roundsvideobot:
     nowcontrollerbot:
       condition: service_healthy  # Ждет пока NowControllerBot станет здоровым
 
-nowmttbot:
+filenowbot:
   depends_on:
     nowcontrollerbot:
       condition: service_healthy

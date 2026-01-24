@@ -17,7 +17,7 @@ func getPortFromConfig(serviceName: String) -> Int {
 }
 
 public func configure(_ app: Application) async throws {
-    // Загружаем config/.env и применяем переменные окружения (для NOWMTTBOT_TOKEN)
+    // Загружаем config/.env и применяем переменные окружения (для FILENOWBOT_TOKEN)
     let envPath = "config/.env"
     if let content = try? String(contentsOfFile: envPath) {
         var vars: [String: String] = [:]
@@ -30,10 +30,10 @@ public func configure(_ app: Application) async throws {
             }
         }
         for (k, v) in vars { setenv(k, v, 1) }
-        app.logger.info("Loaded config/.env with \(vars.count) keys for NowmttBot")
+        app.logger.info("Loaded config/.env with \(vars.count) keys for FileNowBot")
     }
 
-    let port = getPortFromConfig(serviceName: "nowmttbot")
+    let port = getPortFromConfig(serviceName: "filenowbot")
     app.http.server.configuration.port = port
     
     // Инициализация базы данных монетизации

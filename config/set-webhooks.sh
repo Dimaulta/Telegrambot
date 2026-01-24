@@ -108,22 +108,22 @@ else
 fi
 
 # ============================================
-# NOWMTTBOT (TikTok Video Downloader)
+# FILENOWBOT (TikTok Video Downloader)
 # ============================================
-if [ -z "$NOWMTTBOT_TOKEN" ]; then
-    echo "⚠️ NOWMTTBOT_TOKEN не установлен, пропускаем..."
+if [ -z "$FILENOWBOT_TOKEN" ]; then
+    echo "⚠️ FILENOWBOT_TOKEN не установлен, пропускаем..."
 else
-    echo "🔧 Настройка webhook для NowmttBot..."
-    echo "📡 URL: ${BASE_URL}/nowmtt/webhook"
+    echo "🔧 Настройка webhook для FileNowBot..."
+    echo "📡 URL: ${BASE_URL}/filenow/webhook"
     
-    curl -sS -X POST "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/setWebhook" \
+    curl -sS -X POST "https://api.telegram.org/bot${FILENOWBOT_TOKEN}/setWebhook" \
       -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/nowmtt/webhook\"}"
+      -d "{\"url\":\"${BASE_URL}/filenow/webhook\"}"
     
     echo ""
-    echo "✅ Webhook для NowmttBot настроен!"
+    echo "✅ Webhook для FileNowBot настроен!"
     echo "📋 Проверка:"
-    curl -sS "https://api.telegram.org/bot${NOWMTTBOT_TOKEN}/getWebhookInfo"
+    curl -sS "https://api.telegram.org/bot${FILENOWBOT_TOKEN}/getWebhookInfo"
     echo ""
     echo ""
 fi

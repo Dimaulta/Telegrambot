@@ -109,33 +109,34 @@ services:
       nowcontrollerbot:
         condition: service_healthy
 
-  # GSForTextBot
-  gsfortextbot:
+  # GolosNowBot
+  golosnowbot:
     build:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        PRODUCT: GSForTextBot
+        PRODUCT: GolosNowBot
         PORT: 8083
-    container_name: telegrambot_gsfortextbot
+    container_name: telegrambot_golosnowbot
     restart: unless-stopped
     env_file:
       - config/.env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
+      - ./golosnowbot:/app/golosnowbot
       - ./config:/app/config
-    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8083"]
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8087"]
     networks:
       - telegrambot_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.gsfortextbot.rule=Host(`nowbots.ru`) && PathPrefix(`/gs/text/webhook`)"
-      - "traefik.http.routers.gsfortextbot.entrypoints=websecure"
-      - "traefik.http.routers.gsfortextbot.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.gsfortextbot.middlewares=gsfortextbot-strip"
-      - "traefik.http.middlewares.gsfortextbot-strip.stripprefix.prefixes=/gs/text"
-      - "traefik.http.services.gsfortextbot.loadbalancer.server.port=8083"
+      - "traefik.http.routers.golosnowbot.rule=Host(`nowbots.ru`) && PathPrefix(`/golosnow/webhook`)"
+      - "traefik.http.routers.golosnowbot.entrypoints=websecure"
+      - "traefik.http.routers.golosnowbot.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.golosnowbot.middlewares=golosnowbot-strip"
+      - "traefik.http.middlewares.golosnowbot-strip.stripprefix.prefixes=/golosnow"
+      - "traefik.http.services.golosnowbot.loadbalancer.server.port=8083"
     depends_on:
       nowcontrollerbot:
         condition: service_healthy

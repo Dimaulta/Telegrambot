@@ -112,7 +112,7 @@ ngrok http 8080 --log=stdout
 ```bash
 cd /Users/a1111/Desktop/projects/Telegrambot
 set -a; source config/.env; set +a
-env | grep -E 'FILENOWBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GSFORTEXTBOT_TOKEN|NEURFOTOBOT_TOKEN|ANTISPAMNOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
+env | grep -E 'FILENOWBOT_TOKEN|NOWCONTROLLERBOT_TOKEN|VIDEO_BOT_TOKEN|GOLOSNOWBOT_TOKEN|NEURFOTOBOT_TOKEN|ANTISPAMNOWBOT_TOKEN|CONTENTFABRIKABOT_TOKEN|PERESKAZNOWBOT_TOKEN|PERESKAZ_OPENAI_SERVICE'
 ./config/set-webhooks.sh
 ```
 
@@ -168,11 +168,11 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   swift run FileNowBot
   ```
 
-- GSForTextBot — голос в текст (SaluteSpeech)
+- GolosNowBot — голос в текст (SaluteSpeech)
   ```bash
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
-  swift run GSForTextBot
+  swift run GolosNowBot
   ```
 
 - ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
@@ -230,10 +230,10 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   - Не более 20 видео в день на пользователя
 
 
-> Подробный план настройки GSForTextBot с ключами и сертификатами см. в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md).
-### Дополнение: быстрая настройка GSForTextBot
+> Подробный план настройки GolosNowBot с ключами и сертификатами см. в [golosnowbot/docs/SETUP_GOLOSNOWBOT.md](../golosnowbot/docs/SETUP_GOLOSNOWBOT.md) (или в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md) для справки).
+### Дополнение: быстрая настройка GolosNowBot
 
-Если поднимаешь gsfortextbot впервые, выполни один раз:
+Если поднимаешь golosnowbot впервые, выполни один раз:
 
 ```bash
 mkdir -p config/certs
@@ -244,8 +244,8 @@ openssl s_client -showcerts \
   > config/certs/salutespeech-chain.pem
 ```
 
-Убедись, что в `config/.env` заполнены `GSFORTEXTBOT_TOKEN`, `SALUTESPEECH_AUTH_KEY`, `SALUTESPEECH_SCOPE`, `BASE_URL`.  
-Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
+Убедись, что в `config/.env` заполнены `GOLOSNOWBOT_TOKEN`, `SALUTESPEECH_AUTH_KEY`, `SALUTESPEECH_SCOPE`, `BASE_URL`.  
+Webhook для бота: `https://<BASE_URL>/golosnow/webhook`
 
 
 
@@ -270,12 +270,11 @@ Webhook для бота: `https://<BASE_URL>/gs/text/webhook`
 Вкладки с сервисами (оставляй открытыми, если запускаешь соответствующий бот):
 - Четвёртая вкладка (шаг 6): VideoServiceRunner (Roundsvideobot) — основной сервис формирования видеокружков
 - Пятая вкладка (шаг 6): FileNowBot — загрузка TikTok без водяного знака
-- Шестая вкладка (шаг 6): GSForTextBot — распознавание голосовых через SaluteSpeech
+- Шестая вкладка (шаг 6): GolosNowBot — распознавание голосовых через SaluteSpeech
 - Седьмая вкладка (шаг 6): ContentFabrikaBot — генерация постов для Telegram каналов в стиле автора
 - Восьмая вкладка (шаг 6): Neurfotobot — нейрофотографии (AI обработка изображений)
 - Девятая вкладка (шаг 6): AntispamNowBot — антиспам бот: выключатель на ночь, капча для вступления, запрещатель сообщений от каналов (в разработке)
 - Десятая вкладка (шаг 6): NeurVideoBot — генерация видео сервисами OpenAI, Google и другими (в разработке)
-- Одиннадцатая вкладка (шаг 6): GolosNowBot — озвучивает пересланный текст голосом (в разработке)
 - Двенадцатая вкладка (шаг 6): PereskazNowBot — получение расшифровки и саммари YouTube видео через OpenAI Whisper API и GPT
 - Тринадцатая вкладка (шаг 6): NowControllerBot — управление отправкой сообщений в боты NowBots (MVP)
 

@@ -75,12 +75,12 @@ else
     echo "⚠️  FILENOWBOT_TOKEN не установлен, пропускаем FileNowBot"
 fi
 
-# 4. GSForTextBot
-if [ -n "$GSFORTEXTBOT_TOKEN" ]; then
-    open_terminal_tab "GSForTextBot" \
-        "cd '$PROJECT_DIR' && set -a; source config/.env; set +a && swift run GSForTextBot"
+# 4. GolosNowBot
+if [ -n "$GOLOSNOWBOT_TOKEN" ]; then
+    open_terminal_tab "GolosNowBot" \
+        "cd '$PROJECT_DIR' && set -a; source config/.env; set +a && swift run GolosNowBot"
 else
-    echo "⚠️  GSFORTEXTBOT_TOKEN не установлен, пропускаем GSForTextBot"
+    echo "⚠️  GOLOSNOWBOT_TOKEN не установлен, пропускаем GolosNowBot"
 fi
 
 # 5. ContentFabrikaBot

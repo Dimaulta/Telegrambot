@@ -17,13 +17,6 @@
       "webhook_url": "${BASE_URL}/neurfoto/webhook",
       "name": "Neurfotobot - AI Photo Generation"
     },
-    "gsfortextbot": {
-      "url": "http://localhost:8083",
-      "routes": ["/webhook"],
-      "enabled": true,
-      "webhook_url": "${BASE_URL}/webhook",
-      "name": "GS For Text Bot"
-    },
     "nowcontrollerbot": {
       "url": "http://localhost:8084",
       "routes": ["/webhook"],
@@ -49,14 +42,14 @@
       "name": "NeurVideoBot - Video Generation via OpenAI, Google and others"
     },
     "golosnowbot": {
-      "url": "http://localhost:8087",
+      "url": "http://localhost:8083",
       "routes": [
         "/webhook",
         "/golosnow/webhook"
       ],
       "enabled": true,
       "webhook_url": "${BASE_URL}/golosnow/webhook",
-      "name": "GolosNowBot - Text to Speech (озвучивает пересланный текст голосом)"
+      "name": "GolosNowBot - Voice to Text (преобразует голосовые в текст)"
     },
     "AntispamNowBot": {
       "url": "http://localhost:8088",

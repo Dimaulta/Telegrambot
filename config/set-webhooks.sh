@@ -89,23 +89,6 @@ else
     echo ""
 fi
 
-# ============================================
-# GSFORTEXTBOT (Voice to Text)
-# ============================================
-if [ -z "$GSFORTEXTBOT_TOKEN" ]; then
-    echo "⚠️ GSFORTEXTBOT_TOKEN не установлен, пропускаем..."
-else
-    echo "🔧 Настройка webhook для GS For Text Bot..."
-    echo "📡 URL: ${BASE_URL}/gs/text/webhook"
-    
-    curl -sS -X POST "https://api.telegram.org/bot${GSFORTEXTBOT_TOKEN}/setWebhook" \
-      -H "Content-Type: application/json" \
-      -d "{\"url\":\"${BASE_URL}/gs/text/webhook\"}"
-    
-    echo ""
-    echo "✅ Webhook для GS For Text Bot настроен!"
-    echo ""
-fi
 
 # ============================================
 # FILENOWBOT (TikTok Video Downloader)
@@ -150,7 +133,7 @@ else
 fi
 
 # ============================================
-# GOLOSNOWBOT (Text to Speech)
+# GOLOSNOWBOT (Voice to Text)
 # ============================================
 if [ -z "$GOLOSNOWBOT_TOKEN" ]; then
     echo "⚠️ GOLOSNOWBOT_TOKEN не установлен, пропускаем..."

@@ -61,7 +61,7 @@ final class NowControllerBotController {
     // MARK: - Bot name mapping для коротких названий на кнопках
     private static let botDisplayNames: [String: String] = [
         "filenowbot": "Тикток",
-        "gsfortextbot": "Голос",
+        "golosnowbot": "Голос",
         "roundsvideobot": "Кружочек",
         "neurfotobot": "Нейрофото",
         "contentfabrikabot": "Посты",

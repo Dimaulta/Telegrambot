@@ -86,14 +86,14 @@ services:
     depends_on:
       - nowcontrollerbot
 
-  # GSForTextBot
-  gsfortextbot:
+  # GolosNowBot
+  golosnowbot:
     build:
       context: .
       dockerfile: Dockerfile.dev
       args:
-        PRODUCT: GSForTextBot
-    container_name: telegrambot_dev_gsfortextbot
+        PRODUCT: GolosNowBot
+    container_name: telegrambot_dev_golosnowbot
     restart: unless-stopped
     env_file:
       - config/.env
@@ -103,7 +103,7 @@ services:
       - .:/app
       - ./config:/app/config
     working_dir: /app
-    command: swift run GSForTextBot serve --hostname 0.0.0.0 --port 8083
+    command: swift run GolosNowBot serve --hostname 0.0.0.0 --port 8083
     ports:
       - "8083:8083"
     networks:

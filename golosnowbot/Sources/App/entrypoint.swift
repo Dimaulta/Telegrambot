@@ -1,16 +1,14 @@
 import Vapor
 import Logging
-import NIOCore
-import NIOPosix
 
 @main
-enum GolosNowBotEntrypoint {
+enum GolosNowEntrypoint {
     static func main() async throws {
         var env = try Environment.detect()
         try LoggingSystem.bootstrap(from: &env)
-
+        
         let app = try await Application.make(env)
-
+        
         do {
             try await configure(app)
             try await app.execute()
@@ -19,6 +17,7 @@ enum GolosNowBotEntrypoint {
             try? await app.asyncShutdown()
             throw error
         }
+        
         try await app.asyncShutdown()
     }
 }

@@ -49,16 +49,15 @@ let package = Package(
                 .product(name: "XCTVapor", package: "vapor")
             ]
         ),
-        // Временно отключено - в разработке
-        // .executableTarget(
-        //     name: "GolosNowBot",
-        //     dependencies: [
-        //         .product(name: "Vapor", package: "vapor"),
-        //         .product(name: "Fluent", package: "fluent"),
-        //         .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
-        //     ],
-        //     path: "golosnowbot/Sources/App"
-        // ),
+        .executableTarget(
+            name: "GolosNowBot",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver")
+            ],
+            path: "golosnowbot/Sources/App"
+        ),
         .executableTarget(
             name: "NowControllerBot",
             dependencies: [

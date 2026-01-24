@@ -126,7 +126,7 @@ services:
     volumes:
       - ./golosnowbot:/app/golosnowbot
       - ./config:/app/config
-    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8087"]
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8083"]
     networks:
       - telegrambot_network
     labels:

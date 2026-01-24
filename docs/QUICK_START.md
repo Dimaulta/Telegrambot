@@ -159,7 +159,7 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
   LOG_LEVEL=debug swift run VideoServiceRunner
-  ```
+```
 
 - FileNowBot — скачивание TikTok без водяного знака
   ```bash

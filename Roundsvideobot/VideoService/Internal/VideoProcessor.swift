@@ -210,31 +210,66 @@ struct VideoProcessor {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
         }
 
-        // Получаем размеры исходного видео в пикселях
-        var videoSize = try await getVideoSize(inputPath: filePath)
+        // Получаем размеры исходного видео в пикселях (ДО поворота)
+        let originalVideoSize = try await getVideoSize(inputPath: filePath)
 
         // Учитываем поворот (rotation) при расчёте координат
         let rotation = try await getVideoRotationDegrees(inputPath: filePath)
         req.logger.info("Rotation tag: \(rotation)°")
-        if abs(rotation) == 90 {
-            videoSize = (width: videoSize.height, height: videoSize.width)
-        }
-
-        // Преобразуем нормализованные координаты фронтенда (центр и размер области) в пиксели
-        // Фронт передает x,y как центр области в долях от [0,1], width/height — размер области в долях
-        let centerX = cropData.x * Double(videoSize.width)
-        let centerY = cropData.y * Double(videoSize.height)
-        let sizePxDouble = min(cropData.width * Double(videoSize.width), cropData.height * Double(videoSize.height))
-        // Используем размер области кропа как есть, без дополнительного увеличения
-        // Чтобы кружок точно соответствовал тому, что видно в кроп-фрейме
+        
+        // Фронтенд отправляет координаты для оригинальных размеров (без учета поворота)
+        // Преобразуем нормализованные координаты фронтенда в пиксели оригинального видео
+        let centerXOriginal = cropData.x * Double(originalVideoSize.width)
+        let centerYOriginal = cropData.y * Double(originalVideoSize.height)
+        
+        // Размер кропа вычисляем из нормализованного размера
+        // Фронтенд отправляет width и height как долю от меньшей стороны видео
+        // Поэтому умножаем на меньшую сторону для получения размера в пикселях
+        let minSide = Double(min(originalVideoSize.width, originalVideoSize.height))
+        let sizePxDouble = min(
+            cropData.width * minSide,
+            cropData.height * minSide,
+            minSide // Не больше меньшей стороны
+        )
         var cropSize = Int(round(sizePxDouble))
-
-        // Вычисляем левый верхний угол области
-        var x = Int(round(centerX - Double(cropSize) / 2.0))
-        var y = Int(round(centerY - Double(cropSize) / 2.0))
-        // Чуть поднимаем область (отрицательное направление Y)
-        let verticalBias = Int(round(Double(videoSize.height) * -0.02))
-        y += verticalBias
+        
+        // Вычисляем координаты левого верхнего угла в оригинальном видео
+        let xOriginal = Int(round(centerXOriginal - Double(cropSize) / 2.0))
+        let yOriginal = Int(round(centerYOriginal - Double(cropSize) / 2.0))
+        
+        // Теперь преобразуем координаты с учетом поворота
+        var videoSize = originalVideoSize
+        var x = xOriginal
+        var y = yOriginal
+        
+        if abs(rotation) == 90 {
+            // При повороте на 90° размеры меняются местами
+            videoSize = (width: originalVideoSize.height, height: originalVideoSize.width)
+            
+            // Преобразуем координаты центра с учетом поворота
+            // Фронтенд отправляет координаты для оригинального видео (1920x1080)
+            // После поворота видео становится (1080x1920), нужно преобразовать координаты
+            if rotation == -90 || rotation == 270 {
+                // Поворот на -90°: (x, y) в оригинале -> (y, width - x) после поворота
+                // Но нам нужен левый верхний угол, а не центр
+                // Центр в оригинале: (centerXOriginal, centerYOriginal)
+                // Центр после поворота: (centerYOriginal, originalVideoSize.width - centerXOriginal)
+                let centerXAfterRotation = Double(centerYOriginal)
+                let centerYAfterRotation = Double(originalVideoSize.width) - Double(centerXOriginal)
+                
+                x = Int(round(centerXAfterRotation - Double(cropSize) / 2.0))
+                y = Int(round(centerYAfterRotation - Double(cropSize) / 2.0))
+            } else if rotation == 90 || rotation == -270 {
+                // Поворот на 90°: (x, y) в оригинале -> (height - y, x) после поворота
+                let centerXAfterRotation = Double(originalVideoSize.height) - Double(centerYOriginal)
+                let centerYAfterRotation = Double(centerXOriginal)
+                
+                x = Int(round(centerXAfterRotation - Double(cropSize) / 2.0))
+                y = Int(round(centerYAfterRotation - Double(cropSize) / 2.0))
+            }
+            
+            req.logger.info("Координаты после поворота: x=\(x), y=\(y) (было x=\(xOriginal), y=\(yOriginal), centerX=\(centerXOriginal), centerY=\(centerYOriginal))")
+        }
 
         // Ограничиваем в пределах кадра
         cropSize = max(2, min(cropSize, min(videoSize.width, videoSize.height)))

@@ -1126,54 +1126,80 @@ cropButton.addEventListener('click', async () => {
             const naturalWidth = videoElement.videoWidth;
             const naturalHeight = videoElement.videoHeight;
             
-            // Размеры видео на экране (с учетом масштаба)
-            const scaledVideoWidth = videoRect.width;
-            const scaledVideoHeight = videoRect.height;
+            // Получаем реальные размеры отображаемого видео БЕЗ учета transform
+            const displayedBase = getDisplayedVideoRect();
             
-            // Центр видео на экране
-            const videoCenterX = videoRect.left + videoRect.width / 2;
-            const videoCenterY = videoRect.top + videoRect.height / 2;
+            // С transform-origin: center center, transform применяется от центра элемента videoPreview
+            // Центр элемента videoPreview на экране (это точка отсчета для transform)
+            const elementCenterX = videoRect.left + videoRect.width / 2;
+            const elementCenterY = videoRect.top + videoRect.height / 2;
+            
+            // Центр отображаемого видео БЕЗ transform (из getDisplayedVideoRect)
+            const displayedBaseCenterX = displayedBase.centerX;
+            const displayedBaseCenterY = displayedBase.centerY;
+            
+            // Смещение центра отображаемого видео относительно центра элемента (БЕЗ transform)
+            const baseOffsetX = displayedBaseCenterX - elementCenterX;
+            const baseOffsetY = displayedBaseCenterY - elementCenterY;
+            
+            // С учетом transform translate(currentX, currentY) scale(currentScale):
+            // 1. Сначала масштабируем смещение на currentScale
+            // 2. Затем добавляем currentX/currentY
+            // 3. И добавляем к центру элемента
+            const displayedCenterX = elementCenterX + (baseOffsetX * currentScale) + currentX;
+            const displayedCenterY = elementCenterY + (baseOffsetY * currentScale) + currentY;
+            
+            // Размеры отображаемого видео с учетом масштаба
+            const displayedWidthScaled = displayedBase.width * currentScale;
+            const displayedHeightScaled = displayedBase.height * currentScale;
             
             // Центр области кропа на экране
             const cropCenterX = cropRect.left + cropRect.width / 2;
             const cropCenterY = cropRect.top + cropRect.height / 2;
             
-            // Смещение центра кропа относительно центра видео (в экранных пикселях)
-            const screenOffsetX = cropCenterX - videoCenterX;
-            const screenOffsetY = cropCenterY - videoCenterY;
+            // Смещение центра кропа относительно центра отображаемого видео (в экранных пикселях)
+            const screenOffsetX = cropCenterX - displayedCenterX;
+            const screenOffsetY = cropCenterY - displayedCenterY;
             
             // Переводим экранные координаты в координаты исходного видео
-            // Учитываем соотношение между размером видео на экране и его натуральным размером
-            // screenOffsetX - смещение на экране в пикселях
-            // videoRect.width * currentScale - размер видео на экране с учетом масштаба
-            // naturalWidth - натуральный размер видео
-            const videoOffsetX = (screenOffsetX / (videoRect.width * currentScale)) * naturalWidth;
-            const videoOffsetY = (screenOffsetY / (videoRect.height * currentScale)) * naturalHeight;
+            // Коэффициент масштабирования: насколько пиксель на экране соответствует пикселю в исходном видео
+            const scaleFactorX = naturalWidth / displayedWidthScaled;
+            const scaleFactorY = naturalHeight / displayedHeightScaled;
             
-            // Центр кропа в координатах исходного видео (относительно центра)
-            const cropCenterInVideoX = videoOffsetX;
-            const cropCenterInVideoY = videoOffsetY;
+            // Смещение центра кропа в координатах исходного видео (относительно центра видео)
+            const videoOffsetX = screenOffsetX * scaleFactorX;
+            const videoOffsetY = screenOffsetY * scaleFactorY;
+            
+            // Центр кропа в координатах исходного видео (абсолютные координаты)
+            const cropCenterInVideoX = (naturalWidth / 2) + videoOffsetX;
+            const cropCenterInVideoY = (naturalHeight / 2) + videoOffsetY;
             
             // Проверяем, что размеры видео валидны
             if (!naturalWidth || !naturalHeight || naturalWidth === 0 || naturalHeight === 0) {
                 throw new Error(`Неверные размеры видео: ${naturalWidth}x${naturalHeight}`);
             }
             
-            // Переводим в нормализованные координаты (0-1)
-            const x = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoX / naturalWidth));
-            const y = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoY / naturalHeight));
-            
             // Размер области кропа в координатах исходного видео
-            // Учитываем соотношение между размером видео на экране и его натуральным размером
-            // cropRect.width - размер кроп-фрейма на экране
-            // videoRect.width * currentScale - размер видео на экране с учетом масштаба
-            // naturalWidth - натуральный размер видео
-            const cropSizeInVideo = (cropRect.width / (videoRect.width * currentScale)) * naturalWidth;
+            // Кроп-фрейм квадратный, поэтому используем его ширину
+            // Коэффициент масштабирования должен быть одинаковым для X и Y (квадратный кроп)
+            // Используем средний коэффициент для более точного расчета
+            const scaleFactor = (scaleFactorX + scaleFactorY) / 2;
+            const cropSizeInVideo = cropRect.width * scaleFactor;
             
-            // Переводим размер кропа в нормализованные координаты (0-1)
-            // Бэкенд использует этот размер как есть, без дополнительного увеличения
-            const width = Math.min(1, cropSizeInVideo / naturalWidth);
-            const height = Math.min(1, cropSizeInVideo / naturalHeight);
+            // Ограничиваем размер кропа максимальным размером (меньшая сторона видео)
+            const maxCropSize = Math.min(naturalWidth, naturalHeight);
+            const finalCropSize = Math.min(cropSizeInVideo, maxCropSize);
+            
+            // Переводим в нормализованные координаты (0-1)
+            // x, y - это центр области кропа в долях от [0,1]
+            const x = Math.max(0, Math.min(1, cropCenterInVideoX / naturalWidth));
+            const y = Math.max(0, Math.min(1, cropCenterInVideoY / naturalHeight));
+            
+            // width, height - это размер области кропа в долях от [0,1]
+            // Для квадратного кропа width и height должны быть одинаковыми
+            const normalizedSize = finalCropSize / Math.min(naturalWidth, naturalHeight);
+            const width = Math.min(1, normalizedSize);
+            const height = Math.min(1, normalizedSize);
 
             // Проверяем, что все значения валидны
             const cropDataObj = {
@@ -1184,6 +1210,72 @@ cropButton.addEventListener('click', async () => {
                 scale: Number(currentScale) || 1
             };
             
+            // Отправляем детальные логи на сервер для отладки
+            const logDetails = {
+                displayedBase: {
+                    width: displayedBase.width,
+                    height: displayedBase.height,
+                    centerX: displayedBase.centerX,
+                    centerY: displayedBase.centerY
+                },
+                elementRect: {
+                    left: videoRect.left,
+                    top: videoRect.top,
+                    width: videoRect.width,
+                    height: videoRect.height,
+                    centerX: elementCenterX,
+                    centerY: elementCenterY
+                },
+                transform: {
+                    currentX: currentX,
+                    currentY: currentY,
+                    currentScale: currentScale
+                },
+                displayedScaled: {
+                    width: displayedWidthScaled,
+                    height: displayedHeightScaled,
+                    centerX: displayedCenterX,
+                    centerY: displayedCenterY
+                },
+                cropRect: {
+                    left: cropRect.left,
+                    top: cropRect.top,
+                    width: cropRect.width,
+                    height: cropRect.height,
+                    centerX: cropCenterX,
+                    centerY: cropCenterY
+                },
+                screenOffset: {
+                    x: screenOffsetX,
+                    y: screenOffsetY
+                },
+                scaleFactors: {
+                    x: scaleFactorX,
+                    y: scaleFactorY
+                },
+                videoOffset: {
+                    x: videoOffsetX,
+                    y: videoOffsetY
+                },
+                cropCenterInVideo: {
+                    x: cropCenterInVideoX,
+                    y: cropCenterInVideoY
+                },
+                cropSizeInVideo: cropSizeInVideo,
+                naturalSize: {
+                    width: naturalWidth,
+                    height: naturalHeight
+                },
+                normalized: {
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                },
+                finalCropData: cropDataObj
+            };
+            
+            console.log('🔍 ДЕТАЛИ ВЫЧИСЛЕНИЯ КРОПА:', JSON.stringify(logDetails, null, 2));
             console.log('CropData объект перед отправкой:', cropDataObj);
             console.log('Проверка значений:', {
                 x: typeof x, y: typeof y, width: typeof width, height: typeof height, scale: typeof currentScale,

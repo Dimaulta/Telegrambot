@@ -210,90 +210,83 @@ struct VideoProcessor {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
         }
 
-        // Получаем размеры исходного видео в пикселях (ДО поворота)
-        let originalVideoSize = try await getVideoSize(inputPath: filePath)
-
-        // Учитываем поворот (rotation) при расчёте координат
+        // Размеры из ffprobe — storage (сырой кадр, до учёта rotation)
+        let storageSize = try await getVideoSize(inputPath: filePath)
         let rotation = try await getVideoRotationDegrees(inputPath: filePath)
         req.logger.info("Rotation tag: \(rotation)°")
-        
-        // Фронтенд отправляет координаты для оригинальных размеров (без учета поворота)
-        // Преобразуем нормализованные координаты фронтенда в пиксели оригинального видео
-        let centerXOriginal = cropData.x * Double(originalVideoSize.width)
-        let centerYOriginal = cropData.y * Double(originalVideoSize.height)
-        
-        // Размер кропа вычисляем из нормализованного размера
-        // Фронтенд отправляет width и height как долю от меньшей стороны видео
-        // Поэтому умножаем на меньшую сторону для получения размера в пикселях
-        let minSide = Double(min(originalVideoSize.width, originalVideoSize.height))
+
+        // Display — как видит пользователь (frontend naturalWidth×naturalHeight).
+        // При ±90°: display = (height×width), иначе = storage.
+        let displayWidth: Int
+        let displayHeight: Int
+        if abs(rotation) == 90 {
+            displayWidth = storageSize.height
+            displayHeight = storageSize.width
+        } else {
+            displayWidth = storageSize.width
+            displayHeight = storageSize.height
+        }
+        req.logger.info("Display размеры: \(displayWidth)×\(displayHeight) (storage: \(storageSize.width)×\(storageSize.height))")
+
+        // Фронт: x,y — центр кропа в [0,1], (0,0)=левый верх. Y растёт вниз.
+        // transpose=0/3 включают vflip → ось Y в нашем кадре противоположна frontend. Инвертируем Y при ±90°.
+        let centerX: Double
+        let centerY: Double
+        if abs(rotation) == 90 {
+            centerX = cropData.x * Double(displayWidth)
+            centerY = (1.0 - cropData.y) * Double(displayHeight)
+        } else {
+            centerX = cropData.x * Double(displayWidth)
+            centerY = cropData.y * Double(displayHeight)
+        }
+        let minSide = Double(min(displayWidth, displayHeight))
         let sizePxDouble = min(
             cropData.width * minSide,
             cropData.height * minSide,
-            minSide // Не больше меньшей стороны
+            minSide
         )
         var cropSize = Int(round(sizePxDouble))
-        
-        // Вычисляем координаты левого верхнего угла в оригинальном видео
-        let xOriginal = Int(round(centerXOriginal - Double(cropSize) / 2.0))
-        let yOriginal = Int(round(centerYOriginal - Double(cropSize) / 2.0))
-        
-        // Теперь преобразуем координаты с учетом поворота
-        var videoSize = originalVideoSize
-        var x = xOriginal
-        var y = yOriginal
-        
-        if abs(rotation) == 90 {
-            // При повороте на 90° размеры меняются местами
-            videoSize = (width: originalVideoSize.height, height: originalVideoSize.width)
-            
-            // Преобразуем координаты центра с учетом поворота
-            // Фронтенд отправляет координаты для оригинального видео (1920x1080)
-            // После поворота видео становится (1080x1920), нужно преобразовать координаты
-            if rotation == -90 || rotation == 270 {
-                // Поворот на -90°: (x, y) в оригинале -> (y, width - x) после поворота
-                // Но нам нужен левый верхний угол, а не центр
-                // Центр в оригинале: (centerXOriginal, centerYOriginal)
-                // Центр после поворота: (centerYOriginal, originalVideoSize.width - centerXOriginal)
-                let centerXAfterRotation = Double(centerYOriginal)
-                let centerYAfterRotation = Double(originalVideoSize.width) - Double(centerXOriginal)
-                
-                x = Int(round(centerXAfterRotation - Double(cropSize) / 2.0))
-                y = Int(round(centerYAfterRotation - Double(cropSize) / 2.0))
-            } else if rotation == 90 || rotation == -270 {
-                // Поворот на 90°: (x, y) в оригинале -> (height - y, x) после поворота
-                let centerXAfterRotation = Double(originalVideoSize.height) - Double(centerYOriginal)
-                let centerYAfterRotation = Double(centerXOriginal)
-                
-                x = Int(round(centerXAfterRotation - Double(cropSize) / 2.0))
-                y = Int(round(centerYAfterRotation - Double(cropSize) / 2.0))
-            }
-            
-            req.logger.info("Координаты после поворота: x=\(x), y=\(y) (было x=\(xOriginal), y=\(yOriginal), centerX=\(centerXOriginal), centerY=\(centerYOriginal))")
-        }
-
-        // Ограничиваем в пределах кадра
-        cropSize = max(2, min(cropSize, min(videoSize.width, videoSize.height)))
-        x = max(0, min(x, videoSize.width - cropSize))
-        y = max(0, min(y, videoSize.height - cropSize))
-
-        // Для совместимости с кодеками приводим к четным значениям
+        cropSize = max(2, min(cropSize, min(displayWidth, displayHeight)))
         if cropSize % 2 != 0 { cropSize -= 1 }
+        let half = Double(cropSize) / 2.0
+        let minCX = half
+        let maxCX = Double(displayWidth) - half
+        let minCY = half
+        let maxCY = Double(displayHeight) - half
+        let clampedCX = max(minCX, min(maxCX, centerX))
+        let clampedCY = max(minCY, min(maxCY, centerY))
+        var x = Int(round(clampedCX - half))
+        var y = Int(round(clampedCY - half))
+        x = max(0, min(x, displayWidth - cropSize))
+        y = max(0, min(y, displayHeight - cropSize))
+
+        req.logger.info("Кроп в display-пространстве: center=(\(centerX), \(centerY))→(\(clampedCX), \(clampedCY)), size=\(cropSize), x=\(x), y=\(y)")
+
         if x % 2 != 0 { x -= 1 }
         if y % 2 != 0 { y -= 1 }
 
         // Формируем цепочку фильтров: сначала поворот (если требуется), затем кроп и скейл
+        // ВАЖНО: transpose применяем ТОЛЬКО если поворот действительно определен
         var filters: [String] = []
         if rotation == -90 || rotation == 270 {
-            filters.append("transpose=1")
+            // -90°: 90° CCW + vflip (transpose=0), иначе получается «вниз головой»
+            filters.append("transpose=0")
+            req.logger.info("Применяем transpose=0 для поворота -90°")
         } else if rotation == 90 || rotation == -270 {
-            filters.append("transpose=2")
+            // +90°: 90° CW + vflip (transpose=3)
+            filters.append("transpose=3")
+            req.logger.info("Применяем transpose=3 для поворота +90°")
         } else if abs(rotation) == 180 {
             filters.append("transpose=2,transpose=2")
+            req.logger.info("Применяем transpose=2,transpose=2 для поворота 180°")
+        } else {
+            req.logger.info("Поворот не применяется (rotation=\(rotation)°)")
         }
         let cropFilter = "crop=\(cropSize):\(cropSize):\(x):\(y)"
         filters.append(cropFilter)
         filters.append("scale=640:640,format=yuv420p")
         let filterChain = filters.joined(separator: ",")
+        req.logger.info("Цепочка фильтров FFmpeg: \(filterChain)")
 
         // Обрабатываем видео с помощью FFmpeg
         req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(x), y=\(y), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
@@ -314,6 +307,8 @@ struct VideoProcessor {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
+            "-noautorotate",
+            "-display_rotation:v:0", "0",
             "-i", filePath,
             "-vf", filterChain,
             "-c:v", "libx264",
@@ -326,6 +321,7 @@ struct VideoProcessor {
             "-ar", "44100",
             "-ac", "2",
             "-movflags", "+faststart",
+            "-metadata:s:v:0", "rotate=0",
             "-y", outputPath
         ]
         
@@ -336,24 +332,34 @@ struct VideoProcessor {
         try process.run()
         req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
         
-        // Читаем stderr в реальном времени
+        var stderrChunks: [Data] = []
         let stderrHandle = stderr.fileHandleForReading
         while process.isRunning {
             let data = stderrHandle.availableData
-            if !data.isEmpty, let stderrOutput = String(data: data, encoding: .utf8) {
-                req.logger.info("FFmpeg stderr (поток): \(stderrOutput)")
+            if !data.isEmpty {
+                stderrChunks.append(data)
+                if let s = String(data: data, encoding: .utf8) { req.logger.info("FFmpeg stderr (поток): \(s)") }
             }
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
+        let stderrTail = stderrHandle.readDataToEndOfFile()
+        if !stderrTail.isEmpty { stderrChunks.append(stderrTail) }
         
         process.waitUntilExit()
-        req.logger.info("FFmpeg успешно завершил работу [\(dateFormatter.string(from: Date()))]")
+        let exitCode = process.terminationStatus
+        let stderrFull = stderrChunks.reduce(Data(), +)
+        let stderrStr = String(data: stderrFull, encoding: .utf8) ?? ""
         
+        guard exitCode == 0 else {
+            req.logger.error("FFmpeg upload завершился с кодом \(exitCode). Stderr: \(stderrStr)")
+            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео (код \(exitCode))")
+        }
         guard FileManager.default.fileExists(atPath: outputPath) else {
-            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео")
+            req.logger.error("FFmpeg upload: выходной файл отсутствует. Stderr: \(stderrStr)")
+            throw Abort(.internalServerError, reason: "FFmpeg не создал выходной файл")
         }
         
-        req.logger.info("Видео успешно обработано [\(dateFormatter.string(from: Date()))]")
+        req.logger.info("FFmpeg успешно завершил работу (upload) [\(dateFormatter.string(from: Date()))]")
         return outputUrl
     }
     
@@ -455,9 +461,10 @@ struct VideoProcessor {
             throw Abort(.internalServerError, reason: "ffprobe не найден")
         }
         
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: probePath)
-        process.arguments = [
+        // Сначала проверяем тег rotate
+        let process1 = Process()
+        process1.executableURL = URL(fileURLWithPath: probePath)
+        process1.arguments = [
             "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream_tags=rotate",
@@ -465,21 +472,114 @@ struct VideoProcessor {
             inputPath
         ]
 
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        try process.run()
-        process.waitUntilExit()
+        let stdout1 = Pipe()
+        process1.standardOutput = stdout1
+        try process1.run()
+        process1.waitUntilExit()
 
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard let text = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
-            return 0
-        }
+        let stdoutData1 = stdout1.fileHandleForReading.readDataToEndOfFile()
+        if let text = String(data: stdoutData1, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
         if let deg = Int(text) {
             var d = deg % 360
             if d > 180 { d -= 360 }
             if d <= -180 { d += 360 }
             return d
         }
+        }
+        
+        // Если тег rotate не найден, проверяем displaymatrix через ffprobe с выводом в JSON
+        let process2 = Process()
+        process2.executableURL = URL(fileURLWithPath: probePath)
+        process2.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=side_data_list",
+            "-of", "json",
+            inputPath
+        ]
+
+        let stdout2 = Pipe()
+        process2.standardOutput = stdout2
+        try process2.run()
+        process2.waitUntilExit()
+
+        let stdoutData2 = stdout2.fileHandleForReading.readDataToEndOfFile()
+        if let jsonText = String(data: stdoutData2, encoding: .utf8),
+           let jsonData = jsonText.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+           let streams = json["streams"] as? [[String: Any]],
+           let stream = streams.first,
+           let sideDataList = stream["side_data_list"] as? [[String: Any]] {
+            for sideData in sideDataList {
+                if let rotation = sideData["rotation"] as? Double {
+                    var d = Int(round(rotation)) % 360
+                    if d > 180 { d -= 360 }
+                    if d <= -180 { d += 360 }
+                    return d
+                }
+            }
+        }
+        
+        // Если JSON не помог, пробуем парсить вывод ffprobe с -show_streams
+        let process3 = Process()
+        process3.executableURL = URL(fileURLWithPath: probePath)
+        process3.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_streams",
+            inputPath
+        ]
+
+        let stdout3 = Pipe()
+        let stderr3 = Pipe()
+        process3.standardOutput = stdout3
+        process3.standardError = stderr3
+        try process3.run()
+        process3.waitUntilExit()
+
+        // Проверяем и stdout, и stderr
+        let stdoutData3 = stdout3.fileHandleForReading.readDataToEndOfFile()
+        let stderrData3 = stderr3.fileHandleForReading.readDataToEndOfFile()
+        
+        let stdoutText = String(data: stdoutData3, encoding: .utf8) ?? ""
+        let stderrText = String(data: stderrData3, encoding: .utf8) ?? ""
+        let allOutput = stdoutText + stderrText
+        
+        if !allOutput.isEmpty {
+            // Ищем строку вида "displaymatrix: rotation of -90.00 degrees" или "rotation of -90.00"
+            let lines = allOutput.components(separatedBy: CharacterSet.newlines)
+            for line in lines {
+                // Парсим строку вида "rotation of -90.00 degrees" или "rotation=-90"
+                // Ищем паттерн "rotation of -90.00" или "rotation of -90"
+                if line.contains("rotation") {
+                    // Пробуем разные паттерны
+                    let patterns = [
+                        #"rotation\s+of\s+(-?\d+\.?\d*)"#,
+                        #"rotation\s*=\s*(-?\d+\.?\d*)"#,
+                        #"rotation:\s*(-?\d+\.?\d*)"#
+                    ]
+                    
+                    for pattern in patterns {
+                        if let rotationMatch = line.range(of: pattern, options: .regularExpression) {
+                            let matchedStr = String(line[rotationMatch])
+                            // Извлекаем число из строки вида "rotation of -90.00" -> "-90.00"
+                            if let numMatch = matchedStr.range(of: #"-?\d+\.?\d*"#, options: .regularExpression) {
+                                let degStr = String(matchedStr[numMatch])
+                                if let deg = Double(degStr) {
+                                    var d = Int(round(deg)) % 360
+                                    if d > 180 { d -= 360 }
+                                    if d <= -180 { d += 360 }
+                                    req.logger.info("Найден поворот из ffprobe: \(d)° (строка: \(line))")
+                                    return d
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        req.logger.info("Поворот не найден в выводе ffprobe, возвращаем 0°")
         return 0
     }
 
@@ -546,11 +646,12 @@ struct VideoProcessor {
         if y % 2 != 0 { y -= 1 }
 
         // Цепочка фильтров: нормализуем ориентацию -> центр. кроп -> scale
+        // -90° → transpose=0 (CCW+vflip); +90° → transpose=3 (CW+vflip)
         var filters: [String] = []
         if rotation == -90 || rotation == 270 {
-            filters.append("transpose=1")
+            filters.append("transpose=0")
         } else if rotation == 90 || rotation == -270 {
-            filters.append("transpose=2")
+            filters.append("transpose=3")
         } else if abs(rotation) == 180 {
             filters.append("transpose=2,transpose=2")
         }
@@ -577,6 +678,7 @@ struct VideoProcessor {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
+            "-noautorotate",
             "-i", inputPath,
             "-vf", filterChain,
             "-t", "59",
@@ -584,6 +686,7 @@ struct VideoProcessor {
             "-r", "30",
             "-preset", "fast",
             "-movflags", "+faststart",
+            "-metadata:s:v:0", "rotate=0",
             "-y", outputPath
         ]
 
@@ -592,24 +695,36 @@ struct VideoProcessor {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
         try process.run()
-        req.logger.info("Запускаем FFmpeg...")
+        req.logger.info("Запускаем FFmpeg (direct bot)...")
 
-        // Читаем stderr в реальном времени
+        var stderrChunks: [Data] = []
         let stderrHandle = stderr.fileHandleForReading
         while process.isRunning {
             let data = stderrHandle.availableData
-            if !data.isEmpty, let stderrOutput = String(data: data, encoding: .utf8) {
-                req.logger.info("FFmpeg stderr (поток): \(stderrOutput)")
+            if !data.isEmpty {
+                stderrChunks.append(data)
+                if let s = String(data: data, encoding: .utf8) { req.logger.info("FFmpeg stderr (поток): \(s)") }
             }
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
+        let stderrTail = stderrHandle.readDataToEndOfFile()
+        if !stderrTail.isEmpty { stderrChunks.append(stderrTail) }
 
         process.waitUntilExit()
-        req.logger.info("FFmpeg успешно завершил работу")
+        let exitCode = process.terminationStatus
+        let stderrFull = stderrChunks.reduce(Data(), +)
+        let stderrStr = String(data: stderrFull, encoding: .utf8) ?? ""
 
-        guard FileManager.default.fileExists(atPath: outputPath) else {
-            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео")
+        guard exitCode == 0 else {
+            req.logger.error("FFmpeg direct bot завершился с кодом \(exitCode). Stderr: \(stderrStr)")
+            throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео (код \(exitCode))")
         }
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            req.logger.error("FFmpeg direct bot: выходной файл отсутствует. Stderr: \(stderrStr)")
+            throw Abort(.internalServerError, reason: "FFmpeg не создал выходной файл")
+        }
+
+        req.logger.info("FFmpeg успешно завершил работу (direct bot)")
 
         req.logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
 

@@ -219,8 +219,8 @@ document.addEventListener('DOMContentLoaded', () => {
             initializeElements();
             if (selectButton) {
                 console.log('✅ selectButton найден после повторной инициализации');
-                setupSelectVideoHandler();
-                setupCropButtonHandler();
+    setupSelectVideoHandler();
+    setupCropButtonHandler();
             } else {
                 console.error('❌ selectButton всё ещё не найден');
             }
@@ -997,12 +997,12 @@ function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     // Центр видео на экране БЕЗ учета transform
     const videoCenterXBase = displayed.centerX;
     const videoCenterYBase = displayed.centerY;
-    
+
     // С учетом transform, весь элемент videoPreview смещается на (currentX, currentY)
     // Поэтому центр отображаемого видео тоже смещается на (currentX, currentY)
     const videoCenterXNow = videoCenterXBase + currentX;
     const videoCenterYNow = videoCenterYBase + currentY;
-
+    
     // Вычисляем границы: оверлей должен оставаться полностью внутри видео
     // Центр оверлея должен быть в пределах: [videoCenter - (halfVideo - halfCrop), videoCenter + (halfVideo - halfCrop)]
     const allowedHorizontalMovement = Math.max(0, halfVideoWNew - halfCropW);
@@ -1076,7 +1076,7 @@ cropButton.addEventListener('click', async () => {
         console.log('🔵 videoPreview:', videoPreview ? 'найден' : 'НЕ НАЙДЕН');
         
     if (!videoFile) {
-        console.log('Видео не выбрано');
+            console.log('Видео не выбрано');
         const message = 'Пожалуйста, выберите видео';
         if (typeof tg.showAlert === 'function') {
             try {
@@ -1110,22 +1110,22 @@ cropButton.addEventListener('click', async () => {
             
             console.log('🟢 Шаг 4: Получаем элементы видео');
 
-            const video = document.getElementById('video-preview');
+        const video = document.getElementById('video-preview');
             if (!video) {
                 throw new Error('Элемент video-preview не найден');
             }
             console.log('🟢 video элемент найден, videoWidth:', video.videoWidth, 'videoHeight:', video.videoHeight);
             
-            const videoRect = video.getBoundingClientRect();
-            const cropRect = cropFrame.getBoundingClientRect();
+        const videoRect = video.getBoundingClientRect();
+        const cropRect = cropFrame.getBoundingClientRect();
             console.log('🟢 videoRect:', videoRect.width, 'x', videoRect.height);
             console.log('🟢 cropRect:', cropRect.width, 'x', cropRect.height);
-            
-            // Получаем реальные размеры видео без учета масштаба
-            const videoElement = videoPreview;
-            const naturalWidth = videoElement.videoWidth;
-            const naturalHeight = videoElement.videoHeight;
-            
+        
+        // Получаем реальные размеры видео без учета масштаба
+        const videoElement = videoPreview;
+        const naturalWidth = videoElement.videoWidth;
+        const naturalHeight = videoElement.videoHeight;
+        
             // Получаем реальные размеры отображаемого видео БЕЗ учета transform
             const displayedBase = getDisplayedVideoRect();
             
@@ -1133,7 +1133,7 @@ cropButton.addEventListener('click', async () => {
             // Центр элемента videoPreview на экране (это точка отсчета для transform)
             const elementCenterX = videoRect.left + videoRect.width / 2;
             const elementCenterY = videoRect.top + videoRect.height / 2;
-            
+        
             // Центр отображаемого видео БЕЗ transform (из getDisplayedVideoRect)
             const displayedBaseCenterX = displayedBase.centerX;
             const displayedBaseCenterY = displayedBase.centerY;
@@ -1152,16 +1152,16 @@ cropButton.addEventListener('click', async () => {
             // Размеры отображаемого видео с учетом масштаба
             const displayedWidthScaled = displayedBase.width * currentScale;
             const displayedHeightScaled = displayedBase.height * currentScale;
-            
-            // Центр области кропа на экране
-            const cropCenterX = cropRect.left + cropRect.width / 2;
-            const cropCenterY = cropRect.top + cropRect.height / 2;
-            
+        
+        // Центр области кропа на экране
+        const cropCenterX = cropRect.left + cropRect.width / 2;
+        const cropCenterY = cropRect.top + cropRect.height / 2;
+        
             // Смещение центра кропа относительно центра отображаемого видео (в экранных пикселях)
             const screenOffsetX = cropCenterX - displayedCenterX;
             const screenOffsetY = cropCenterY - displayedCenterY;
-            
-            // Переводим экранные координаты в координаты исходного видео
+        
+        // Переводим экранные координаты в координаты исходного видео
             // Коэффициент масштабирования: насколько пиксель на экране соответствует пикселю в исходном видео
             const scaleFactorX = naturalWidth / displayedWidthScaled;
             const scaleFactorY = naturalHeight / displayedHeightScaled;
@@ -1169,23 +1169,23 @@ cropButton.addEventListener('click', async () => {
             // Смещение центра кропа в координатах исходного видео (относительно центра видео)
             const videoOffsetX = screenOffsetX * scaleFactorX;
             const videoOffsetY = screenOffsetY * scaleFactorY;
-            
+        
             // Центр кропа в координатах исходного видео (абсолютные координаты)
             const cropCenterInVideoX = (naturalWidth / 2) + videoOffsetX;
             const cropCenterInVideoY = (naturalHeight / 2) + videoOffsetY;
-            
+        
             // Проверяем, что размеры видео валидны
             if (!naturalWidth || !naturalHeight || naturalWidth === 0 || naturalHeight === 0) {
                 throw new Error(`Неверные размеры видео: ${naturalWidth}x${naturalHeight}`);
             }
-            
-            // Размер области кропа в координатах исходного видео
+        
+        // Размер области кропа в координатах исходного видео
             // Кроп-фрейм квадратный, поэтому используем его ширину
             // Коэффициент масштабирования должен быть одинаковым для X и Y (квадратный кроп)
             // Используем средний коэффициент для более точного расчета
             const scaleFactor = (scaleFactorX + scaleFactorY) / 2;
             const cropSizeInVideo = cropRect.width * scaleFactor;
-            
+        
             // Ограничиваем размер кропа максимальным размером (меньшая сторона видео)
             const maxCropSize = Math.min(naturalWidth, naturalHeight);
             const finalCropSize = Math.min(cropSizeInVideo, maxCropSize);
@@ -1267,9 +1267,9 @@ cropButton.addEventListener('click', async () => {
                     height: naturalHeight
                 },
                 normalized: {
-                    x: x,
-                    y: y,
-                    width: width,
+            x: x,
+            y: y,
+            width: width,
                     height: height
                 },
                 finalCropData: cropDataObj
@@ -1286,11 +1286,11 @@ cropButton.addEventListener('click', async () => {
             formData.append('video', videoFile);
             formData.append('cropData', JSON.stringify(cropDataObj));
 
-            const initData = window.Telegram.WebApp.initDataUnsafe;
-            if (!initData.user?.id) {
-                throw new Error('Не удалось получить идентификатор чата');
-            }
-            formData.append('chatId', initData.user.id.toString());
+        const initData = window.Telegram.WebApp.initDataUnsafe;
+        if (!initData.user?.id) {
+            throw new Error('Не удалось получить идентификатор чата');
+        }
+        formData.append('chatId', initData.user.id.toString());
 
             // Проверяем, что все необходимые данные есть
             if (!videoFile) {
@@ -1299,15 +1299,15 @@ cropButton.addEventListener('click', async () => {
             if (!initData?.user?.id) {
                 throw new Error('Не удалось получить идентификатор пользователя');
             }
-            
-            // Обновляем статус: видео загружено
+
+        // Обновляем статус: видео загружено
             try {
-                updateStatusStep('status-uploaded');
+        updateStatusStep('status-uploaded');
             } catch (e) {
                 console.error('Ошибка при обновлении статуса uploaded:', e);
             }
-            
-            // Обновляем статус: обработка видео
+        
+        // Обновляем статус: обработка видео
             setTimeout(() => {
                 try {
                     updateStatusStep('status-processing');
@@ -1316,11 +1316,11 @@ cropButton.addEventListener('click', async () => {
                 }
             }, 500);
 
-            if (typeof tg.showProgress === 'function') {
-                tg.showProgress();
-            }
+        if (typeof tg.showProgress === 'function') {
+            tg.showProgress();
+        }
 
-            console.log('Отправляем запрос на сервер...');
+        console.log('Отправляем запрос на сервер...');
             console.log('FormData содержит:', {
                 hasVideo: !!videoFile,
                 videoName: videoFile?.name,
@@ -1345,9 +1345,9 @@ cropButton.addEventListener('click', async () => {
             
             try {
             console.log('🔄 Вызываем fetch...');
-            const response = await fetch('/rounds/api/upload', {
-                method: 'POST',
-                body: formData
+        const response = await fetch('/rounds/api/upload', {
+            method: 'POST',
+            body: formData
                 // НЕ устанавливаем Content-Type вручную - браузер сделает это автоматически с правильным boundary
             });
             console.log('✅ Fetch завершён, получен response');
@@ -1357,8 +1357,8 @@ cropButton.addEventListener('click', async () => {
             
             // Читаем ответ один раз
             const responseText = await response.text();
-            
-            if (!response.ok) {
+
+        if (!response.ok) {
                 console.error('❌ Ошибка от сервера. Статус:', response.status, response.statusText);
                 console.error('Content-Type:', response.headers.get('content-type'));
                 console.error('Тело ответа (первые 500 символов):', responseText.substring(0, 500));
@@ -1387,7 +1387,7 @@ cropButton.addEventListener('click', async () => {
                 } else {
                     // Это не HTML, возможно JSON или текст
                     errorMessage = responseText.trim();
-                }
+        }
                 
                 // Если сообщение пустое или слишком общее, используем статус
                 if (!errorMessage || errorMessage.length < 3) {
@@ -1402,30 +1402,30 @@ cropButton.addEventListener('click', async () => {
             
             console.log('Успешный ответ от сервера:', responseText);
 
-            // Обновляем статус: создание кружка
-            updateStatusStep('status-creating');
+        // Обновляем статус: создание кружка
+        updateStatusStep('status-creating');
+        
+        // Имитируем время обработки
+        setTimeout(() => {
+            updateStatusStep('status-sent');
             
-            // Имитируем время обработки
+            // Показываем алерт завершения и закрываем через 2 секунды
             setTimeout(() => {
-                updateStatusStep('status-sent');
+                hideProcessingStatus();
+                showCompletionAlert();
                 
-                // Показываем алерт завершения и закрываем через 2 секунды
                 setTimeout(() => {
-                    hideProcessingStatus();
-                    showCompletionAlert();
-                    
-                    setTimeout(() => {
-                        // Принудительно сбрасываем состояние перед закрытием
-                        hideCompletionAlert();
-                        resetAppState();
-                        if (typeof tg.close === 'function') {
-                            tg.close();
-                        }
-                    }, 3000);
-                }, 1000);
-            }, 1500);
+                    // Принудительно сбрасываем состояние перед закрытием
+                    hideCompletionAlert();
+                    resetAppState();
+            if (typeof tg.close === 'function') {
+                tg.close();
+            }
+                }, 3000);
+            }, 1000);
+        }, 1500);
 
-        } catch (error) {
+    } catch (error) {
             console.error('❌ Ошибка при обработке видео:', error);
             console.error('Тип ошибки:', error?.constructor?.name);
             console.error('Стек ошибки:', error?.stack);
@@ -1443,15 +1443,15 @@ cropButton.addEventListener('click', async () => {
                 console.error('⚠️ Ошибка сети - возможно, сервер недоступен');
             }
             
-            hideProcessingStatus();
-            
-            // Возвращаем кнопку в исходное состояние
-            cropButton.textContent = 'Обрезать';
-            cropButton.style.background = 'var(--primary-color)';
-            cropButton.disabled = false;
-            
-            // Сбрасываем состояние при ошибке
-            resetAppState();
+        hideProcessingStatus();
+        
+        // Возвращаем кнопку в исходное состояние
+        cropButton.textContent = 'Обрезать';
+        cropButton.style.background = 'var(--primary-color)';
+        cropButton.disabled = false;
+        
+        // Сбрасываем состояние при ошибке
+        resetAppState();
             
             // Извлекаем сообщение об ошибке
             let errorMessage = 'Произошла ошибка при обработке видео';
@@ -1468,21 +1468,21 @@ cropButton.addEventListener('click', async () => {
             
             console.log('Показываем ошибку пользователю:', shortMessage);
             
-            if (typeof tg.showAlert === 'function') {
+        if (typeof tg.showAlert === 'function') {
                 try {
                     tg.showAlert(shortMessage);
                 } catch (e) {
                     console.error('Ошибка при вызове tg.showAlert:', e);
                     alert(shortMessage);
                 }
-            } else {
+        } else {
                 alert(shortMessage);
-            }
-        } finally {
-            if (typeof tg.hideProgress === 'function') {
-                tg.hideProgress();
-            }
         }
+    } finally {
+        if (typeof tg.hideProgress === 'function') {
+            tg.hideProgress();
+        }
+    }
         } catch (error) {
             console.error('Ошибка в обработчике кнопки "Обрезать":', error);
             hideProcessingStatus();
@@ -1504,5 +1504,5 @@ cropButton.addEventListener('click', async () => {
                 alert(shortMessage);
             }
         }
-    });
+}); 
 } 

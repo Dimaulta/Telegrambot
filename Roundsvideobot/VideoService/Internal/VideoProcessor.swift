@@ -228,17 +228,11 @@ struct VideoProcessor {
         }
         req.logger.info("Display размеры: \(displayWidth)×\(displayHeight) (storage: \(storageSize.width)×\(storageSize.height))")
 
-        // Фронт: x,y — центр кропа в [0,1], (0,0)=левый верх. Y растёт вниз.
-        // transpose=0/3 включают vflip → ось Y в нашем кадре противоположна frontend. Инвертируем Y при ±90°.
-        let centerX: Double
-        let centerY: Double
-        if abs(rotation) == 90 {
-            centerX = cropData.x * Double(displayWidth)
-            centerY = (1.0 - cropData.y) * Double(displayHeight)
-        } else {
-            centerX = cropData.x * Double(displayWidth)
-            centerY = cropData.y * Double(displayHeight)
-        }
+        // Фронт: x,y — центр кропа в [0,1], (0,0)=левый верх, Y вниз.
+        // cropOffsetY: смещение по Y (px). Отрицательное = голова выше в кружке.
+        let cropOffsetY: Double = 100
+        let centerX = cropData.x * Double(displayWidth)
+        let centerY = cropData.y * Double(displayHeight) + cropOffsetY
         let minSide = Double(min(displayWidth, displayHeight))
         let sizePxDouble = min(
             cropData.width * minSide,
@@ -260,7 +254,7 @@ struct VideoProcessor {
         x = max(0, min(x, displayWidth - cropSize))
         y = max(0, min(y, displayHeight - cropSize))
 
-        req.logger.info("Кроп в display-пространстве: center=(\(centerX), \(centerY))→(\(clampedCX), \(clampedCY)), size=\(cropSize), x=\(x), y=\(y)")
+        req.logger.info("Кроп: offsetY=\(cropOffsetY), center=(\(centerX), \(centerY))→(\(clampedCX), \(clampedCY)), size=\(cropSize), x=\(x), y=\(y)")
 
         if x % 2 != 0 { x -= 1 }
         if y % 2 != 0 { y -= 1 }
@@ -284,6 +278,7 @@ struct VideoProcessor {
         }
         let cropFilter = "crop=\(cropSize):\(cropSize):\(x):\(y)"
         filters.append(cropFilter)
+        filters.append("hflip") 
         filters.append("scale=640:640,format=yuv420p")
         let filterChain = filters.joined(separator: ",")
         req.logger.info("Цепочка фильтров FFmpeg: \(filterChain)")

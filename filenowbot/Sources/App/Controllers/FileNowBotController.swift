@@ -651,8 +651,9 @@ final class FileNowBotController {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.arguments = [
-            "-f", "bestvideo[height=1080][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height=720][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[ext=mp4][protocol!=m3u8]/best[ext=mp4]/best",
+            "-f", "bestvideo[height=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height=720][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height<=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[vcodec^=avc1][ext=mp4][protocol!=m3u8]/best[ext=mp4][protocol!=m3u8]/best",
             "--merge-output-format", "mp4",
+            "--postprocessor-args", "ffmpeg:-movflags +faststart -c:v copy -c:a copy",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-o", tempFile.path,
             originalUrl

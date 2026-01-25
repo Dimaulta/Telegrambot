@@ -230,7 +230,7 @@ struct VideoProcessor {
 
         // Фронт: x,y — центр кропа в [0,1], (0,0)=левый верх, Y вниз.
         // cropOffsetY: смещение по Y (px). Отрицательное = голова выше в кружке.
-        let cropOffsetY: Double = 100
+        let cropOffsetY: Double = 130
         let centerX = cropData.x * Double(displayWidth)
         let centerY = cropData.y * Double(displayHeight) + cropOffsetY
         let minSide = Double(min(displayWidth, displayHeight))
@@ -278,7 +278,9 @@ struct VideoProcessor {
         }
         let cropFilter = "crop=\(cropSize):\(cropSize):\(x):\(y)"
         filters.append(cropFilter)
-        filters.append("hflip") 
+        if abs(rotation) == 90 {
+            filters.append("hflip")
+        }
         filters.append("scale=640:640,format=yuv420p")
         let filterChain = filters.joined(separator: ",")
         req.logger.info("Цепочка фильтров FFmpeg: \(filterChain)")

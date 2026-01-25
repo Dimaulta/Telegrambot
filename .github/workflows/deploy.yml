@@ -94,6 +94,10 @@ jobs:
                   CHANGED_TARGETS="$CHANGED_TARGETS nowmttbot"
                   ONLY_NON_WORKING_TARGETS=false
                 fi
+                if echo "$PACKAGE_DIFF" | grep -qE "name: \"FileNowBot\""; then
+                  CHANGED_TARGETS="$CHANGED_TARGETS filenowbot"
+                  ONLY_NON_WORKING_TARGETS=false
+                fi
                 if echo "$PACKAGE_DIFF" | grep -qE "name: \"GolosNowBot\""; then
                   CHANGED_TARGETS="$CHANGED_TARGETS golosnowbot"
                   ONLY_NON_WORKING_TARGETS=false
@@ -131,8 +135,8 @@ jobs:
               if echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/"; then
                 SERVICES="$SERVICES roundsvideobot"
               fi
-              if echo "$CHANGED_FILES" | grep -qE "^nowmttbot/"; then
-                SERVICES="$SERVICES nowmttbot"
+              if echo "$CHANGED_FILES" | grep -qE "^filenowbot/"; then
+                SERVICES="$SERVICES filenowbot"
               fi
               if echo "$CHANGED_FILES" | grep -qE "^golosnowbot/"; then
                 SERVICES="$SERVICES golosnowbot"

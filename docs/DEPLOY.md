@@ -268,6 +268,8 @@ docker compose -f docker-compose.prod.yml build --no-cache
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+**Mini-app (RoundsvideoBot):** если менял `app.js` или `styles.css`, перед пушем **увеличь `?v=`** в `Roundsvideobot/VideoService/Public/index.html` (например, `app.js?v=10` → `app.js?v=11`). Иначе в Telegram мини-апп может показывать старое поведение из кэша WebView. Подробнее: [`docs/archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md`](archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md).
+
 ---
 
 ## 🐛 Решение проблем
@@ -275,6 +277,12 @@ docker compose -f docker-compose.prod.yml up -d
 ### Docker не установлен
 
 См. раздел "Установка Docker и Docker Compose" выше.
+
+### Mini-app (RoundsvideoBot) показывает «старое» поведение после деплоя
+
+Такое бывает из‑за **кэша**: Telegram открывает мини-апп в WebView, который кэширует `app.js` и `styles.css` по URL. Код на сервере новый, но клиент отдаёт старую версию из кэша.
+
+**Что делать:** увеличить `?v=` в `Roundsvideobot/VideoService/Public/index.html` для `app.js` и `styles.css`, закоммитить, задеплоить. После деплоя проверить мини-апп в Telegram: **сверху справа → три точки (⋮) → Обновить страницу** — обычно этого достаточно; либо закрыть и заново открыть веб-апп. Подробнее: [`docs/archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md`](archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md).
 
 ### Порт 80/443 занят
 

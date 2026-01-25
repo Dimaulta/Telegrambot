@@ -159,7 +159,8 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   cd /Users/a1111/Desktop/projects/Telegrambot
   set -a; source config/.env; set +a
   LOG_LEVEL=debug swift run VideoServiceRunner
-```
+  ```
+  > 💡 **Mini-app и кэш:** Мини-апп в Telegram — это веб-страница по URL; WebView кэширует JS/CSS. Если меняешь `app.js` или `styles.css`, перед деплоем увеличивай `?v=` в `Roundsvideobot/VideoService/Public/index.html`, иначе в проде может показываться старая версия. Подробнее: [`docs/archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md`](archive/ROUNDSVIDEOBOT_MINIAPP_CACHE_FIX.md).
 
 - FileNowBot — скачивание TikTok без водяного знака
   ```bash

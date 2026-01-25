@@ -225,9 +225,9 @@ struct VideoProcessor {
         let centerX = cropData.x * Double(videoSize.width)
         let centerY = cropData.y * Double(videoSize.height)
         let sizePxDouble = min(cropData.width * Double(videoSize.width), cropData.height * Double(videoSize.height))
-        // Немного отдаляем (расширяем область кропа), чтобы уменьшить зум
-        let zoomOutFactor = 1.45
-        var cropSize = Int(round(sizePxDouble * zoomOutFactor))
+        // Используем размер области кропа как есть, без дополнительного увеличения
+        // Чтобы кружок точно соответствовал тому, что видно в кроп-фрейме
+        var cropSize = Int(round(sizePxDouble))
 
         // Вычисляем левый верхний угол области
         var x = Int(round(centerX - Double(cropSize) / 2.0))

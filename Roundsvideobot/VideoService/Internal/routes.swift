@@ -16,6 +16,7 @@ func routes(_ app: Application) async throws {
     }
     
     // Вспомогательная функция для обработки webhook
+    @Sendable
     func handleWebhook(req: Request) async throws -> HTTPStatus {
         // Логируем сырой запрос для проверки
         let body = req.body.string ?? "Нет тела запроса"
@@ -28,7 +29,7 @@ func routes(_ app: Application) async throws {
             
             if let message = update.message {
                 req.logger.info("Получено сообщение от пользователя: \(message.from.first_name) (ID: \(message.from.id))")
-
+                
                 let incomingText = message.text ?? ""
 
                 // Регистрируем пользователя в общей базе монетизации
@@ -434,20 +435,36 @@ func routes(_ app: Application) async throws {
     }
     
     // Вспомогательная функция для обработки загрузки
+    @Sendable
     func handleUpload(req: Request) async throws -> Response {
+        req.logger.info("Получен запрос на /api/upload")
+        req.logger.info("Content-Type: \(req.headers.first(name: .contentType) ?? "не указан")")
+        req.logger.info("Content-Length: \(req.headers.first(name: .contentLength) ?? "не указан")")
+        req.logger.info("Все заголовки: \(req.headers)")
+        
+        // Собираем тело запроса полностью
+        guard let body = req.body.data else {
+            req.logger.error("Тело запроса пустое")
+            throw Abort(.badRequest, reason: "Тело запроса пустое")
+        }
+        
+        req.logger.info("Размер тела запроса: \(body.readableBytes) байт")
+        
         struct UploadData: Content {
             var video: File
             var chatId: String
             var cropData: String
         }
 
-        let upload = try req.content.decode(UploadData.self)
-        let file = upload.video
-        let chatId = upload.chatId
-        req.logger.info("Получен файл: \(file.filename), размер: \(file.data.readableBytes) байт")
-        
-        // Проверка подписки перед обработкой из мини-аппы
-        if let userId = Int64(chatId) {
+        do {
+            // Пробуем декодировать multipart/form-data
+            let upload = try req.content.decode(UploadData.self)
+            let file = upload.video
+            let chatId = upload.chatId
+            req.logger.info("Получен файл: \(file.filename), размер: \(file.data.readableBytes) байт")
+            
+            // Проверка подписки перед обработкой из мини-аппы
+            if let userId = Int64(chatId) {
             let (allowed, channels) = await MonetizationService.checkAccess(
                 botName: "Roundsvideobot",
                 userId: userId,
@@ -501,10 +518,10 @@ func routes(_ app: Application) async throws {
                 resp.body = .init(string: "Требуется подписка на спонсорские каналы")
                 return resp
             }
-        }
-        
-        // Лимит: не более 2 видео в минуту на пользователя
-        if await !RateLimiter.shared.allow(key: chatId) {
+            }
+            
+            // Лимит: не более 2 видео в минуту на пользователя
+            if await !RateLimiter.shared.allow(key: chatId) {
             let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
             let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
             let boundary = UUID().uuidString
@@ -525,80 +542,155 @@ func routes(_ app: Application) async throws {
                 post.body = body
             }.get()
             
-            let resp = Response(status: .tooManyRequests)
-            resp.body = .init(string: "Подождите 1 минуту")
-            return resp
-        }
+                let resp = Response(status: .tooManyRequests)
+                resp.body = .init(string: "Подождите 1 минуту")
+                return resp
+            }
 
-        // Декодируем cropData
-        guard let cropDataJson = upload.cropData.data(using: .utf8) else {
-            throw Abort(.badRequest, reason: "Некорректный формат cropData")
-        }
-        let cropData = try JSONDecoder().decode(CropData.self, from: cropDataJson)
-        req.logger.info("CropData получен: x=\(cropData.x), y=\(cropData.y), w=\(cropData.width), h=\(cropData.height), scale=\(cropData.scale)")
+            // Декодируем cropData
+            req.logger.info("Сырой cropData строка: \(upload.cropData)")
+            req.logger.info("Длина cropData: \(upload.cropData.count) символов")
+            
+            guard let cropDataJson = upload.cropData.data(using: .utf8) else {
+                req.logger.error("Не удалось преобразовать cropData в Data")
+                throw Abort(.badRequest, reason: "Некорректный формат cropData")
+            }
+            
+            req.logger.info("CropData JSON bytes: \(cropDataJson.count) байт")
+            
+            let cropData: CropData
+            do {
+                cropData = try JSONDecoder().decode(CropData.self, from: cropDataJson)
+                req.logger.info("CropData успешно декодирован: x=\(cropData.x), y=\(cropData.y), w=\(cropData.width), h=\(cropData.height), scale=\(cropData.scale)")
+            } catch {
+                req.logger.error("Ошибка декодирования CropData: \(error)")
+                if let jsonString = String(data: cropDataJson, encoding: .utf8) {
+                    req.logger.error("Попытка декодировать JSON: \(jsonString)")
+                }
+                throw Abort(.badRequest, reason: "Некорректный формат cropData: \(error.localizedDescription)")
+            }
 
-        // Сохраняем файл во временную директорию
-        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let uniqueId = UUID().uuidString.prefix(8)
-        let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
-        let inputUrl = URL(fileURLWithPath: "Roundsvideobot/Resources/temporaryvideoFiles/").appendingPathComponent(inputFileName)
+            // Сохраняем файл во временную директорию
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let uniqueId = UUID().uuidString.prefix(8)
+            let inputFileName = "input_\(timestamp)_\(uniqueId).mp4"
+            let inputUrl = URL(fileURLWithPath: "Roundsvideobot/Resources/temporaryvideoFiles/").appendingPathComponent(inputFileName)
 
-        let savedData = Data(buffer: file.data)
-        try savedData.write(to: inputUrl)
+            let savedData = Data(buffer: file.data)
+            try savedData.write(to: inputUrl)
 
-        // Обрабатываем видео с учетом кропа
-        let processor = VideoProcessor(req: req)
-        let processedUrl = try await processor.processUploadedVideo(filePath: inputUrl.path, cropData: cropData)
+            // Обрабатываем видео с учетом кропа
+            let processor = VideoProcessor(req: req)
+            let processedUrl = try await processor.processUploadedVideo(filePath: inputUrl.path, cropData: cropData)
 
-        // Готовим и отправляем видеокружок
-        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/sendVideoNote")
-        let boundary = UUID().uuidString
-        var body = ByteBufferAllocator().buffer(capacity: 0)
+            // Готовим и отправляем видеокружок
+            let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(Environment.get("VIDEO_BOT_TOKEN") ?? "")/sendVideoNote")
+            let boundary = UUID().uuidString
+            var body = ByteBufferAllocator().buffer(capacity: 0)
 
-        // chat_id
-        body.writeString("--\(boundary)\r\n")
-        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
-        body.writeString("\(chatId)\r\n")
+            // chat_id
+            body.writeString("--\(boundary)\r\n")
+            body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+            body.writeString("\(chatId)\r\n")
 
-        // video_note
-        let processedData = try Data(contentsOf: processedUrl)
-        body.writeString("--\(boundary)\r\n")
-        body.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
-        body.writeString("Content-Type: video/mp4\r\n\r\n")
-        body.writeBytes(processedData)
-        body.writeString("\r\n")
-        body.writeString("--\(boundary)--\r\n")
+            // video_note
+            let processedData = try Data(contentsOf: processedUrl)
+            body.writeString("--\(boundary)\r\n")
+            body.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
+            body.writeString("Content-Type: video/mp4\r\n\r\n")
+            body.writeBytes(processedData)
+            body.writeString("\r\n")
+            body.writeString("--\(boundary)--\r\n")
 
-        var headers = HTTPHeaders()
-        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+            var headers = HTTPHeaders()
+            headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
 
-        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
-            post.body = body
-        }.get()
+            let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+                post.body = body
+            }.get()
 
-        // Чистим временные файлы
-        try? FileManager.default.removeItem(at: inputUrl)
-        try? FileManager.default.removeItem(at: processedUrl)
+            // Чистим временные файлы
+            try? FileManager.default.removeItem(at: inputUrl)
+            try? FileManager.default.removeItem(at: processedUrl)
 
-        guard response.status == .ok else {
-            if let respBody = response.body {
-                let respData = respBody.getData(at: 0, length: respBody.readableBytes) ?? Data()
-                if let text = String(data: respData, encoding: .utf8) {
-                    throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(text)")
+            guard response.status == .ok else {
+                if let respBody = response.body {
+                    let respData = respBody.getData(at: 0, length: respBody.readableBytes) ?? Data()
+                    if let text = String(data: respData, encoding: .utf8) {
+                        throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(text)")
+                    }
+                }
+                throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
+            }
+
+            let okResp = Response(status: .ok)
+            okResp.body = .init(string: "Видео успешно обработано и отправлено!")
+            return okResp
+        } catch {
+            req.logger.error("Ошибка при обработке загрузки: \(error)")
+            req.logger.error("Детали ошибки: \(error.localizedDescription)")
+            
+            // Если ошибка декодирования, пробуем прочитать сырые данные
+            if error.localizedDescription.contains("content type") || error.localizedDescription.contains("decode") || error.localizedDescription.contains("Can't decode") {
+                req.logger.error("Проблема с декодированием multipart/form-data")
+                req.logger.error("Попытка прочитать сырые данные...")
+                
+                // Логируем первые 500 байт тела запроса для отладки
+                if let bodyData = req.body.data {
+                    let previewSize = min(500, bodyData.readableBytes)
+                    if let preview = bodyData.getData(at: 0, length: previewSize) {
+                        if let previewString = String(data: preview, encoding: .utf8) {
+                            req.logger.error("Начало тела запроса (первые \(previewSize) байт): \(previewString)")
+                        } else {
+                            req.logger.error("Начало тела запроса (первые \(previewSize) байт, не UTF-8): \(preview.count) байт")
+                        }
+                    }
                 }
             }
-            throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
+            
+            let errorResp = Response(status: .badRequest)
+            var headers = HTTPHeaders()
+            headers.add(name: .contentType, value: "text/plain; charset=utf-8")
+            errorResp.headers = headers
+            
+            // Обрезаем сообщение об ошибке до разумной длины
+            let errorMsg = error.localizedDescription
+            let shortMsg = errorMsg.count > 200 ? String(errorMsg.prefix(197)) + "..." : errorMsg
+            errorResp.body = .init(string: "Ошибка при обработке видео: \(shortMsg)")
+            
+            req.logger.error("Возвращаем ошибку клиенту: \(shortMsg)")
+            return errorResp
         }
-
-        let okResp = Response(status: .ok)
-        okResp.body = .init(string: "Видео успешно обработано и отправлено!")
-        return okResp
+    }
+    
+    // Endpoint для логирования с фронтенда
+    app.post("api", "log") { req async throws -> HTTPStatus in
+        if let body = req.body.string {
+            req.logger.info("📱 [FRONTEND LOG] \(body)")
+        }
+        return .ok
     }
     
     // Отдаём index.html при GET //
     app.get { req async throws -> Response in
         let filePath = app.directory.publicDirectory + "index.html"
-        return req.fileio.streamFile(at: filePath)
+        req.logger.info("Запрос index.html, путь: \(filePath)")
+        
+        // Проверяем существование файла
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            req.logger.error("Файл index.html не найден по пути: \(filePath)")
+            throw Abort(.notFound, reason: "index.html not found")
+        }
+        
+        // Читаем файл и возвращаем Response
+        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+        var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+        buffer.writeBytes(data)
+        
+        var headers = HTTPHeaders()
+        headers.add(name: .contentType, value: "text/html; charset=utf-8")
+        
+        return Response(status: .ok, headers: headers, body: .init(buffer: buffer))
     }
 }
 

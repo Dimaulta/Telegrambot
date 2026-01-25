@@ -152,7 +152,7 @@ body {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    transform-origin: 0 0; /* важно для якорного зума */
+    transform-origin: center center; /* Центрируем трансформацию для правильного масштабирования */
     will-change: transform;
     background: transparent !important;
     transition: transform 120ms ease; /* сгладим первые шаги зума */

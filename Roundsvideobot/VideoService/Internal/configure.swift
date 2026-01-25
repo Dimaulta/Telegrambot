@@ -51,14 +51,15 @@ public func configure(_ app: Application) async throws {
     )
     app.http.client.configuration.connectionPool.idleTimeout = .seconds(60)
 
+    // Кастомный путь к папке Public для этого видеосервиса (ДО настройки маршрутов!)
+    app.directory.publicDirectory = app.directory.workingDirectory + "Roundsvideobot/VideoService/Public/"
+    app.logger.info("Public directory установлен: \(app.directory.publicDirectory)")
+
+    // Добавь FileMiddleware для отдачи статики (ДО настройки маршрутов!)
+    app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+
     // Настраиваем маршруты
     try await routes(app)
-
-    // Кастомный путь к папке Public для этого видеосервиса
-    app.directory.publicDirectory = app.directory.workingDirectory + "Roundsvideobot/VideoService/Public/"
-
-    // Добавь FileMiddleware для отдачи статики
-    app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
 
     // Увеличиваем лимит на размер загружаемого файла
     app.routes.defaultMaxBodySize = "100mb"

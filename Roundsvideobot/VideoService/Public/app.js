@@ -1,5 +1,49 @@
 let tg = window.Telegram.WebApp;
 
+// Перехватываем console.log для отправки на сервер
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+function sendLogToServer(level, ...args) {
+    try {
+        const message = args.map(arg => {
+            if (typeof arg === 'object') {
+                try {
+                    return JSON.stringify(arg);
+                } catch {
+                    return String(arg);
+                }
+            }
+            return String(arg);
+        }).join(' ');
+        
+        // Отправляем на сервер асинхронно, не ждём ответа
+        fetch('/api/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: `[${level}] ${message}`
+        }).catch(() => {}); // Игнорируем ошибки отправки логов
+    } catch (e) {
+        // Игнорируем ошибки при логировании
+    }
+}
+
+console.log = function(...args) {
+    originalConsoleLog.apply(console, args);
+    sendLogToServer('LOG', ...args);
+};
+
+console.error = function(...args) {
+    originalConsoleError.apply(console, args);
+    sendLogToServer('ERROR', ...args);
+};
+
+console.warn = function(...args) {
+    originalConsoleWarn.apply(console, args);
+    sendLogToServer('WARN', ...args);
+};
+
 // Состояние приложения
 let isDragging = false;
 let startX = 0;
@@ -56,7 +100,18 @@ function initializeElements() {
 // Гарантированно создаём один скрытый input[type=file] и переиспользуем.
 // Если есть кнопка выбора, встраиваем input внутрь кнопки, чтобы тап шёл прямо по input.
 function ensureFileInput() {
-    if (persistentFileInput && document.body.contains(persistentFileInput)) return persistentFileInput;
+    if (persistentFileInput) {
+        const isInDOM = document.body.contains(persistentFileInput) || 
+                       (selectButton && selectButton.contains(persistentFileInput));
+        if (isInDOM) {
+            console.log('Используем существующий persistentFileInput');
+            return persistentFileInput;
+        } else {
+            console.log('persistentFileInput существует, но не в DOM, пересоздаём');
+        }
+    }
+    
+    console.log('Создаём новый input для выбора файла');
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'video/*';
@@ -66,23 +121,41 @@ function ensureFileInput() {
     input.style.height = '100%';
     input.style.opacity = '0';
     input.style.cursor = 'pointer';
+    input.style.zIndex = '10'; // Убеждаемся, что input поверх кнопки
     input.setAttribute('tabindex', '0');
+    input.setAttribute('aria-label', 'Выбрать видео');
+    
     if (selectButton) {
+        console.log('Добавляем input внутрь кнопки selectButton');
         selectButton.appendChild(input);
     } else {
+        console.log('selectButton не найден, добавляем input в body');
         document.body.appendChild(input);
     }
 
     input.addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
-        console.log('persistentFileInput change fired, file:', file?.name);
+        console.log('persistentFileInput change fired, file:', file?.name, 'размер:', file?.size);
         if (file) {
             handleVideoSelect(file);
+        } else {
+            console.warn('Файл не выбран или пуст');
         }
         // НЕ удаляем input, просто очищаем значение, чтобы можно было выбрать тот же файл ещё раз
         input.value = '';
     });
+    
+    // Добавляем обработчик ошибок
+    input.addEventListener('error', (e) => {
+        console.error('Ошибка при работе с input:', e);
+    });
+    
     persistentFileInput = input;
+    console.log('Input создан и добавлен в DOM:', {
+        type: input.type,
+        accept: input.accept,
+        inDOM: document.body.contains(input) || (selectButton && selectButton.contains(input))
+    });
     return input;
 }
 
@@ -108,6 +181,21 @@ if (window.Telegram.WebApp.initData === '') {
     });
 }
 
+// Глобальный обработчик ошибок
+window.addEventListener('error', (event) => {
+    console.error('❌ Глобальная ошибка:', event.error);
+    console.error('Сообщение:', event.message);
+    console.error('Файл:', event.filename);
+    console.error('Строка:', event.lineno);
+    console.error('Колонка:', event.colno);
+    console.error('Стек:', event.error?.stack);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('❌ Необработанное отклонение промиса:', event.reason);
+    console.error('Стек:', event.reason?.stack);
+});
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM загружен, инициализируем элементы');
@@ -122,8 +210,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     initializeElements();
-    setupSelectVideoHandler();
-    setupCropButtonHandler();
+    
+    // Проверяем, что элементы найдены
+    if (!selectButton) {
+        console.error('⚠️ selectButton не найден после initializeElements()!');
+        // Пробуем найти ещё раз через небольшую задержку
+        setTimeout(() => {
+            initializeElements();
+            if (selectButton) {
+                console.log('✅ selectButton найден после повторной инициализации');
+                setupSelectVideoHandler();
+                setupCropButtonHandler();
+            } else {
+                console.error('❌ selectButton всё ещё не найден');
+            }
+        }, 100);
+    } else {
+        setupSelectVideoHandler();
+        setupCropButtonHandler();
+    }
     
     // Принудительно сбрасываем состояние при каждом запуске
     resetAppState();
@@ -161,21 +266,129 @@ function setupSelectVideoHandler() {
         return;
     }
     
-    selectButton.addEventListener('click', () => {
-        
+    console.log('Настраиваем обработчик для кнопки "Выбрать видео"');
+    
+    // Убеждаемся, что input создан заранее
+    ensureFileInput();
+    
+    // Используем прямой клик на input вместо обработчика кнопки
+    // В Telegram Web App это более надёжно
+    const input = ensureFileInput();
+    
+    // Если input внутри кнопки, клик по кнопке должен попадать на input
+    // Но на всякий случай добавляем обработчик и на кнопку
+    selectButton.addEventListener('click', (e) => {
         console.log('Кнопка "Выбрать видео" нажата');
+        console.log('Event target:', e.target);
+        console.log('Event currentTarget:', e.currentTarget);
+        
+        // Если клик уже попал на input, не делаем ничего
+        if (e.target === input || e.target === persistentFileInput) {
+            console.log('Клик попал на input, пропускаем');
+            return;
+        }
         
         // На всякий случай скрываем любые оверлеи перед кликом
         hideProcessingStatus();
         hideCompletionAlert();
 
-        // Используем постоянный input — это надёжнее в iOS/WKWebView/Telegram
-        const input = ensureFileInput();
+        // Используем постоянный input
+        const fileInput = ensureFileInput();
+        
+        if (!fileInput) {
+            console.error('Не удалось создать или найти input для выбора файла');
+            if (typeof tg.showAlert === 'function') {
+                try {
+                    tg.showAlert('Ошибка: не удалось инициализировать выбор файла');
+                } catch (e) {
+                    console.error('Ошибка при вызове tg.showAlert:', e);
+                    alert('Ошибка: не удалось инициализировать выбор файла');
+                }
+            } else {
+                alert('Ошибка: не удалось инициализировать выбор файла');
+            }
+            return;
+        }
+        
+        console.log('Input найден:', {
+            exists: !!fileInput,
+            inDOM: document.body.contains(fileInput) || (selectButton && selectButton.contains(fileInput)),
+            type: fileInput.type,
+            accept: fileInput.accept,
+            parent: fileInput.parentElement?.tagName
+        });
+        
         // Сбрасываем значение, чтобы повторный выбор того же файла тоже срабатывал
-        input.value = '';
-        // В некоторых окружениях требуется прямой клик в том же обработчике user gesture
-    input.click();
-});
+        fileInput.value = '';
+        
+        // Пробуем несколько способов активации input
+        console.log('Пробуем активировать input...');
+        
+        // Способ 1: прямой клик
+        try {
+            fileInput.click();
+            console.log('✅ input.click() вызван успешно');
+        } catch (error) {
+            console.error('❌ Ошибка при вызове input.click():', error);
+            
+            // Способ 2: focus + программный клик
+            try {
+                fileInput.focus();
+                const clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    detail: 1
+                });
+                fileInput.dispatchEvent(clickEvent);
+                console.log('✅ Попытка через dispatchEvent');
+            } catch (error2) {
+                console.error('❌ Ошибка при dispatchEvent:', error2);
+                
+                // Способ 3: создаём новый input и кликаем по нему
+                try {
+                    const tempInput = document.createElement('input');
+                    tempInput.type = 'file';
+                    tempInput.accept = 'video/*';
+                    tempInput.style.display = 'none';
+                    document.body.appendChild(tempInput);
+                    
+                    tempInput.addEventListener('change', (e) => {
+                        const file = e.target.files && e.target.files[0];
+                        if (file) {
+                            handleVideoSelect(file);
+                        }
+                        document.body.removeChild(tempInput);
+                    });
+                    
+                    tempInput.click();
+                    console.log('✅ Попытка через временный input');
+                } catch (error3) {
+                    console.error('❌ Все способы не сработали:', error3);
+                    if (typeof tg.showAlert === 'function') {
+                        try {
+                            tg.showAlert('Не удалось открыть выбор файла. Попробуйте обновить страницу.');
+                        } catch (e) {
+                            console.error('Ошибка при вызове tg.showAlert:', e);
+                            alert('Не удалось открыть выбор файла. Попробуйте обновить страницу.');
+                        }
+                    } else {
+                        alert('Не удалось открыть выбор файла. Попробуйте обновить страницу.');
+                    }
+                }
+            }
+        }
+    });
+    
+    // Также добавляем обработчик напрямую на input (на случай если клик попадает на него)
+    if (input) {
+        input.addEventListener('click', (e) => {
+            console.log('Прямой клик на input');
+            // Не предотвращаем стандартное поведение
+        });
+    }
+    
+    console.log('Обработчик для кнопки "Выбрать видео" установлен');
 }
 
 // Функция для показа статусного сообщения
@@ -343,10 +556,16 @@ function stopScroll() {
 // Обработка выбранного видео
 function handleVideoSelect(file) {
     if (file.size > 100 * 1024 * 1024) {
+        const message = 'Файл слишком большой. Максимальный размер - 100 МБ';
         if (typeof tg.showAlert === 'function') {
-            tg.showAlert('Файл слишком большой. Максимальный размер - 100 МБ');
+            try {
+                tg.showAlert(message);
+            } catch (e) {
+                console.error('Ошибка при вызове tg.showAlert:', e);
+                alert(message);
+            }
         } else {
-            alert('Файл слишком большой. Максимальный размер - 100 МБ');
+            alert(message);
         }
         return;
     }
@@ -361,10 +580,16 @@ function handleVideoSelect(file) {
 
     videoPreview.onloadedmetadata = () => {
         if (videoPreview.duration > 60) {
+            const message = 'Видео должно быть не длиннее 60 секунд';
             if (typeof tg.showAlert === 'function') {
-                tg.showAlert('Видео должно быть не длиннее 60 секунд');
+                try {
+                    tg.showAlert(message);
+                } catch (e) {
+                    console.error('Ошибка при вызове tg.showAlert:', e);
+                    alert(message);
+                }
             } else {
-                alert('Видео должно быть не длиннее 60 секунд');
+                alert(message);
             }
             return;
         }
@@ -377,15 +602,15 @@ function handleVideoSelect(file) {
         // Убираем класс video-preview чтобы контейнер был невидимым
         videoPreview.classList.remove('video-preview');
         
-        // Устанавливаем размеры видео напрямую
+        // Устанавливаем размеры видео напрямую - делаем крупнее
         if (videoAspectRatio > 1) {
-            // Горизонтальное видео - делаем шире
-            videoPreview.style.maxWidth = '80vw';
-            videoPreview.style.maxHeight = '50vh';
-        } else {
-            // Вертикальное видео - делаем уже
-            videoPreview.style.maxWidth = '60vw';
+            // Горизонтальное видео - делаем шире и выше
+            videoPreview.style.maxWidth = '95vw';
             videoPreview.style.maxHeight = '70vh';
+        } else {
+            // Вертикальное видео - делаем шире и выше
+            videoPreview.style.maxWidth = '90vw';
+            videoPreview.style.maxHeight = '85vh';
         }
 
         selectScreen.classList.remove('active');
@@ -404,9 +629,13 @@ function handleVideoSelect(file) {
         currentScale = 1;
         updateVideoTransform();
 
-        // Устанавливаем начальный размер кроп-фрейма (уменьшен на 16% от оригинала)
-        cropFrame.style.width = '252px';
-        cropFrame.style.height = '252px';
+        // Устанавливаем начальный размер кроп-фрейма адаптивно
+        // Делаем его больше (70% от меньшей стороны видео на экране) для более широкого обзора
+        const videoRectForCrop = videoPreview.getBoundingClientRect();
+        const minVideoDimension = Math.min(videoRectForCrop.width, videoRectForCrop.height);
+        const cropSize = Math.min(350, minVideoDimension * 0.7); // 70% от меньшей стороны, но не больше 350px
+        cropFrame.style.width = `${cropSize}px`;
+        cropFrame.style.height = `${cropSize}px`;
         
         // Получаем реальные размеры видео и размеры на экране
         const videoRect = videoPreview.getBoundingClientRect();
@@ -434,7 +663,9 @@ function handleVideoSelect(file) {
         
         // Увеличиваем диапазон зума для горизонтального видео
         const maxScaleHorizontal = aspectRatio > 1 ? 4.0 : 2.5;
-        currentScale = Math.max(minScaleGlobal, minScaleGlobal * 1.05);
+        // Устанавливаем начальный масштаб больше минимального, чтобы видео было крупнее
+        // Это даст более крупное отображение видео в мини-аппе
+        currentScale = minScaleGlobal * 1.5; // Увеличиваем на 50% для более крупного видео
         
         // Не применяем никаких смещений - позволяем CSS object-fit: contain самому центрировать
         currentX = 0;
@@ -536,9 +767,18 @@ function handleTouchStart(e) {
 function handleTouchMove(e) {
     if (isDragging && e.touches.length === 1) {
         const touch = e.touches[0];
+        // Вычисляем смещение от начальной точки касания
+        const deltaX = touch.clientX - (startX + currentX);
+        const deltaY = touch.clientY - (startY + currentY);
+        
+        // Добавляем коэффициент замедления для более плавного и контролируемого перемещения
+        const sensitivity = 0.8; // Коэффициент чувствительности (меньше = медленнее)
+        const adjustedDeltaX = deltaX * sensitivity;
+        const adjustedDeltaY = deltaY * sensitivity;
+        
         // Кандидатное новое смещение
-        let newX = touch.clientX - startX;
-        let newY = touch.clientY - startY;
+        let newX = currentX + adjustedDeltaX;
+        let newY = currentY + adjustedDeltaY;
         
         // Жестко ограничиваем движение - оверлей не может выйти за пределы видео
         const { minDx, maxDx, minDy, maxDy } = computeDeltaBoundsForScale(currentScale, currentScale);
@@ -551,6 +791,10 @@ function handleTouchMove(e) {
         
         currentX = currentX + clampedDx;
         currentY = currentY + clampedDy;
+        
+        // Обновляем начальные координаты для следующего движения
+        startX = touch.clientX - currentX;
+        startY = touch.clientY - currentY;
         
         updateVideoTransform();
         e.preventDefault();
@@ -647,9 +891,14 @@ function centerVideoAfterLoad() {
     const aspectRatio = naturalWidth / naturalHeight;
     
     // Убеждаемся что видео центрировано CSS object-fit: contain
-    // Не применяем никаких смещений - оставляем CSS делать свою работу
+    // Сбрасываем все смещения и масштаб к начальным значениям
     currentX = 0;
     currentY = 0;
+    // Масштаб уже установлен выше, не меняем его здесь
+    
+    // Принудительно центрируем видео через CSS
+    videoPreview.style.margin = 'auto';
+    videoPreview.style.display = 'block';
     
     console.log('Видео проверено на центрирование:', {
         aspectRatio: aspectRatio,
@@ -660,7 +909,8 @@ function centerVideoAfterLoad() {
         naturalSize: {
             width: naturalWidth,
             height: naturalHeight
-        }
+        },
+        currentScale: currentScale
     });
     
     updateVideoTransform();
@@ -732,8 +982,6 @@ function getDisplayedVideoRect() {
 function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     const { vRect, cRect } = getCurrentRects();
     const displayed = getDisplayedVideoRect();
-    const overlayCenterX = cRect.left + cRect.width / 2;
-    const overlayCenterY = cRect.top + cRect.height / 2;
     const halfCropW = cRect.width / 2;
     const halfCropH = cRect.height / 2;
 
@@ -741,27 +989,32 @@ function computeDeltaBoundsForScale(targetScale, scaleFrom = currentScale) {
     const ratio = targetScale / scaleFrom;
     const halfVideoWNew = (displayed.width * ratio) / 2;
     const halfVideoHNew = (displayed.height * ratio) / 2;
-    const videoCenterXNow = displayed.centerX;
-    const videoCenterYNow = displayed.centerY;
-
-    // Вычисляем границы для всех типов видео
-    let minCenterX, maxCenterX, minCenterY, maxCenterY;
     
-    // Горизонтальное движение: оверлей должен оставаться над видео
+    // Центр оверлея на экране (фиксирован)
+    const overlayCenterX = cRect.left + cRect.width / 2;
+    const overlayCenterY = cRect.top + cRect.height / 2;
+    
+    // Центр видео на экране БЕЗ учета transform
+    const videoCenterXBase = displayed.centerX;
+    const videoCenterYBase = displayed.centerY;
+    
+    // С учетом transform, весь элемент videoPreview смещается на (currentX, currentY)
+    // Поэтому центр отображаемого видео тоже смещается на (currentX, currentY)
+    const videoCenterXNow = videoCenterXBase + currentX;
+    const videoCenterYNow = videoCenterYBase + currentY;
+
+    // Вычисляем границы: оверлей должен оставаться полностью внутри видео
+    // Центр оверлея должен быть в пределах: [videoCenter - (halfVideo - halfCrop), videoCenter + (halfVideo - halfCrop)]
     const allowedHorizontalMovement = Math.max(0, halfVideoWNew - halfCropW);
-    minCenterX = overlayCenterX - allowedHorizontalMovement;
-    maxCenterX = overlayCenterX + allowedHorizontalMovement;
-    
-    // Вертикальное движение: оверлей должен оставаться над видео
     const allowedVerticalMovement = Math.max(0, halfVideoHNew - halfCropH);
-    minCenterY = overlayCenterY - allowedVerticalMovement;
-    maxCenterY = overlayCenterY + allowedVerticalMovement;
-
-    // dx = newCenterX - currentCenterX; dy аналогично
-    const minDx = minCenterX - videoCenterXNow;
-    const maxDx = maxCenterX - videoCenterXNow;
-    const minDy = minCenterY - videoCenterYNow;
-    const maxDy = maxCenterY - videoCenterYNow;
+    
+    // После изменения currentX на dx, новый центр видео будет videoCenterXNow + dx
+    // Этот центр должен быть в пределах: [overlayCenterX - allowedHorizontalMovement, overlayCenterX + allowedHorizontalMovement]
+    const minDx = (overlayCenterX - allowedHorizontalMovement) - videoCenterXNow;
+    const maxDx = (overlayCenterX + allowedHorizontalMovement) - videoCenterXNow;
+    const minDy = (overlayCenterY - allowedVerticalMovement) - videoCenterYNow;
+    const maxDy = (overlayCenterY + allowedVerticalMovement) - videoCenterYNow;
+    
     return { minDx, maxDx, minDy, maxDy };
 }
 
@@ -816,161 +1069,348 @@ function setupCropButtonHandler() {
     }
     
 cropButton.addEventListener('click', async () => {
-        console.log('Кнопка "Обрезать" нажата');
+        console.log('🔵 Кнопка "Обрезать" нажата');
+        console.log('🔵 videoFile:', videoFile ? `есть (${videoFile.name}, ${videoFile.size} байт)` : 'НЕТ');
+        console.log('🔵 currentScale:', currentScale);
+        console.log('🔵 cropFrame:', cropFrame ? 'найден' : 'НЕ НАЙДЕН');
+        console.log('🔵 videoPreview:', videoPreview ? 'найден' : 'НЕ НАЙДЕН');
         
     if (!videoFile) {
-            console.log('Видео не выбрано');
+        console.log('Видео не выбрано');
+        const message = 'Пожалуйста, выберите видео';
         if (typeof tg.showAlert === 'function') {
-            tg.showAlert('Пожалуйста, выберите видео');
+            try {
+                tg.showAlert(message);
+            } catch (e) {
+                console.error('Ошибка при вызове tg.showAlert:', e);
+                alert(message);
+            }
         } else {
-            alert('Пожалуйста, выберите видео');
+            alert(message);
         }
         return;
     }
 
-        console.log('Начинаем обработку видео');
+        console.log('🟢 Начинаем обработку видео');
         
         try {
+            console.log('🟢 Шаг 1: Меняем кнопку');
             // Меняем кнопку на "Ожидайте" и делаем её неактивной
             cropButton.textContent = 'Ожидайте';
             cropButton.style.background = '#666';
             cropButton.disabled = true;
             
+            console.log('🟢 Шаг 2: Показываем статус-индикатор');
             // Показываем статус-индикатор
-            console.log('Сбрасываем статус и показываем индикатор');
             resetProcessingStatus();
             showProcessingStatus();
-            updateStatusStep('status-uploading');
-
-        const video = document.getElementById('video-preview');
-        const videoRect = video.getBoundingClientRect();
-        const cropRect = cropFrame.getBoundingClientRect();
-        
-        // Получаем реальные размеры видео без учета масштаба
-        const videoElement = videoPreview;
-        const naturalWidth = videoElement.videoWidth;
-        const naturalHeight = videoElement.videoHeight;
-        
-        // Размеры видео на экране (с учетом масштаба)
-        const scaledVideoWidth = videoRect.width;
-        const scaledVideoHeight = videoRect.height;
-        
-        // Центр видео на экране
-        const videoCenterX = videoRect.left + videoRect.width / 2;
-        const videoCenterY = videoRect.top + videoRect.height / 2;
-        
-        // Центр области кропа на экране
-        const cropCenterX = cropRect.left + cropRect.width / 2;
-        const cropCenterY = cropRect.top + cropRect.height / 2;
-        
-        // Смещение центра кропа относительно центра видео (в экранных пикселях)
-        const screenOffsetX = cropCenterX - videoCenterX;
-        const screenOffsetY = cropCenterY - videoCenterY;
-        
-        // Переводим экранные координаты в координаты исходного видео
-        // Учитываем, что видео может быть масштабировано и смещено
-        const videoOffsetX = screenOffsetX / currentScale;
-        const videoOffsetY = screenOffsetY / currentScale;
-        
-        // Центр кропа в координатах исходного видео (относительно центра)
-        const cropCenterInVideoX = videoOffsetX;
-        const cropCenterInVideoY = videoOffsetY;
-        
-        // Переводим в нормализованные координаты (0-1)
-        const x = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoX / naturalWidth));
-        const y = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoY / naturalHeight));
-        
-        // Размер области кропа в координатах исходного видео
-        const cropSizeInVideo = cropRect.width / currentScale;
-        
-        // Увеличиваем размер области кропа для отдаления итогового видео
-        const aspectRatio = naturalWidth / naturalHeight;
-        const cropPaddingFactor = aspectRatio > 1 ? 2.5 : 1.6; // +150% для горизонтального, +70% для вертикального
-        
-        const width = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalWidth);
-        const height = Math.min(1, (cropSizeInVideo * cropPaddingFactor) / naturalHeight);
-
-        const formData = new FormData();
-        formData.append('video', videoFile);
-        formData.append('cropData', JSON.stringify({
-            x: x,
-            y: y,
-            width: width,
-            height: height,
-            scale: currentScale
-        }));
-
-        const initData = window.Telegram.WebApp.initDataUnsafe;
-        if (!initData.user?.id) {
-            throw new Error('Не удалось получить идентификатор чата');
-        }
-        formData.append('chatId', initData.user.id.toString());
-
-        // Обновляем статус: видео загружено
-        updateStatusStep('status-uploaded');
-        
-        // Обновляем статус: обработка видео
-        setTimeout(() => updateStatusStep('status-processing'), 500);
-
-        if (typeof tg.showProgress === 'function') {
-            tg.showProgress();
-        }
-
-        console.log('Отправляем запрос на сервер...');
-        const response = await fetch('/rounds/api/upload', {
-            method: 'POST',
-            body: formData
-        });
-        console.log('Получен ответ от сервера:', response.status);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText);
-        }
-
-        // Обновляем статус: создание кружка
-        updateStatusStep('status-creating');
-        
-        // Имитируем время обработки
-        setTimeout(() => {
-            updateStatusStep('status-sent');
             
-            // Показываем алерт завершения и закрываем через 2 секунды
-            setTimeout(() => {
-                hideProcessingStatus();
-                showCompletionAlert();
-                
-                setTimeout(() => {
-                    // Принудительно сбрасываем состояние перед закрытием
-                    hideCompletionAlert();
-                    resetAppState();
-            if (typeof tg.close === 'function') {
-                tg.close();
-            }
-                }, 3000);
-            }, 1000);
-        }, 1500);
+            console.log('🟢 Шаг 3: Обновляем статус на uploading');
+            updateStatusStep('status-uploading');
+            
+            console.log('🟢 Шаг 4: Получаем элементы видео');
 
-    } catch (error) {
-        console.error('Error:', error);
-        hideProcessingStatus();
-        
-        // Возвращаем кнопку в исходное состояние
-        cropButton.textContent = 'Обрезать';
-        cropButton.style.background = 'var(--primary-color)';
-        cropButton.disabled = false;
-        
-        // Сбрасываем состояние при ошибке
-        resetAppState();
-        if (typeof tg.showAlert === 'function') {
-            tg.showAlert(error.message);
-        } else {
-            alert(error.message);
+            const video = document.getElementById('video-preview');
+            if (!video) {
+                throw new Error('Элемент video-preview не найден');
+            }
+            console.log('🟢 video элемент найден, videoWidth:', video.videoWidth, 'videoHeight:', video.videoHeight);
+            
+            const videoRect = video.getBoundingClientRect();
+            const cropRect = cropFrame.getBoundingClientRect();
+            console.log('🟢 videoRect:', videoRect.width, 'x', videoRect.height);
+            console.log('🟢 cropRect:', cropRect.width, 'x', cropRect.height);
+            
+            // Получаем реальные размеры видео без учета масштаба
+            const videoElement = videoPreview;
+            const naturalWidth = videoElement.videoWidth;
+            const naturalHeight = videoElement.videoHeight;
+            
+            // Размеры видео на экране (с учетом масштаба)
+            const scaledVideoWidth = videoRect.width;
+            const scaledVideoHeight = videoRect.height;
+            
+            // Центр видео на экране
+            const videoCenterX = videoRect.left + videoRect.width / 2;
+            const videoCenterY = videoRect.top + videoRect.height / 2;
+            
+            // Центр области кропа на экране
+            const cropCenterX = cropRect.left + cropRect.width / 2;
+            const cropCenterY = cropRect.top + cropRect.height / 2;
+            
+            // Смещение центра кропа относительно центра видео (в экранных пикселях)
+            const screenOffsetX = cropCenterX - videoCenterX;
+            const screenOffsetY = cropCenterY - videoCenterY;
+            
+            // Переводим экранные координаты в координаты исходного видео
+            // Учитываем соотношение между размером видео на экране и его натуральным размером
+            // screenOffsetX - смещение на экране в пикселях
+            // videoRect.width * currentScale - размер видео на экране с учетом масштаба
+            // naturalWidth - натуральный размер видео
+            const videoOffsetX = (screenOffsetX / (videoRect.width * currentScale)) * naturalWidth;
+            const videoOffsetY = (screenOffsetY / (videoRect.height * currentScale)) * naturalHeight;
+            
+            // Центр кропа в координатах исходного видео (относительно центра)
+            const cropCenterInVideoX = videoOffsetX;
+            const cropCenterInVideoY = videoOffsetY;
+            
+            // Проверяем, что размеры видео валидны
+            if (!naturalWidth || !naturalHeight || naturalWidth === 0 || naturalHeight === 0) {
+                throw new Error(`Неверные размеры видео: ${naturalWidth}x${naturalHeight}`);
+            }
+            
+            // Переводим в нормализованные координаты (0-1)
+            const x = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoX / naturalWidth));
+            const y = Math.max(0, Math.min(1, 0.5 + cropCenterInVideoY / naturalHeight));
+            
+            // Размер области кропа в координатах исходного видео
+            // Учитываем соотношение между размером видео на экране и его натуральным размером
+            // cropRect.width - размер кроп-фрейма на экране
+            // videoRect.width * currentScale - размер видео на экране с учетом масштаба
+            // naturalWidth - натуральный размер видео
+            const cropSizeInVideo = (cropRect.width / (videoRect.width * currentScale)) * naturalWidth;
+            
+            // Переводим размер кропа в нормализованные координаты (0-1)
+            // Бэкенд использует этот размер как есть, без дополнительного увеличения
+            const width = Math.min(1, cropSizeInVideo / naturalWidth);
+            const height = Math.min(1, cropSizeInVideo / naturalHeight);
+
+            // Проверяем, что все значения валидны
+            const cropDataObj = {
+                x: Number(x) || 0.5,
+                y: Number(y) || 0.5,
+                width: Number(width) || 0.5,
+                height: Number(height) || 0.5,
+                scale: Number(currentScale) || 1
+            };
+            
+            console.log('CropData объект перед отправкой:', cropDataObj);
+            console.log('Проверка значений:', {
+                x: typeof x, y: typeof y, width: typeof width, height: typeof height, scale: typeof currentScale,
+                xVal: x, yVal: y, widthVal: width, heightVal: height, scaleVal: currentScale
+            });
+
+            const formData = new FormData();
+            formData.append('video', videoFile);
+            formData.append('cropData', JSON.stringify(cropDataObj));
+
+            const initData = window.Telegram.WebApp.initDataUnsafe;
+            if (!initData.user?.id) {
+                throw new Error('Не удалось получить идентификатор чата');
+            }
+            formData.append('chatId', initData.user.id.toString());
+
+            // Проверяем, что все необходимые данные есть
+            if (!videoFile) {
+                throw new Error('Видео файл не найден');
+            }
+            if (!initData?.user?.id) {
+                throw new Error('Не удалось получить идентификатор пользователя');
+            }
+            
+            // Обновляем статус: видео загружено
+            try {
+                updateStatusStep('status-uploaded');
+            } catch (e) {
+                console.error('Ошибка при обновлении статуса uploaded:', e);
+            }
+            
+            // Обновляем статус: обработка видео
+            setTimeout(() => {
+                try {
+                    updateStatusStep('status-processing');
+                } catch (e) {
+                    console.error('Ошибка при обновлении статуса processing:', e);
+                }
+            }, 500);
+
+            if (typeof tg.showProgress === 'function') {
+                tg.showProgress();
+            }
+
+            console.log('Отправляем запрос на сервер...');
+            console.log('FormData содержит:', {
+                hasVideo: !!videoFile,
+                videoName: videoFile?.name,
+                videoSize: videoFile?.size,
+                chatId: initData.user?.id,
+                cropData: cropDataObj
+            });
+            
+            // Проверяем, что FormData правильно заполнен
+            for (const [key, value] of formData.entries()) {
+                if (value instanceof File) {
+                    console.log(`FormData[${key}]: File - ${value.name}, размер: ${value.size} байт, тип: ${value.type}`);
+                } else {
+                    console.log(`FormData[${key}]: ${value}`);
+                }
+            }
+            
+            console.log('✅ Все проверки пройдены, отправляем fetch запрос...');
+            console.log('URL:', '/rounds/api/upload');
+            console.log('Method:', 'POST');
+            console.log('FormData size:', formData.has('video') ? 'есть video' : 'НЕТ VIDEO!');
+            
+            try {
+            console.log('🔄 Вызываем fetch...');
+            const response = await fetch('/rounds/api/upload', {
+                method: 'POST',
+                body: formData
+                // НЕ устанавливаем Content-Type вручную - браузер сделает это автоматически с правильным boundary
+            });
+            console.log('✅ Fetch завершён, получен response');
+            
+            console.log('Получен ответ от сервера:', response.status, response.statusText);
+            console.log('Content-Type ответа:', response.headers.get('content-type'));
+            
+            // Читаем ответ один раз
+            const responseText = await response.text();
+            
+            if (!response.ok) {
+                console.error('❌ Ошибка от сервера. Статус:', response.status, response.statusText);
+                console.error('Content-Type:', response.headers.get('content-type'));
+                console.error('Тело ответа (первые 500 символов):', responseText.substring(0, 500));
+                
+                // Если ответ - HTML (страница ошибки Vapor), извлекаем только текст ошибки
+                let errorMessage = responseText;
+                if (responseText.includes('<!DOCTYPE html>') || responseText.includes('<html>')) {
+                    // Пытаемся извлечь текст ошибки из HTML
+                    const h1Match = responseText.match(/<h1[^>]*>(.*?)<\/h1>/i);
+                    const titleMatch = responseText.match(/<title[^>]*>(.*?)<\/title>/i);
+                    const bodyMatch = responseText.match(/<body[^>]*>(.*?)<\/body>/is);
+                    
+                    if (h1Match && h1Match[1]) {
+                        errorMessage = h1Match[1].trim();
+                    } else if (titleMatch && titleMatch[1]) {
+                        errorMessage = titleMatch[1].trim();
+                    } else if (bodyMatch && bodyMatch[1]) {
+                        // Извлекаем текст из body, убирая HTML теги
+                        const textOnly = bodyMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (textOnly) {
+                            errorMessage = textOnly.substring(0, 200);
+                        }
+                    } else {
+                        errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+                    }
+                } else {
+                    // Это не HTML, возможно JSON или текст
+                    errorMessage = responseText.trim();
+                }
+                
+                // Если сообщение пустое или слишком общее, используем статус
+                if (!errorMessage || errorMessage.length < 3) {
+                    errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+                }
+                
+                // Обрезаем сообщение до 200 символов
+                const shortMessage = errorMessage.length > 200 ? errorMessage.substring(0, 197) + '...' : errorMessage;
+                console.error('Итоговое сообщение об ошибке:', shortMessage);
+                throw new Error(shortMessage);
+            }
+            
+            console.log('Успешный ответ от сервера:', responseText);
+
+            // Обновляем статус: создание кружка
+            updateStatusStep('status-creating');
+            
+            // Имитируем время обработки
+            setTimeout(() => {
+                updateStatusStep('status-sent');
+                
+                // Показываем алерт завершения и закрываем через 2 секунды
+                setTimeout(() => {
+                    hideProcessingStatus();
+                    showCompletionAlert();
+                    
+                    setTimeout(() => {
+                        // Принудительно сбрасываем состояние перед закрытием
+                        hideCompletionAlert();
+                        resetAppState();
+                        if (typeof tg.close === 'function') {
+                            tg.close();
+                        }
+                    }, 3000);
+                }, 1000);
+            }, 1500);
+
+        } catch (error) {
+            console.error('❌ Ошибка при обработке видео:', error);
+            console.error('Тип ошибки:', error?.constructor?.name);
+            console.error('Стек ошибки:', error?.stack);
+            console.error('Детали ошибки:', {
+                message: error?.message,
+                name: error?.name,
+                toString: error?.toString(),
+                cause: error?.cause
+            });
+            
+            // Проверяем, это сетевая ошибка или ошибка сервера
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                console.error('⚠️ Это сетевая ошибка - запрос не дошёл до сервера');
+            } else if (error instanceof Error && error.message.includes('Failed to fetch')) {
+                console.error('⚠️ Ошибка сети - возможно, сервер недоступен');
+            }
+            
+            hideProcessingStatus();
+            
+            // Возвращаем кнопку в исходное состояние
+            cropButton.textContent = 'Обрезать';
+            cropButton.style.background = 'var(--primary-color)';
+            cropButton.disabled = false;
+            
+            // Сбрасываем состояние при ошибке
+            resetAppState();
+            
+            // Извлекаем сообщение об ошибке
+            let errorMessage = 'Произошла ошибка при обработке видео';
+            if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?.toString && typeof error.toString === 'function') {
+                errorMessage = error.toString();
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            }
+            
+            // Обрезаем сообщение до 200 символов (лимит Telegram Web App)
+            const shortMessage = errorMessage.length > 200 ? errorMessage.substring(0, 197) + '...' : errorMessage;
+            
+            console.log('Показываем ошибку пользователю:', shortMessage);
+            
+            if (typeof tg.showAlert === 'function') {
+                try {
+                    tg.showAlert(shortMessage);
+                } catch (e) {
+                    console.error('Ошибка при вызове tg.showAlert:', e);
+                    alert(shortMessage);
+                }
+            } else {
+                alert(shortMessage);
+            }
+        } finally {
+            if (typeof tg.hideProgress === 'function') {
+                tg.hideProgress();
+            }
         }
-    } finally {
-        if (typeof tg.hideProgress === 'function') {
-            tg.hideProgress();
+        } catch (error) {
+            console.error('Ошибка в обработчике кнопки "Обрезать":', error);
+            hideProcessingStatus();
+            cropButton.textContent = 'Обрезать';
+            cropButton.style.background = 'var(--primary-color)';
+            cropButton.disabled = false;
+            resetAppState();
+            const errorMessage = error?.message || 'Произошла ошибка при обработке видео';
+            // Обрезаем сообщение до 200 символов (лимит Telegram Web App)
+            const shortMessage = errorMessage.length > 200 ? errorMessage.substring(0, 197) + '...' : errorMessage;
+            if (typeof tg.showAlert === 'function') {
+                try {
+                    tg.showAlert(shortMessage);
+                } catch (e) {
+                    console.error('Ошибка при вызове tg.showAlert:', e);
+                    alert(shortMessage);
+                }
+            } else {
+                alert(shortMessage);
+            }
         }
-    }
-}); 
+    });
 } 

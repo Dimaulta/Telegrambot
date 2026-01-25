@@ -41,3 +41,6 @@ contentfabrikabot/db.sqlite
 
 # Temporary files
 Neurfotobot/tmp/
+
+# Local nginx configs (development only)
+nginx.conf.fixed

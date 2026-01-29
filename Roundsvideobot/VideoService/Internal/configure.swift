@@ -61,8 +61,9 @@ public func configure(_ app: Application) async throws {
     // Настраиваем маршруты
     try await routes(app)
 
-    // Увеличиваем лимит на размер загружаемого файла
-    app.routes.defaultMaxBodySize = "100mb"
+    // Лимит на размер тела запроса: 105 МБ (100 МБ файл + 5 МБ запас на multipart boundary/headers)
+    // Vapor отклонит запросы > 105 МБ ДО чтения тела
+    app.routes.defaultMaxBodySize = "105mb"
     
     // Создаем папку для временных файлов если её нет
     let tempDir = "Roundsvideobot/Resources/temporaryvideoFiles"

@@ -5,7 +5,26 @@ import AsyncHTTPClient
 // import App // если CropData определён в общем модуле, иначе скорректировать импорт
 
 struct VideoProcessor {
-    let req: Request
+    private let request: Request?
+    private let app: Application?
+
+    init(req: Request) {
+        self.request = req
+        self.app = nil
+    }
+
+    init(app: Application) {
+        self.request = nil
+        self.app = app
+    }
+
+    private var logger: Logger {
+        request?.logger ?? app!.logger
+    }
+
+    private var client: Client {
+        request?.client ?? app!.client
+    }
 
     var botToken: String {
         Environment.get("VIDEO_BOT_TOKEN") ?? ""
@@ -30,65 +49,65 @@ struct VideoProcessor {
             // Удаляем временные файлы после обработки
             try? FileManager.default.removeItem(at: inputUrl)
             try? FileManager.default.removeItem(at: outputUrl)
-            req.logger.info("Входной файл удалён после обработки: \(inputPath)")
-            req.logger.info("Выходной файл удалён после обработки: \(outputPath)")
+            logger.info("Входной файл удалён после обработки: \(inputPath)")
+            logger.info("Выходной файл удалён после обработки: \(outputPath)")
         }
 
         // Получаем информацию о файле
         let getFileUrl = URI(string: "https://api.telegram.org/bot\(botToken)/getFile?file_id=\(videoId)")
-        req.logger.info("Запрашиваем информацию о файле по URL: \(getFileUrl)")
+        logger.info("Запрашиваем информацию о файле по URL: \(getFileUrl)")
 
-        let fileResponse = try await req.client.get(getFileUrl).flatMapThrowing { res -> TelegramFileResponse in
-            req.logger.info("Получен ответ от getFile API. Статус: \(res.status)")
+        let fileResponse = try await client.get(getFileUrl).flatMapThrowing { res -> TelegramFileResponse in
+            logger.info("Получен ответ от getFile API. Статус: \(res.status)")
             guard res.status == HTTPStatus.ok, let body = res.body else {
                 throw Abort(.badRequest, reason: "Не удалось получить информацию о файле")
             }
             let data = body.getData(at: 0, length: body.readableBytes) ?? Data()
-            req.logger.info("Размер данных ответа getFile: \(data.count) байт")
+            logger.info("Размер данных ответа getFile: \(data.count) байт")
             let response = try JSONDecoder().decode(TelegramFileResponse.self, from: data)
-            req.logger.info("Успешно декодирован ответ: \(response)")
+            logger.info("Успешно декодирован ответ: \(response)")
             return response
         }.get()
 
-        req.logger.info("Декодирован ответ от Telegram API: \(fileResponse)")
+        logger.info("Декодирован ответ от Telegram API: \(fileResponse)")
 
         let filePath = fileResponse.result.file_path
         let downloadUrl = URI(string: "https://api.telegram.org/file/bot\(botToken)/\(filePath)")
-        req.logger.info("URL для скачивания видео: \(downloadUrl)")
+        logger.info("URL для скачивания видео: \(downloadUrl)")
 
         // Скачиваем видео
-        req.logger.info("Начинаем скачивание видео...")
-        req.logger.info("Путь для входного файла: \(inputPath)")
-        req.logger.info("Путь для выходного файла: \(outputPath)")
+        logger.info("Начинаем скачивание видео...")
+        logger.info("Путь для входного файла: \(inputPath)")
+        logger.info("Путь для выходного файла: \(outputPath)")
 
-        req.logger.info("Скачиваем видео по URL: \(downloadUrl)")
-        let downloadResponse = try await req.client.get(downloadUrl).get()
+        logger.info("Скачиваем видео по URL: \(downloadUrl)")
+        let downloadResponse = try await client.get(downloadUrl).get()
         guard downloadResponse.status == HTTPStatus.ok, let body = downloadResponse.body else {
             throw Abort(.badRequest, reason: "Не удалось скачать видео")
         }
 
         let videoData = body.getData(at: 0, length: body.readableBytes) ?? Data()
         try videoData.write(to: inputUrl)
-        req.logger.info("Видео успешно скачано по пути: \(inputPath)")
-        req.logger.info("Размер видео: \(videoData.count) байт")
+        logger.info("Видео успешно скачано по пути: \(inputPath)")
+        logger.info("Размер видео: \(videoData.count) байт")
 
         // Проверяем размер файла
         let fileSize = videoData.count
-        if fileSize > 50 * 1024 * 1024 { // 50 МБ
-            throw Abort(.badRequest, reason: "Файл слишком большой (\(fileSize) байт). Максимальный размер — 50 МБ.")
+        if fileSize > 100 * 1024 * 1024 { // 100 МБ
+            throw Abort(.badRequest, reason: "Файл слишком большой (\(fileSize) байт). Максимальный размер — 100 МБ.")
         }
 
         // Проверяем длительность видео
         let duration = try await getVideoDuration(inputPath: inputPath)
-        req.logger.info("Длительность видео: \(duration) секунд")
+        logger.info("Длительность видео: \(duration) секунд")
 
         // Обрабатываем видео с помощью FFmpeg
-        req.logger.info("Начинаем обработку видео через ffmpeg...")
-        let ffmpegCommand = "ffmpeg -i \(inputPath) -vf scale=640:640,format=yuv420p -t 59 -b:v 512k -r 30 -preset fast -movflags +faststart -y \(outputPath)"
-        req.logger.info("Команда ffmpeg: \(ffmpegCommand)")
+        logger.info("Начинаем обработку видео через ffmpeg...")
+        let ffmpegCommand = "ffmpeg -i \(inputPath) -vf scale=640:640,format=yuv420p -t 59 -b:v 512k -r 30 -preset veryfast -movflags +faststart -y \(outputPath)"
+        logger.info("Команда ffmpeg: \(ffmpegCommand)")
 
         let startTime = Date()
-        req.logger.info("Время начала FFmpeg: \(startTime)")
+        logger.info("Время начала FFmpeg: \(startTime)")
 
         // Ищем ffmpeg в стандартных местах
         let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
@@ -102,7 +121,7 @@ struct VideoProcessor {
         guard let ffmpeg = ffmpegPath else {
             throw Abort(.internalServerError, reason: "ffmpeg not found")
         }
-        req.logger.info("Using ffmpeg at: \(ffmpeg)")
+        logger.info("Using ffmpeg at: \(ffmpeg)")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
@@ -112,7 +131,7 @@ struct VideoProcessor {
             "-t", "59",
             "-b:v", "512k",
             "-r", "30",
-            "-preset", "fast",
+            "-preset", "veryfast",
             "-movflags", "+faststart",
             "-y", outputPath
         ]
@@ -122,42 +141,42 @@ struct VideoProcessor {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
         try process.run()
-        req.logger.info("Запускаем FFmpeg...")
+        logger.info("Запускаем FFmpeg...")
 
         // Читаем stderr в реальном времени
         let stderrHandle = stderr.fileHandleForReading
         while process.isRunning {
             let data = stderrHandle.availableData
             if !data.isEmpty, let stderrOutput = String(data: data, encoding: .utf8) {
-                req.logger.info("FFmpeg stderr (поток): \(stderrOutput)")
+                logger.info("FFmpeg stderr (поток): \(stderrOutput)")
             }
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
 
         process.waitUntilExit()
-        req.logger.info("FFmpeg успешно запущен")
+        logger.info("FFmpeg успешно запущен")
 
         let endTime = Date()
         let durationTime = endTime.timeIntervalSince(startTime)
-        req.logger.info("Время завершения FFmpeg: \(endTime), длительность: \(durationTime) секунд")
+        logger.info("Время завершения FFmpeg: \(endTime), длительность: \(durationTime) секунд")
 
-        req.logger.info("Ожидаем завершения FFmpeg... Завершено.")
+        logger.info("Ожидаем завершения FFmpeg... Завершено.")
 
         guard FileManager.default.fileExists(atPath: outputPath) else {
             throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео")
         }
 
-        req.logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
-        req.logger.info("Видео обработано, путь к обработанному файлу: \(outputPath), длительность: \(duration) секунд")
+        logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
+        logger.info("Видео обработано, путь к обработанному файлу: \(outputPath), длительность: \(duration) секунд")
 
         // Отправляем обработанное видео как видеокружок
         let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
         let boundary = UUID().uuidString
         var requestBody = ByteBufferAllocator().buffer(capacity: 0)
 
-        req.logger.info("Читаем файл перед отправкой...")
+        logger.info("Читаем файл перед отправкой...")
         let processedVideoData = try Data(contentsOf: outputUrl)
-        req.logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
+        logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
 
         requestBody.writeString("--\(boundary)\r\n")
         requestBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
@@ -171,20 +190,20 @@ struct VideoProcessor {
 
         requestBody.writeString("--\(boundary)--\r\n")
 
-        req.logger.info("Тело запроса multipart/form-data:\n\(requestBody.getString(at: 0, length: min(requestBody.readableBytes, 1024)) ?? "Пустое тело")")
+        logger.info("Тело запроса multipart/form-data:\n\(requestBody.getString(at: 0, length: min(requestBody.readableBytes, 1024)) ?? "Пустое тело")")
 
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
 
-        req.logger.info("Отправляем видеокружок в Telegram...")
-        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+        logger.info("Отправляем видеокружок в Telegram...")
+        let response = try await client.post(sendVideoUrl, headers: headers) { post in
             post.body = requestBody
         }.get()
 
-        req.logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
+        logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
         if let responseBody = response.body {
             let responseData = responseBody.getData(at: 0, length: responseBody.readableBytes) ?? Data()
-            req.logger.info("Тело ответа: \(String(data: responseData, encoding: .utf8) ?? "Не удалось декодировать тело ответа")")
+            logger.info("Тело ответа: \(String(data: responseData, encoding: .utf8) ?? "Не удалось декодировать тело ответа")")
         }
 
         guard response.status == HTTPStatus.ok else {
@@ -200,20 +219,17 @@ struct VideoProcessor {
         let outputUrl = URL(fileURLWithPath: tempDir).appendingPathComponent(outputFileName)
         let outputPath = outputUrl.path
 
-        // Получаем длительность видео
-        let duration = try await getVideoDuration(inputPath: filePath)
+        // Получаем все метаданные одним вызовом ffprobe (быстрее для больших файлов)
+        let (duration, storageSize, rotation) = try await getVideoMetadata(inputPath: filePath)
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm:ss"
-        req.logger.info("Длительность видео: \(duration) секунд [\(dateFormatter.string(from: Date()))]")
+        logger.info("Длительность видео: \(duration) секунд [\(dateFormatter.string(from: Date()))]")
 
         if duration > 60 {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
         }
 
-        // Размеры из ffprobe — storage (сырой кадр, до учёта rotation)
-        let storageSize = try await getVideoSize(inputPath: filePath)
-        let rotation = try await getVideoRotationDegrees(inputPath: filePath)
-        req.logger.info("Rotation tag: \(rotation)°")
+        logger.info("Rotation tag: \(rotation)°")
 
         // Display — как видит пользователь (frontend naturalWidth×naturalHeight).
         // При ±90°: display = (height×width), иначе = storage.
@@ -226,7 +242,7 @@ struct VideoProcessor {
             displayWidth = storageSize.width
             displayHeight = storageSize.height
         }
-        req.logger.info("Display размеры: \(displayWidth)×\(displayHeight) (storage: \(storageSize.width)×\(storageSize.height))")
+        logger.info("Display размеры: \(displayWidth)×\(displayHeight) (storage: \(storageSize.width)×\(storageSize.height))")
 
         // Фронт: x,y — центр кропа в [0,1], (0,0)=левый верх, Y вниз.
         // cropOffsetY: смещение по Y (px). Отрицательное = голова выше в кружке.
@@ -254,7 +270,7 @@ struct VideoProcessor {
         x = max(0, min(x, displayWidth - cropSize))
         y = max(0, min(y, displayHeight - cropSize))
 
-        req.logger.info("Кроп: offsetY=\(cropOffsetY), center=(\(centerX), \(centerY))→(\(clampedCX), \(clampedCY)), size=\(cropSize), x=\(x), y=\(y)")
+        logger.info("Кроп: offsetY=\(cropOffsetY), center=(\(centerX), \(centerY))→(\(clampedCX), \(clampedCY)), size=\(cropSize), x=\(x), y=\(y)")
 
         if x % 2 != 0 { x -= 1 }
         if y % 2 != 0 { y -= 1 }
@@ -265,28 +281,25 @@ struct VideoProcessor {
         if rotation == -90 || rotation == 270 {
             // -90°: 90° CCW + vflip (transpose=0), иначе получается «вниз головой»
             filters.append("transpose=0")
-            req.logger.info("Применяем transpose=0 для поворота -90°")
+            logger.info("Применяем transpose=0 для поворота -90°")
         } else if rotation == 90 || rotation == -270 {
             // +90°: 90° CW + vflip (transpose=3)
             filters.append("transpose=3")
-            req.logger.info("Применяем transpose=3 для поворота +90°")
+            logger.info("Применяем transpose=3 для поворота +90°")
         } else if abs(rotation) == 180 {
             filters.append("transpose=2,transpose=2")
-            req.logger.info("Применяем transpose=2,transpose=2 для поворота 180°")
+            logger.info("Применяем transpose=2,transpose=2 для поворота 180°")
         } else {
-            req.logger.info("Поворот не применяется (rotation=\(rotation)°)")
+            logger.info("Поворот не применяется (rotation=\(rotation)°)")
         }
         let cropFilter = "crop=\(cropSize):\(cropSize):\(x):\(y)"
         filters.append(cropFilter)
-        if abs(rotation) == 90 {
-            filters.append("hflip")
-        }
         filters.append("scale=640:640,format=yuv420p")
         let filterChain = filters.joined(separator: ",")
-        req.logger.info("Цепочка фильтров FFmpeg: \(filterChain)")
+        logger.info("Цепочка фильтров FFmpeg: \(filterChain)")
 
         // Обрабатываем видео с помощью FFmpeg
-        req.logger.info("Запускаем FFmpeg с параметрами кропа: x=\(x), y=\(y), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
+        logger.info("Запускаем FFmpeg с параметрами кропа: x=\(x), y=\(y), size=\(cropSize) [\(dateFormatter.string(from: Date()))]")
         
         // Ищем ffmpeg в стандартных местах
         let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
@@ -305,18 +318,12 @@ struct VideoProcessor {
         process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = [
             "-noautorotate",
-            "-display_rotation:v:0", "0",
             "-i", filePath,
             "-vf", filterChain,
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-b:v", "2M",
-            "-maxrate", "2M",
-            "-bufsize", "2M",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-ar", "44100",
-            "-ac", "2",
+            "-t", "59",
+            "-b:v", "512k",
+            "-r", "30",
+            "-preset", "veryfast",
             "-movflags", "+faststart",
             "-metadata:s:v:0", "rotate=0",
             "-y", outputPath
@@ -327,7 +334,7 @@ struct VideoProcessor {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
         
         try process.run()
-        req.logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
+        logger.info("Запускаем FFmpeg с параметрами: \(process.arguments?.joined(separator: " ") ?? "") [\(dateFormatter.string(from: Date()))]")
         
         var stderrChunks: [Data] = []
         let stderrHandle = stderr.fileHandleForReading
@@ -335,7 +342,7 @@ struct VideoProcessor {
             let data = stderrHandle.availableData
             if !data.isEmpty {
                 stderrChunks.append(data)
-                if let s = String(data: data, encoding: .utf8) { req.logger.info("FFmpeg stderr (поток): \(s)") }
+                if let s = String(data: data, encoding: .utf8) { logger.info("FFmpeg stderr (поток): \(s)") }
             }
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
@@ -348,16 +355,58 @@ struct VideoProcessor {
         let stderrStr = String(data: stderrFull, encoding: .utf8) ?? ""
         
         guard exitCode == 0 else {
-            req.logger.error("FFmpeg upload завершился с кодом \(exitCode). Stderr: \(stderrStr)")
+            logger.error("FFmpeg upload завершился с кодом \(exitCode). Stderr: \(stderrStr)")
             throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео (код \(exitCode))")
         }
         guard FileManager.default.fileExists(atPath: outputPath) else {
-            req.logger.error("FFmpeg upload: выходной файл отсутствует. Stderr: \(stderrStr)")
+            logger.error("FFmpeg upload: выходной файл отсутствует. Stderr: \(stderrStr)")
             throw Abort(.internalServerError, reason: "FFmpeg не создал выходной файл")
         }
         
-        req.logger.info("FFmpeg успешно завершил работу (upload) [\(dateFormatter.string(from: Date()))]")
+        logger.info("FFmpeg успешно завершил работу (upload) [\(dateFormatter.string(from: Date()))]")
         return outputUrl
+    }
+
+    /// Обработка загрузки из мини-апп: process → sendVideoNote → cleanup. Для фоновой задачи (app-based).
+    func processUploadedVideoAndSend(filePath inputPath: String, cropData: CropData, chatId: String) async throws {
+        let inputUrl = URL(fileURLWithPath: inputPath)
+        defer { try? FileManager.default.removeItem(at: inputUrl) }
+        let processedUrl = try await processUploadedVideo(filePath: inputPath, cropData: cropData)
+        defer { try? FileManager.default.removeItem(at: processedUrl) }
+        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideoNote")
+        let boundary = UUID().uuidString
+        var body = ByteBufferAllocator().buffer(capacity: 0)
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+        body.writeString("\(chatId)\r\n")
+        let processedData = try Data(contentsOf: processedUrl)
+        body.writeString("--\(boundary)\r\n")
+        body.writeString("Content-Disposition: form-data; name=\"video_note\"; filename=\"video.mp4\"\r\n")
+        body.writeString("Content-Type: video/mp4\r\n\r\n")
+        body.writeBytes(processedData)
+        body.writeString("\r\n")
+        body.writeString("--\(boundary)--\r\n")
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+        let response = try await client.post(sendVideoUrl, headers: headers) { post in
+            post.body = body
+        }.get()
+        guard response.status == .ok else {
+            let bodyStr: String
+            if let rb = response.body, let d = rb.getData(at: 0, length: rb.readableBytes), let s = String(data: d, encoding: .utf8) {
+                bodyStr = s
+            } else {
+                bodyStr = ""
+            }
+            if bodyStr.contains("VOICE_MESSAGES_FORBIDDEN") {
+                try? await sendVoiceMessagesForbiddenHint(to: chatId)
+                throw Abort(.badRequest, reason: "VOICE_MESSAGES_FORBIDDEN")
+            }
+            if !bodyStr.isEmpty {
+                throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(bodyStr)")
+            }
+            throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
+        }
     }
     
     private func getVideoSize(inputPath: String) async throws -> (width: Int, height: Int) {
@@ -566,7 +615,7 @@ struct VideoProcessor {
                                     var d = Int(round(deg)) % 360
                                     if d > 180 { d -= 360 }
                                     if d <= -180 { d += 360 }
-                                    req.logger.info("Найден поворот из ffprobe: \(d)° (строка: \(line))")
+                                    logger.info("Найден поворот из ffprobe: \(d)° (строка: \(line))")
                                     return d
                                 }
                             }
@@ -576,8 +625,81 @@ struct VideoProcessor {
             }
         }
         
-        req.logger.info("Поворот не найден в выводе ffprobe, возвращаем 0°")
+        logger.info("Поворот не найден в выводе ffprobe, возвращаем 0°")
         return 0
+    }
+
+    /// Получает все метаданные видео одним вызовом ffprobe (быстрее для больших файлов)
+    private func getVideoMetadata(inputPath: String) async throws -> (duration: Int, size: (width: Int, height: Int), rotation: Int) {
+        let ffprobePaths = ["/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "/opt/homebrew/bin/ffprobe", "ffprobe"]
+        var ffprobePath: String?
+        for path in ffprobePaths {
+            if FileManager.default.fileExists(atPath: path) || path == "ffprobe" {
+                ffprobePath = path
+                break
+            }
+        }
+        guard let probePath = ffprobePath else {
+            throw Abort(.internalServerError, reason: "ffprobe не найден")
+        }
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: probePath)
+        process.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,duration:stream_tags=rotate:stream_side_data=rotation",
+            "-of", "json",
+            inputPath
+        ]
+        
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        process.waitUntilExit()
+        
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let jsonText = String(data: stdoutData, encoding: .utf8),
+              let jsonData = jsonText.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let streams = json["streams"] as? [[String: Any]],
+              let stream = streams.first else {
+            throw Abort(.internalServerError, reason: "Не удалось получить метаданные видео")
+        }
+        
+        // Duration
+        var duration: Int = 0
+        if let dur = stream["duration"] as? String, let d = Double(dur) {
+            duration = Int(round(d))
+        } else if let dur = stream["duration"] as? Double {
+            duration = Int(round(dur))
+        }
+        
+        // Size
+        guard let width = stream["width"] as? Int, let height = stream["height"] as? Int else {
+            throw Abort(.internalServerError, reason: "Не удалось получить размеры видео")
+        }
+        
+        // Rotation: сначала из tags, потом из side_data
+        var rotation: Int = 0
+        if let tags = stream["tags"] as? [String: Any], let rotStr = tags["rotate"] as? String, let rot = Int(rotStr) {
+            var d = rot % 360
+            if d > 180 { d -= 360 }
+            if d <= -180 { d += 360 }
+            rotation = d
+        } else if let sideDataList = stream["side_data_list"] as? [[String: Any]] {
+            for sideData in sideDataList {
+                if let rot = sideData["rotation"] as? Double {
+                    var d = Int(round(rot)) % 360
+                    if d > 180 { d -= 360 }
+                    if d <= -180 { d += 360 }
+                    rotation = d
+                    break
+                }
+            }
+        }
+        
+        return (duration: duration, size: (width: width, height: height), rotation: rotation)
     }
 
     // Функция для отправки текстового сообщения в чат
@@ -597,11 +719,11 @@ struct VideoProcessor {
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
         
-        let response = try await req.client.post(sendMessageUrl, headers: headers) { post in
+        let response = try await client.post(sendMessageUrl, headers: headers) { post in
             post.body = body
         }.get()
         
-        req.logger.info("Сообщение отправлено в чат \(chatId): \(text), статус: \(response.status)")
+        logger.info("Сообщение отправлено в чат \(chatId): \(text), статус: \(response.status)")
     }
 
     /// Отправляет пользователю подсказку включить голосовые/видео в конфиденциальности при VOICE_MESSAGES_FORBIDDEN.
@@ -621,12 +743,12 @@ struct VideoProcessor {
         defer {
             // Удаляем временные файлы после обработки
             try? FileManager.default.removeItem(at: outputUrl)
-            req.logger.info("Выходной файл удалён после обработки: \(outputPath)")
+            logger.info("Выходной файл удалён после обработки: \(outputPath)")
         }
 
         // Проверяем длительность видео
         let duration = try await getVideoDuration(inputPath: inputPath)
-        req.logger.info("Длительность видео: \(duration) секунд")
+        logger.info("Длительность видео: \(duration) секунд")
 
         if duration > 60 {
             throw Abort(.badRequest, reason: "Видео слишком длинное (\(duration) секунд). Максимальная длительность — 60 секунд.")
@@ -635,7 +757,7 @@ struct VideoProcessor {
         // Рассчитываем центрированный квадратный кроп с учётом поворота
         var videoSize = try await getVideoSize(inputPath: inputPath)
         let rotation = try await getVideoRotationDegrees(inputPath: inputPath)
-        req.logger.info("Rotation tag (direct bot): \(rotation)°")
+        logger.info("Rotation tag (direct bot): \(rotation)°")
         if abs(rotation) == 90 {
             videoSize = (width: videoSize.height, height: videoSize.width)
         }
@@ -663,7 +785,7 @@ struct VideoProcessor {
         let filterChain = filters.joined(separator: ",")
 
         // Обрабатываем видео с помощью FFmpeg
-        req.logger.info("Начинаем обработку видео через ffmpeg (direct bot)...")
+        logger.info("Начинаем обработку видео через ffmpeg (direct bot)...")
         
         // Ищем ffmpeg в стандартных местах
         let ffmpegPaths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "ffmpeg"]
@@ -687,7 +809,7 @@ struct VideoProcessor {
             "-t", "59",
             "-b:v", "512k",
             "-r", "30",
-            "-preset", "fast",
+            "-preset", "veryfast",
             "-movflags", "+faststart",
             "-metadata:s:v:0", "rotate=0",
             "-y", outputPath
@@ -698,7 +820,7 @@ struct VideoProcessor {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
         try process.run()
-        req.logger.info("Запускаем FFmpeg (direct bot)...")
+        logger.info("Запускаем FFmpeg (direct bot)...")
 
         var stderrChunks: [Data] = []
         let stderrHandle = stderr.fileHandleForReading
@@ -706,7 +828,7 @@ struct VideoProcessor {
             let data = stderrHandle.availableData
             if !data.isEmpty {
                 stderrChunks.append(data)
-                if let s = String(data: data, encoding: .utf8) { req.logger.info("FFmpeg stderr (поток): \(s)") }
+                if let s = String(data: data, encoding: .utf8) { logger.info("FFmpeg stderr (поток): \(s)") }
             }
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
@@ -719,17 +841,17 @@ struct VideoProcessor {
         let stderrStr = String(data: stderrFull, encoding: .utf8) ?? ""
 
         guard exitCode == 0 else {
-            req.logger.error("FFmpeg direct bot завершился с кодом \(exitCode). Stderr: \(stderrStr)")
+            logger.error("FFmpeg direct bot завершился с кодом \(exitCode). Stderr: \(stderrStr)")
             throw Abort(.internalServerError, reason: "FFmpeg не смог обработать видео (код \(exitCode))")
         }
         guard FileManager.default.fileExists(atPath: outputPath) else {
-            req.logger.error("FFmpeg direct bot: выходной файл отсутствует. Stderr: \(stderrStr)")
+            logger.error("FFmpeg direct bot: выходной файл отсутствует. Stderr: \(stderrStr)")
             throw Abort(.internalServerError, reason: "FFmpeg не создал выходной файл")
         }
 
-        req.logger.info("FFmpeg успешно завершил работу (direct bot)")
+        logger.info("FFmpeg успешно завершил работу (direct bot)")
 
-        req.logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
+        logger.info("Видео успешно обработано и сохранено по пути: \(outputPath)")
 
         // Отправляем сообщение "Готово!" перед отправкой кружка
         try await sendMessage("✅ Готово!", to: chatId)
@@ -739,9 +861,9 @@ struct VideoProcessor {
         let boundary = UUID().uuidString
         var requestBody = ByteBufferAllocator().buffer(capacity: 0)
 
-        req.logger.info("Читаем файл перед отправкой...")
+        logger.info("Читаем файл перед отправкой...")
         let processedVideoData = try Data(contentsOf: outputUrl)
-        req.logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
+        logger.info("Размер обработанного видео: \(processedVideoData.count) байт")
 
         requestBody.writeString("--\(boundary)\r\n")
         requestBody.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
@@ -758,17 +880,17 @@ struct VideoProcessor {
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
 
-        req.logger.info("Отправляем видеокружок в Telegram...")
-        let response = try await req.client.post(sendVideoUrl, headers: headers) { post in
+        logger.info("Отправляем видеокружок в Telegram...")
+        let response = try await client.post(sendVideoUrl, headers: headers) { post in
             post.body = requestBody
         }.get()
 
-        req.logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
+        logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
         let bodyStr: String
         if let responseBody = response.body {
             let responseData = responseBody.getData(at: 0, length: responseBody.readableBytes) ?? Data()
             bodyStr = String(data: responseData, encoding: .utf8) ?? ""
-            req.logger.info("Тело ответа: \(bodyStr)")
+            logger.info("Тело ответа: \(bodyStr)")
         } else {
             bodyStr = ""
         }

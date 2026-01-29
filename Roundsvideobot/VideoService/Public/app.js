@@ -428,6 +428,13 @@ function updateStatusStep(stepId) {
     }
 }
 
+function setUploadProgressText(text) {
+    const el = document.getElementById('status-uploading');
+    if (!el) return;
+    const span = el.querySelector('.status-text');
+    if (span) span.textContent = text;
+}
+
 function resetProcessingStatus() {
     const steps = ['status-uploading', 'status-uploaded', 'status-processing', 'status-creating', 'status-sent'];
     steps.forEach(stepId => {
@@ -438,15 +445,17 @@ function resetProcessingStatus() {
     });
 }
 
-// Функция для показа алерта завершения
-function showCompletionAlert() {
+// Функция для показа алерта завершения. message — опционально, подставляется в completion-alert-title.
+function showCompletionAlert(message) {
     const alert = document.getElementById('completion-alert');
-    if (alert) {
-        alert.classList.add('show');
-        console.log('Показан алерт завершения');
-    } else {
+    if (!alert) {
         console.error('completion-alert элемент не найден');
+        return;
     }
+    const title = alert.querySelector('.completion-alert-title');
+    if (title && message) title.textContent = message;
+    alert.classList.add('show');
+    console.log('Показан алерт завершения');
 }
 
 // Функция для скрытия алерта завершения
@@ -556,7 +565,7 @@ function stopScroll() {
 // Обработка выбранного видео
 function handleVideoSelect(file) {
     if (file.size > 100 * 1024 * 1024) {
-        const message = 'Файл слишком большой. Максимальный размер - 100 МБ';
+        const message = 'Файл слишком большой. Максимальный размер — 100 МБ';
         if (typeof tg.showAlert === 'function') {
             try {
                 tg.showAlert(message);
@@ -1091,6 +1100,17 @@ cropButton.addEventListener('click', async () => {
         return;
     }
 
+        // Проверка размера до начала загрузки — алерт сразу, без ожидания
+        if (videoFile.size > 100 * 1024 * 1024) {
+            const msg = 'Файл слишком большой (макс. 100 МБ).';
+            if (typeof tg !== 'undefined' && typeof tg.showAlert === 'function') {
+                try { tg.showAlert(msg); } catch (e) { alert(msg); }
+            } else {
+                alert(msg);
+            }
+            return;
+        }
+
         console.log('🟢 Начинаем обработку видео');
         
         try {
@@ -1300,130 +1320,65 @@ cropButton.addEventListener('click', async () => {
                 throw new Error('Не удалось получить идентификатор пользователя');
             }
 
-        // Обновляем статус: видео загружено
-            try {
-        updateStatusStep('status-uploaded');
-            } catch (e) {
-                console.error('Ошибка при обновлении статуса uploaded:', e);
-            }
-        
-        // Обновляем статус: обработка видео
-            setTimeout(() => {
-                try {
-                    updateStatusStep('status-processing');
-                } catch (e) {
-                    console.error('Ошибка при обновлении статуса processing:', e);
-                }
-            }, 500);
-
         if (typeof tg.showProgress === 'function') {
             tg.showProgress();
         }
 
-        console.log('Отправляем запрос на сервер...');
-            console.log('FormData содержит:', {
-                hasVideo: !!videoFile,
-                videoName: videoFile?.name,
-                videoSize: videoFile?.size,
-                chatId: initData.user?.id,
-                cropData: cropDataObj
-            });
-            
-            // Проверяем, что FormData правильно заполнен
-            for (const [key, value] of formData.entries()) {
-                if (value instanceof File) {
-                    console.log(`FormData[${key}]: File - ${value.name}, размер: ${value.size} байт, тип: ${value.type}`);
-                } else {
-                    console.log(`FormData[${key}]: ${value}`);
-                }
-            }
-            
-            console.log('✅ Все проверки пройдены, отправляем fetch запрос...');
-            console.log('URL:', '/rounds/api/upload');
-            console.log('Method:', 'POST');
-            console.log('FormData size:', formData.has('video') ? 'есть video' : 'НЕТ VIDEO!');
-            
-            try {
-            console.log('🔄 Вызываем fetch...');
-        const response = await fetch('/rounds/api/upload', {
-            method: 'POST',
-            body: formData
-                // НЕ устанавливаем Content-Type вручную - браузер сделает это автоматически с правильным boundary
-            });
-            console.log('✅ Fetch завершён, получен response');
-            
-            console.log('Получен ответ от сервера:', response.status, response.statusText);
-            console.log('Content-Type ответа:', response.headers.get('content-type'));
-            
-            // Читаем ответ один раз
-            const responseText = await response.text();
+        setUploadProgressText('Загрузка 0%');
+        console.log('Отправляем запрос на сервер (XHR с прогрессом)...');
 
-        if (!response.ok) {
-                console.error('❌ Ошибка от сервера. Статус:', response.status, response.statusText);
-                console.error('Content-Type:', response.headers.get('content-type'));
-                console.error('Тело ответа (первые 500 символов):', responseText.substring(0, 500));
-                
-                // Если ответ - HTML (страница ошибки Vapor), извлекаем только текст ошибки
-                let errorMessage = responseText;
-                if (responseText.includes('<!DOCTYPE html>') || responseText.includes('<html>')) {
-                    // Пытаемся извлечь текст ошибки из HTML
-                    const h1Match = responseText.match(/<h1[^>]*>(.*?)<\/h1>/i);
-                    const titleMatch = responseText.match(/<title[^>]*>(.*?)<\/title>/i);
-                    const bodyMatch = responseText.match(/<body[^>]*>(.*?)<\/body>/is);
-                    
-                    if (h1Match && h1Match[1]) {
-                        errorMessage = h1Match[1].trim();
-                    } else if (titleMatch && titleMatch[1]) {
-                        errorMessage = titleMatch[1].trim();
-                    } else if (bodyMatch && bodyMatch[1]) {
-                        // Извлекаем текст из body, убирая HTML теги
-                        const textOnly = bodyMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-                        if (textOnly) {
-                            errorMessage = textOnly.substring(0, 200);
-                        }
-                    } else {
-                        errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
-                    }
-                } else {
-                    // Это не HTML, возможно JSON или текст
-                    errorMessage = responseText.trim();
-        }
-                
-                // Если сообщение пустое или слишком общее, используем статус
-                if (!errorMessage || errorMessage.length < 3) {
-                    errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
-                }
-                
-                // Обрезаем сообщение до 200 символов
-                const shortMessage = errorMessage.length > 200 ? errorMessage.substring(0, 197) + '...' : errorMessage;
-                console.error('Итоговое сообщение об ошибке:', shortMessage);
-                throw new Error(shortMessage);
-            }
-            
-            console.log('Успешный ответ от сервера:', responseText);
+        const responseText = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const url = '/rounds/api/upload';
+            xhr.open('POST', url);
 
-        // Обновляем статус: создание кружка
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && e.total > 0) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    setUploadProgressText('Загрузка ' + pct + '%');
+                } else {
+                    setUploadProgressText('Загрузка…');
+                }
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else {
+                    let msg = xhr.responseText || 'Ошибка ' + xhr.status;
+                    try {
+                        const j = JSON.parse(xhr.responseText || '{}');
+                        if (j && typeof j.error === 'string') msg = j.error;
+                    } catch (_) {}
+                    reject(new Error(msg));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Ошибка сети при загрузке'));
+            xhr.send(formData);
+        });
+
+        updateStatusStep('status-uploaded');
+        updateStatusStep('status-processing');
+        console.log('Загрузка завершена, ответ получен:', responseText);
+
+        // Поочерёдно отмечаем «Создание кружка» и «Кружок в чате», затем показываем финальный алерт
+        await new Promise(r => setTimeout(r, 400));
         updateStatusStep('status-creating');
-        
-        // Имитируем время обработки
+        await new Promise(r => setTimeout(r, 400));
+        updateStatusStep('status-sent');
+
+        hideProcessingStatus();
+        if (cropButton) {
+            cropButton.textContent = 'Обрезать';
+            cropButton.style.background = 'var(--primary-color)';
+            cropButton.disabled = false;
+        }
+        showCompletionAlert('Кружок создаётся, придёт в чат. Можете закрыть мини-апп.');
         setTimeout(() => {
-            updateStatusStep('status-sent');
-            
-            // Показываем алерт завершения и закрываем через 2 секунды
-            setTimeout(() => {
-                hideProcessingStatus();
-                showCompletionAlert();
-                
-                setTimeout(() => {
-                    // Принудительно сбрасываем состояние перед закрытием
-                    hideCompletionAlert();
-                    resetAppState();
-            if (typeof tg.close === 'function') {
-                tg.close();
-            }
-                }, 3000);
-            }, 1000);
-        }, 1500);
+            hideCompletionAlert();
+            resetAppState();
+            if (typeof tg !== 'undefined' && typeof tg.close === 'function') tg.close();
+        }, 2500);
 
     } catch (error) {
             console.error('❌ Ошибка при обработке видео:', error);
@@ -1436,11 +1391,8 @@ cropButton.addEventListener('click', async () => {
                 cause: error?.cause
             });
             
-            // Проверяем, это сетевая ошибка или ошибка сервера
-            if (error instanceof TypeError && error.message.includes('fetch')) {
-                console.error('⚠️ Это сетевая ошибка - запрос не дошёл до сервера');
-            } else if (error instanceof Error && error.message.includes('Failed to fetch')) {
-                console.error('⚠️ Ошибка сети - возможно, сервер недоступен');
+            if (error?.message && (error.message.includes('fetch') || error.message.includes('Failed to fetch') || error.message.includes('Ошибка сети'))) {
+                console.error('⚠️ Сетевая ошибка при загрузке');
             }
             
         hideProcessingStatus();
@@ -1483,26 +1435,5 @@ cropButton.addEventListener('click', async () => {
             tg.hideProgress();
         }
     }
-        } catch (error) {
-            console.error('Ошибка в обработчике кнопки "Обрезать":', error);
-            hideProcessingStatus();
-            cropButton.textContent = 'Обрезать';
-            cropButton.style.background = 'var(--primary-color)';
-            cropButton.disabled = false;
-            resetAppState();
-            const errorMessage = error?.message || 'Произошла ошибка при обработке видео';
-            // Обрезаем сообщение до 200 символов (лимит Telegram Web App)
-            const shortMessage = errorMessage.length > 200 ? errorMessage.substring(0, 197) + '...' : errorMessage;
-            if (typeof tg.showAlert === 'function') {
-                try {
-                    tg.showAlert(shortMessage);
-                } catch (e) {
-                    console.error('Ошибка при вызове tg.showAlert:', e);
-                    alert(shortMessage);
-                }
-            } else {
-                alert(shortMessage);
-            }
-        }
 }); 
 } 

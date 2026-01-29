@@ -401,6 +401,9 @@ func routes(_ app: Application) async throws {
             return .ok
         } catch {
             req.logger.error("Ошибка при обработке webhook: \(error)")
+            if let a = error as? Abort, a.reason == "VOICE_MESSAGES_FORBIDDEN" {
+                return .ok
+            }
             return .badRequest
         }
     }
@@ -614,11 +617,21 @@ func routes(_ app: Application) async throws {
         try? FileManager.default.removeItem(at: processedUrl)
 
         guard response.status == .ok else {
-            if let respBody = response.body {
-                let respData = respBody.getData(at: 0, length: respBody.readableBytes) ?? Data()
-                if let text = String(data: respData, encoding: .utf8) {
-                    throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(text)")
-                }
+            let bodyStr: String
+            if let respBody = response.body,
+               let data = respBody.getData(at: 0, length: respBody.readableBytes),
+               let s = String(data: data, encoding: .utf8) {
+                bodyStr = s
+            } else {
+                bodyStr = ""
+            }
+            if bodyStr.contains("VOICE_MESSAGES_FORBIDDEN") {
+                let processor = VideoProcessor(req: req)
+                try? await processor.sendVoiceMessagesForbiddenHint(to: chatId)
+                throw Abort(.badRequest, reason: "Не удалось отправить видеокружок. Проверьте настройки конфиденциальности (голосовые и видеосообщения). Подсказка отправлена в чат.")
+            }
+            if !bodyStr.isEmpty {
+                throw Abort(.badRequest, reason: "Ошибка при отправке видео: \(bodyStr)")
             }
             throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
         }

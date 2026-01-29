@@ -9,9 +9,9 @@
     --crop-border-color: #ffffff;
     
     /* Единый стиль для кнопок и элементов */
-    --primary-color: #ff69b4; /* светло-розовый */
+    --primary-color: #64b5f6; /* светло-голубой */
     --primary-text-color: #ffffff;
-    --primary-border-color: #ff69b4;
+    --primary-border-color: #64b5f6;
 }
 
 * {
@@ -74,7 +74,7 @@ body {
 }
 
 .button:active:not(:disabled) {
-    background: #1a6098;
+    background: #42a5f5; /* темнее светло-голубой */
 }
 
 .button:active::after {
@@ -170,7 +170,7 @@ body {
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8); /* Затемнение на 80% вокруг круга - темнее */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); /* Затемнение вокруг круга (в 2 раза светлее) */
 }
 
 #crop-overlay {
@@ -209,16 +209,16 @@ body {
     display: flex;
     align-items: center;
     margin-bottom: 15px;
-    background: rgba(255, 105, 180, 0.1); /* Легкий розовый фон */
+    background: rgba(100, 181, 246, 0.1); /* Легкий голубой фон */
     padding: 12px 16px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 105, 180, 0.2); /* Тонкая розовая рамка */
+    border: 1px solid rgba(100, 181, 246, 0.2); /* Тонкая голубая рамка */
     backdrop-filter: blur(8px);
 }
 
 .control-button {
-    background: rgba(255, 105, 180, 0.2);
-    border: 1px solid rgba(255, 105, 180, 0.4);
+    background: rgba(100, 181, 246, 0.2);
+    border: 1px solid rgba(100, 181, 246, 0.4);
     color: var(--primary-color);
     font-size: 18px;
     cursor: pointer;
@@ -229,7 +229,7 @@ body {
 }
 
 .control-button:hover {
-    background: rgba(255, 105, 180, 0.3);
+    background: rgba(100, 181, 246, 0.3);
     transform: scale(1.05);
 }
 
@@ -258,7 +258,7 @@ body {
 
 #time-slider::-webkit-slider-thumb:hover {
     transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(255, 105, 180, 0.4);
+    box-shadow: 0 4px 12px rgba(100, 181, 246, 0.4);
 }
 
 .action-buttons {
@@ -420,7 +420,7 @@ body {
     height: 252px; /* Точно такой же размер как оверлей кружочка */
     box-sizing: border-box;
     backdrop-filter: blur(8px);
-    border: 2px solid var(--primary-color); /* розовая рамка как у оверлея */
+    border: 2px solid var(--primary-color); /* голубая рамка как у оверлея */
     display: flex;
     flex-direction: column;
     justify-content: flex-start; /* Выравниваем по верху */
@@ -461,7 +461,7 @@ body {
 }
 
 .status-item.completed .status-icon::before {
-    content: "💗";
+    content: "✓";
 }
 
 .status-item:not(.completed) .status-icon::before {
@@ -515,7 +515,7 @@ body {
     align-items: center;
     box-sizing: border-box;
     backdrop-filter: blur(8px);
-    border: 2px solid var(--primary-color); /* розовая рамка как у инфо блока */
+    border: 2px solid var(--primary-color); /* голубая рамка как у инфо блока */
 }
 
 .completion-alert.show .completion-alert-content {

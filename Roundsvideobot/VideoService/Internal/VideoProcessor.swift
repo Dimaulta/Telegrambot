@@ -604,6 +604,12 @@ struct VideoProcessor {
         req.logger.info("Сообщение отправлено в чат \(chatId): \(text), статус: \(response.status)")
     }
 
+    /// Отправляет пользователю подсказку включить голосовые/видео в конфиденциальности при VOICE_MESSAGES_FORBIDDEN.
+    func sendVoiceMessagesForbiddenHint(to chatId: String) async throws {
+        let text = "Не удалось отправить видеокружок: у вас отключён приём голосовых и видеосообщений. Включите его в настройках Telegram: Конфиденциальность → Голосовые и видеосообщения."
+        try await sendMessage(text, to: chatId)
+    }
+
     // Общая функция для обработки видео и отправки кружочка
     func processAndSendCircleVideo(inputPath: String, chatId: String) async throws {
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -758,12 +764,20 @@ struct VideoProcessor {
         }.get()
 
         req.logger.info("Получен ответ от Telegram API. Статус: \(response.status)")
+        let bodyStr: String
         if let responseBody = response.body {
             let responseData = responseBody.getData(at: 0, length: responseBody.readableBytes) ?? Data()
-            req.logger.info("Тело ответа: \(String(data: responseData, encoding: .utf8) ?? "Не удалось декодировать тело ответа")")
+            bodyStr = String(data: responseData, encoding: .utf8) ?? ""
+            req.logger.info("Тело ответа: \(bodyStr)")
+        } else {
+            bodyStr = ""
         }
 
         guard response.status == HTTPStatus.ok else {
+            if bodyStr.contains("VOICE_MESSAGES_FORBIDDEN") {
+                try? await sendVoiceMessagesForbiddenHint(to: chatId)
+                throw Abort(.badRequest, reason: "VOICE_MESSAGES_FORBIDDEN")
+            }
             throw Abort(.badRequest, reason: "Не удалось отправить видеокружок")
         }
     }

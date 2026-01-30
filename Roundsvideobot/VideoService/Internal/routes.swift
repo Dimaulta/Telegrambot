@@ -1,5 +1,30 @@
 import Vapor
 
+// Защита от спама при запросе инструкции (cooldown).
+// Хранит lastSentAt в памяти. Для нескольких экземпляров — заменить на Redis.
+private let instructionCooldownSeconds = 15
+
+actor TutorialRequestTracker {
+    static let shared = TutorialRequestTracker()
+    
+    private var lastSentAt: [Int64: Date] = [:]
+    private let maxEntries = 10_000
+    
+    /// true = можно отправить (и записывает текущее время), false = в cooldown
+    func tryAcquire(userId: Int64) -> Bool {
+        let now = Date()
+        if let last = lastSentAt[userId], now.timeIntervalSince(last) < Double(instructionCooldownSeconds) {
+            return false
+        }
+        lastSentAt[userId] = now
+        if lastSentAt.count > maxEntries {
+            let cutoff = now.addingTimeInterval(-Double(instructionCooldownSeconds * 2))
+            lastSentAt = lastSentAt.filter { $0.value > cutoff }
+        }
+        return true
+    }
+}
+
 // Middleware для ранней проверки размера тела запроса (до чтения тела)
 struct BodySizeLimitMiddleware: AsyncMiddleware {
     let maxSize: Int
@@ -432,18 +457,39 @@ func routes(_ app: Application) async throws {
                 req.logger.info("Получен callback_query от пользователя: \(callbackQuery.from.first_name) (ID: \(callbackQuery.from.id))")
                 
                 let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
-                
-                // Отправляем ответ на callback_query (чтобы убрать "часики" у кнопки)
                 let answerCallbackUrl = URI(string: "https://api.telegram.org/bot\(botToken)/answerCallbackQuery")
-                struct AnswerCallbackPayload: Content {
-                    let callback_query_id: String
-                }
-                _ = try? await req.client.post(answerCallbackUrl) { post in
-                    try post.content.encode(AnswerCallbackPayload(callback_query_id: callbackQuery.id), as: .json)
-                }.get()
                 
                 // Обрабатываем команду из callback_data
-                if let data = callbackQuery.data {
+                if let data = callbackQuery.data, data == "show_tutorial" {
+                    let userId = callbackQuery.from.id
+                    
+                    // Защита от спама: cooldown 15 сек
+                    let canSend = await TutorialRequestTracker.shared.tryAcquire(userId: userId)
+                    if !canSend {
+                        struct AnswerWithAlert: Content {
+                            let callback_query_id: String
+                            let text: String?
+                            let show_alert: Bool?
+                        }
+                        _ = try? await req.client.post(answerCallbackUrl) { post in
+                            try post.content.encode(AnswerWithAlert(
+                                callback_query_id: callbackQuery.id,
+                                text: "Инструкция уже отправлялась недавно, подожди \(instructionCooldownSeconds) сек",
+                                show_alert: true
+                            ), as: .json)
+                        }.get()
+                        req.logger.info("Отклонён повторный запрос инструкции от userId: \(userId)")
+                        return .ok
+                    }
+                    
+                    // Отвечаем на callback (убираем "часики" у кнопки)
+                    struct AnswerCallbackPayload: Content {
+                        let callback_query_id: String
+                    }
+                    _ = try? await req.client.post(answerCallbackUrl) { post in
+                        try post.content.encode(AnswerCallbackPayload(callback_query_id: callbackQuery.id), as: .json)
+                    }.get()
+                    
                     guard let cbMessage = callbackQuery.message else {
                         req.logger.error("Callback query без message")
                         return .ok
@@ -451,52 +497,58 @@ func routes(_ app: Application) async throws {
                     
                     let chatId = cbMessage.chat.id
                     
-                    if data == "show_tutorial" {
-                        // Отправляем видео с текстовой инструкцией в caption (одно сообщение)
-                        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideo")
-                        let videoPath = "Roundsvideobot/VideoService/Public/roundsvideobot-tutorial.MOV"
+                    // Отправляем видео с текстовой инструкцией в caption (одно сообщение)
+                    let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideo")
+                    let videoPath = "Roundsvideobot/VideoService/Public/roundsvideobot-tutorial.MOV"
+                    
+                    let captionText = "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!\n\nЕсли просто отправить видео как есть, то оно аккуратно кадрируется по центральной части\n"
+                    
+                    if FileManager.default.fileExists(atPath: videoPath) {
+                        let videoData = try Data(contentsOf: URL(fileURLWithPath: videoPath))
+                        let boundary = UUID().uuidString
+                        var body = ByteBufferAllocator().buffer(capacity: 0)
                         
-                        let captionText = "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!\n\nЕсли просто отправить видео как есть, то оно аккуратно кадрируется по центральной части\n"
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                        body.writeString("\(chatId)\r\n")
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"video\"; filename=\"tutorial.mov\"\r\n")
+                        body.writeString("Content-Type: video/quicktime\r\n\r\n")
+                        body.writeBytes(videoData)
+                        body.writeString("\r\n")
+                        body.writeString("--\(boundary)\r\n")
+                        body.writeString("Content-Disposition: form-data; name=\"caption\"\r\n\r\n")
+                        body.writeString("\(captionText)\r\n")
+                        body.writeString("--\(boundary)--\r\n")
                         
-                        if FileManager.default.fileExists(atPath: videoPath) {
-                            let videoData = try Data(contentsOf: URL(fileURLWithPath: videoPath))
-                            let boundary = UUID().uuidString
-                            var body = ByteBufferAllocator().buffer(capacity: 0)
-                            
-                            body.writeString("--\(boundary)\r\n")
-                            body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
-                            body.writeString("\(chatId)\r\n")
-                            body.writeString("--\(boundary)\r\n")
-                            body.writeString("Content-Disposition: form-data; name=\"video\"; filename=\"tutorial.mov\"\r\n")
-                            body.writeString("Content-Type: video/quicktime\r\n\r\n")
-                            body.writeBytes(videoData)
-                            body.writeString("\r\n")
-                            body.writeString("--\(boundary)\r\n")
-                            body.writeString("Content-Disposition: form-data; name=\"caption\"\r\n\r\n")
-                            body.writeString("\(captionText)\r\n")
-                            body.writeString("--\(boundary)--\r\n")
-                            
-                            var headers = HTTPHeaders()
-                            headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
-                            
-                            _ = try await req.client.post(sendVideoUrl, headers: headers) { post in
-                                post.body = body
-                            }.get()
-                            
-                            req.logger.info("Инструкция с видео отправлена")
-                        } else {
-                            // Если видео нет — fallback на текст
-                            let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-                            struct TextPayload: Content {
-                                let chat_id: Int64
-                                let text: String
-                            }
-                            _ = try await req.client.post(sendMessageUrl) { post in
-                                try post.content.encode(TextPayload(chat_id: chatId, text: captionText), as: .json)
-                            }.get()
-                            req.logger.warning("Видео файл не найден, отправлен только текст: \(videoPath)")
+                        var headers = HTTPHeaders()
+                        headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+                        
+                        _ = try await req.client.post(sendVideoUrl, headers: headers) { post in
+                            post.body = body
+                        }.get()
+                        
+                        req.logger.info("Инструкция с видео отправлена")
+                    } else {
+                        // Если видео нет — fallback на текст
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                        struct TextPayload: Content {
+                            let chat_id: Int64
+                            let text: String
                         }
+                        _ = try await req.client.post(sendMessageUrl) { post in
+                            try post.content.encode(TextPayload(chat_id: chatId, text: captionText), as: .json)
+                        }.get()
+                        req.logger.warning("Видео файл не найден, отправлен только текст: \(videoPath)")
                     }
+                } else {
+                    // Другие callback — просто отвечаем, убираем "часики"
+                    struct AnswerCallbackPayload: Content {
+                        let callback_query_id: String
+                    }
+                    _ = try? await req.client.post(answerCallbackUrl) { post in
+                        try post.content.encode(AnswerCallbackPayload(callback_query_id: callbackQuery.id), as: .json)
+                    }.get()
                 }
                 
                 return .ok

@@ -196,22 +196,32 @@ func routes(_ app: Application) async throws {
                 if let text = message.text, text == "/start" {
                     let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
                     let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-                    let boundary = UUID().uuidString
-                    var body = ByteBufferAllocator().buffer(capacity: 0)
-
-                    body.writeString("--\(boundary)\r\n")
-                    body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
-                    body.writeString("\(message.chat.id)\r\n")
-                    body.writeString("--\(boundary)\r\n")
-                    body.writeString("Content-Disposition: form-data; name=\"text\"\r\n\r\n")
-                    body.writeString("Привет я создаю видеокружок! Отправь мне обычное видео до 59 секунд, и я обработаю его для тебя \n\nПри загрузке можно самостоятельно выбрать область обрезки прямо на смартфоне, а также подтянуть слева и справа длину видео!\r\n")
-                    body.writeString("--\(boundary)--\r\n")
-
-                    var headers = HTTPHeaders()
-                    headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
-
-                    let response = try await req.client.post(sendMessageUrl, headers: headers) { post in
-                        post.body = body
+                    
+                    struct InlineKeyboardButton: Content {
+                        let text: String
+                        let callback_data: String
+                    }
+                    struct InlineKeyboardMarkup: Content {
+                        let inline_keyboard: [[InlineKeyboardButton]]
+                    }
+                    struct MessagePayload: Content {
+                        let chat_id: Int64
+                        let text: String
+                        let reply_markup: InlineKeyboardMarkup
+                    }
+                    
+                    let inlineKeyboard = InlineKeyboardMarkup(
+                        inline_keyboard: [[InlineKeyboardButton(text: "📖 Инструкция", callback_data: "show_tutorial")]]
+                    )
+                    
+                    let payload = MessagePayload(
+                        chat_id: message.chat.id,
+                        text: "Привет я создаю видеокружок! Отправь мне обычное видео до 59 секунд, и я обработаю его для тебя \n\nПри загрузке можно самостоятельно выбрать область обрезки прямо на смартфоне, а также подтянуть слева и справа длину видео!",
+                        reply_markup: inlineKeyboard
+                    )
+                    
+                    let response = try await req.client.post(sendMessageUrl) { post in
+                        try post.content.encode(payload, as: .json)
                     }.get()
 
                     req.logger.info("Ответ на /start отправлен. Статус: \(response.status)")
@@ -415,6 +425,52 @@ func routes(_ app: Application) async throws {
                     
                     return .ok
                 }
+            }
+            
+            // Обработка callback_query (нажатие на inline-кнопку)
+            if let callbackQuery = update.callback_query {
+                req.logger.info("Получен callback_query от пользователя: \(callbackQuery.from.first_name) (ID: \(callbackQuery.from.id))")
+                
+                let botToken = Environment.get("VIDEO_BOT_TOKEN") ?? ""
+                
+                // Отправляем ответ на callback_query (чтобы убрать "часики" у кнопки)
+                let answerCallbackUrl = URI(string: "https://api.telegram.org/bot\(botToken)/answerCallbackQuery")
+                struct AnswerCallbackPayload: Content {
+                    let callback_query_id: String
+                }
+                _ = try? await req.client.post(answerCallbackUrl) { post in
+                    try post.content.encode(AnswerCallbackPayload(callback_query_id: callbackQuery.id), as: .json)
+                }.get()
+                
+                // Обрабатываем команду из callback_data
+                if let data = callbackQuery.data, data == "show_tutorial" {
+                    guard let cbMessage = callbackQuery.message else {
+                        req.logger.error("Callback query без message")
+                        return .ok
+                    }
+                    
+                    let chatId = cbMessage.chat.id
+                    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                    
+                    // 1. Отправляем текст инструкции
+                    struct TextPayload: Content {
+                        let chat_id: Int64
+                        let text: String
+                    }
+                    
+                    let textPayload = TextPayload(
+                        chat_id: chatId,
+                        text: "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!"
+                    )
+                    
+                    _ = try await req.client.post(sendMessageUrl) { post in
+                        try post.content.encode(textPayload, as: .json)
+                    }.get()
+                    
+                    req.logger.info("Инструкция отправлена")
+                }
+                
+                return .ok
             }
             
             return .ok

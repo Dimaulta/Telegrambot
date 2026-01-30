@@ -2,6 +2,14 @@ import Foundation
 
 struct TelegramUpdate: Codable {
     let message: TelegramMessage?
+    let callback_query: TelegramCallbackQuery?
+}
+
+struct TelegramCallbackQuery: Codable {
+    let id: String
+    let from: TelegramUser
+    let message: TelegramMessage?
+    let data: String?
 }
 
 struct TelegramMessage: Codable {

@@ -184,13 +184,28 @@ final class FileNowBotController {
                         logger.info("✅ Video sent successfully")
                     } catch {
                         logger.error("❌ Error processing \(videoType == .tiktok ? "TikTok" : "YouTube Shorts") video: \(error)")
-                        _ = try? await sendTelegramMessage(
-                            token: token,
-                            chatId: chatId,
-                            text: "😔 Произошла ошибка при обработке видео. Попробуй ещё раз 💕",
-                            client: client,
-                            logger: logger
-                        )
+                        
+                        // Проверяем, является ли ошибка отказом всех провайдеров TikTok
+                        if videoType == .tiktok,
+                           let resolverError = error as? TikTokResolver.TikTokResolverError,
+                           case .allProvidersFailed(let providers) = resolverError {
+                            logger.warning("⚠️ All TikTok providers failed: \(providers.joined(separator: ", "))")
+                            _ = try? await sendTelegramMessage(
+                                token: token,
+                                chatId: chatId,
+                                text: "⏸️ Временно недоступно\n\nСервисы для скачивания TikTok перегружены или временно недоступны.\nПопробуй позже, пожалуйста.",
+                                client: client,
+                                logger: logger
+                            )
+                        } else {
+                            _ = try? await sendTelegramMessage(
+                                token: token,
+                                chatId: chatId,
+                                text: "😔 Произошла ошибка при обработке видео. Попробуй ещё раз 💕",
+                                client: client,
+                                logger: logger
+                            )
+                        }
                     }
                     
                     return Response(status: .ok)
@@ -386,13 +401,27 @@ final class FileNowBotController {
         } catch {
             logger.error("❌ Error processing \(videoType == .tiktok ? "TikTok" : "YouTube Shorts") video: \(error)")
             
-            _ = try? await sendTelegramMessage(
-                token: token,
-                chatId: chatId,
-                text: "😔 Произошла ошибка при обработке видео. Попробуй ещё раз",
-                client: client,
-                logger: logger
-            )
+            // Проверяем, является ли ошибка отказом всех провайдеров TikTok
+            if videoType == .tiktok,
+               let resolverError = error as? TikTokResolver.TikTokResolverError,
+               case .allProvidersFailed(let providers) = resolverError {
+                logger.warning("⚠️ All TikTok providers failed: \(providers.joined(separator: ", "))")
+                _ = try? await sendTelegramMessage(
+                    token: token,
+                    chatId: chatId,
+                    text: "⏸️ Временно недоступно\n\nСервисы для скачивания TikTok перегружены или временно недоступны.\nПопробуй позже, пожалуйста.",
+                    client: client,
+                    logger: logger
+                )
+            } else {
+                _ = try? await sendTelegramMessage(
+                    token: token,
+                    chatId: chatId,
+                    text: "😔 Произошла ошибка при обработке видео. Попробуй ещё раз",
+                    client: client,
+                    logger: logger
+                )
+            }
         }
         
         return Response(status: .ok)

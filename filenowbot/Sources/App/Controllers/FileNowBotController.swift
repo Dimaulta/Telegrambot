@@ -409,7 +409,7 @@ final class FileNowBotController {
                 _ = try? await sendTelegramMessage(
                     token: token,
                     chatId: chatId,
-                    text: "⏸️ Временно недоступно\n\nСервисы для скачивания TikTok перегружены или временно недоступны.\nПопробуй позже, пожалуйста.",
+                    text: "⏸️ Временно недоступно\n\nПохоже что все провайдеры для скачивания TikTok перегружены или временно недоступны.\nПришли ссылку позже",
                     client: client,
                     logger: logger
                 )

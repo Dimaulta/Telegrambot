@@ -173,8 +173,24 @@ jobs:
             cd /root/Telegrambot
             echo "📥 Получаю изменения из main..."
             git fetch origin
+            
+            # Сохраняем текущий коммит для проверки
+            OLD_COMMIT=$(git rev-parse HEAD)
+            echo "📌 Текущий коммит перед обновлением: $OLD_COMMIT"
+            
+            # Переключаемся на main и сбрасываем все локальные изменения для чистого состояния
             git checkout main
-            git pull origin main
+            git reset --hard origin/main
+            
+            # Проверяем, что код действительно обновился
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "📌 Новый коммит после обновления: $NEW_COMMIT"
+            
+            if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
+              echo "⚠️ Внимание: код не изменился после обновления"
+            else
+              echo "✅ Код успешно обновлён: $OLD_COMMIT -> $NEW_COMMIT"
+            fi
             
             CHANGED_SERVICES="${{ steps.changed.outputs.services }}"
             

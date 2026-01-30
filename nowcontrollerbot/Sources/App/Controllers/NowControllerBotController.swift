@@ -743,27 +743,36 @@ final class NowControllerBotController {
         // Синхронизируем состояние перед показом статуса
         syncBotSubscriptionSettings(logger: logger, env: env)
         
+        // Получаем список управляемых ботов для фильтрации статистики
+        let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
+        let managedBotsRaw = managedBotsEnv
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        
+        // Нормализованные имена для фильтрации и работы с БД
+        let managedBotsNormalized = managedBotsRaw.map { $0.lowercased() }
+        
         let userStats = MonetizationDatabase.userStats(logger: logger, env: env)
         var lines: [String] = []
         lines.append("📊 Статус монетизации:")
 
-        if userStats.isEmpty {
+        // Фильтруем статистику - показываем только активные боты
+        let filteredStats = userStats.filter { (bot, _) in
+            managedBotsNormalized.contains(bot.lowercased())
+        }
+
+        if filteredStats.isEmpty {
             lines.append("- Пока нет записей о пользователях (user_sessions пуст).")
         } else {
             lines.append("- Пользователи по ботам:")
-            for (bot, count) in userStats.sorted(by: { $0.key < $1.key }) {
+            for (bot, count) in filteredStats.sorted(by: { $0.key < $1.key }) {
                 lines.append("  • \(bot): \(count)")
             }
         }
 
         // Покажем, для каких ботов включена обязательная подписка
-        let managedBotsEnv = Environment.get("NOWCONTROLLERBOT_BROADCAST_BOTS") ?? ""
-        let managedBots = managedBotsEnv
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        if managedBots.isEmpty {
+        if managedBotsRaw.isEmpty {
             lines.append("")
             lines.append("NOWCONTROLLERBOT_BROADCAST_BOTS не задан — список управляемых ботов пуст.")
             return lines.joined(separator: "\n")
@@ -771,9 +780,10 @@ final class NowControllerBotController {
 
         lines.append("")
         lines.append("⚙️ Настройки обязательной подписки:")
-        for bot in managedBots {
-            let sponsorCount = MonetizationDatabase.sponsorCount(for: bot, logger: logger, env: env)
-            if let setting = MonetizationDatabase.botSetting(for: bot, logger: logger, env: env) {
+        for bot in managedBotsRaw {
+            let normalizedBot = bot.lowercased()
+            let sponsorCount = MonetizationDatabase.sponsorCount(for: normalizedBot, logger: logger, env: env)
+            if let setting = MonetizationDatabase.botSetting(for: normalizedBot, logger: logger, env: env) {
                 let flag = setting.requireSubscription ? "ON" : "OFF"
                 lines.append("  • \(bot): \(flag) (спонсоров: \(sponsorCount))")
                     } else {

@@ -580,7 +580,7 @@ enum MonetizationDatabase {
 
         let now = Int(Date().timeIntervalSince1970)
         let sql = """
-        SELECT DISTINCT bot_name
+        SELECT DISTINCT LOWER(bot_name) as bot_name
         FROM sponsor_campaigns
         WHERE active = 1
           AND (expires_at IS NULL OR expires_at >= ?1)
@@ -601,8 +601,8 @@ enum MonetizationDatabase {
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             let botName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            // Нормализуем имя к нижнему регистру для консистентности
-            bots.append(botName.lowercased())
+            // Имя уже нормализовано к нижнему регистру через LOWER() в SQL
+            bots.append(botName)
         }
 
         return bots

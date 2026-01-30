@@ -216,7 +216,7 @@ func routes(_ app: Application) async throws {
                     
                     let payload = MessagePayload(
                         chat_id: message.chat.id,
-                        text: "Привет я создаю видеокружок! Отправь мне обычное видео до 59 секунд, и я обработаю его для тебя \n\nПри загрузке можно самостоятельно выбрать область обрезки прямо на смартфоне, а также подтянуть слева и справа длину видео!",
+                        text: "Отправь видео до 59 секунд и я сделаю из него кружочек \n\nЕсли отправишь как есть, то оно аккуратно кадрируется по центральной части. Если хочешь самостоятельно выбрать область обрезки посмотри инструкцию ниже",
                         reply_markup: inlineKeyboard
                     )
                     
@@ -452,41 +452,11 @@ func routes(_ app: Application) async throws {
                     let chatId = cbMessage.chat.id
                     
                     if data == "show_tutorial" {
-                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
-                        
-                        // Отправляем текст инструкции с inline-кнопкой "Видео инструкция"
-                        struct InlineKeyboardButton: Content {
-                            let text: String
-                            let callback_data: String
-                        }
-                        struct InlineKeyboardMarkup: Content {
-                            let inline_keyboard: [[InlineKeyboardButton]]
-                        }
-                        struct TextPayloadWithButton: Content {
-                            let chat_id: Int64
-                            let text: String
-                            let reply_markup: InlineKeyboardMarkup
-                        }
-                        
-                        let inlineKeyboard = InlineKeyboardMarkup(
-                            inline_keyboard: [[InlineKeyboardButton(text: "🎬 Видео инструкция", callback_data: "show_video_tutorial")]]
-                        )
-                        
-                        let textPayload = TextPayloadWithButton(
-                            chat_id: chatId,
-                            text: "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!",
-                            reply_markup: inlineKeyboard
-                        )
-                        
-                        _ = try await req.client.post(sendMessageUrl) { post in
-                            try post.content.encode(textPayload, as: .json)
-                        }.get()
-                        
-                        req.logger.info("Инструкция отправлена")
-                    } else if data == "show_video_tutorial" {
-                        // Отправляем видео через sendVideo
+                        // Отправляем видео с текстовой инструкцией в caption (одно сообщение)
                         let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideo")
                         let videoPath = "Roundsvideobot/VideoService/Public/roundsvideobot-tutorial.MOV"
+                        
+                        let captionText = "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!\n\nЕсли просто отправить видео как есть, то оно аккуратно кадрируется по центральной части\n"
                         
                         if FileManager.default.fileExists(atPath: videoPath) {
                             let videoData = try Data(contentsOf: URL(fileURLWithPath: videoPath))
@@ -503,7 +473,7 @@ func routes(_ app: Application) async throws {
                             body.writeString("\r\n")
                             body.writeString("--\(boundary)\r\n")
                             body.writeString("Content-Disposition: form-data; name=\"caption\"\r\n\r\n")
-                            body.writeString("Вот как это можно сделать\r\n")
+                            body.writeString("\(captionText)\r\n")
                             body.writeString("--\(boundary)--\r\n")
                             
                             var headers = HTTPHeaders()
@@ -513,9 +483,18 @@ func routes(_ app: Application) async throws {
                                 post.body = body
                             }.get()
                             
-                            req.logger.info("Видео инструкция отправлена")
+                            req.logger.info("Инструкция с видео отправлена")
                         } else {
-                            req.logger.warning("Видео файл не найден: \(videoPath)")
+                            // Если видео нет — fallback на текст
+                            let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                            struct TextPayload: Content {
+                                let chat_id: Int64
+                                let text: String
+                            }
+                            _ = try await req.client.post(sendMessageUrl) { post in
+                                try post.content.encode(TextPayload(chat_id: chatId, text: captionText), as: .json)
+                            }.get()
+                            req.logger.warning("Видео файл не найден, отправлен только текст: \(videoPath)")
                         }
                     }
                 }

@@ -443,31 +443,81 @@ func routes(_ app: Application) async throws {
                 }.get()
                 
                 // Обрабатываем команду из callback_data
-                if let data = callbackQuery.data, data == "show_tutorial" {
+                if let data = callbackQuery.data {
                     guard let cbMessage = callbackQuery.message else {
                         req.logger.error("Callback query без message")
                         return .ok
                     }
                     
                     let chatId = cbMessage.chat.id
-                    let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
                     
-                    // 1. Отправляем текст инструкции
-                    struct TextPayload: Content {
-                        let chat_id: Int64
-                        let text: String
+                    if data == "show_tutorial" {
+                        let sendMessageUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendMessage")
+                        
+                        // Отправляем текст инструкции с inline-кнопкой "Видео инструкция"
+                        struct InlineKeyboardButton: Content {
+                            let text: String
+                            let callback_data: String
+                        }
+                        struct InlineKeyboardMarkup: Content {
+                            let inline_keyboard: [[InlineKeyboardButton]]
+                        }
+                        struct TextPayloadWithButton: Content {
+                            let chat_id: Int64
+                            let text: String
+                            let reply_markup: InlineKeyboardMarkup
+                        }
+                        
+                        let inlineKeyboard = InlineKeyboardMarkup(
+                            inline_keyboard: [[InlineKeyboardButton(text: "🎬 Видео инструкция", callback_data: "show_video_tutorial")]]
+                        )
+                        
+                        let textPayload = TextPayloadWithButton(
+                            chat_id: chatId,
+                            text: "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!",
+                            reply_markup: inlineKeyboard
+                        )
+                        
+                        _ = try await req.client.post(sendMessageUrl) { post in
+                            try post.content.encode(textPayload, as: .json)
+                        }.get()
+                        
+                        req.logger.info("Инструкция отправлена")
+                    } else if data == "show_video_tutorial" {
+                        // Отправляем видео через sendVideo
+                        let sendVideoUrl = URI(string: "https://api.telegram.org/bot\(botToken)/sendVideo")
+                        let videoPath = "Roundsvideobot/VideoService/Public/roundsvideobot-tutorial.MOV"
+                        
+                        if FileManager.default.fileExists(atPath: videoPath) {
+                            let videoData = try Data(contentsOf: URL(fileURLWithPath: videoPath))
+                            let boundary = UUID().uuidString
+                            var body = ByteBufferAllocator().buffer(capacity: 0)
+                            
+                            body.writeString("--\(boundary)\r\n")
+                            body.writeString("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n")
+                            body.writeString("\(chatId)\r\n")
+                            body.writeString("--\(boundary)\r\n")
+                            body.writeString("Content-Disposition: form-data; name=\"video\"; filename=\"tutorial.mov\"\r\n")
+                            body.writeString("Content-Type: video/quicktime\r\n\r\n")
+                            body.writeBytes(videoData)
+                            body.writeString("\r\n")
+                            body.writeString("--\(boundary)\r\n")
+                            body.writeString("Content-Disposition: form-data; name=\"caption\"\r\n\r\n")
+                            body.writeString("Вот как это можно сделать\r\n")
+                            body.writeString("--\(boundary)--\r\n")
+                            
+                            var headers = HTTPHeaders()
+                            headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(boundary)")
+                            
+                            _ = try await req.client.post(sendVideoUrl, headers: headers) { post in
+                                post.body = body
+                            }.get()
+                            
+                            req.logger.info("Видео инструкция отправлена")
+                        } else {
+                            req.logger.warning("Видео файл не найден: \(videoPath)")
+                        }
                     }
-                    
-                    let textPayload = TextPayload(
-                        chat_id: chatId,
-                        text: "📖 Инструкция по созданию видеокружка:\n\n1️⃣ Открываем галерею, нажав на значок скрепки снизу слева\n2️⃣ Тыкаем по видео в галерее (не по значку кружочка над этим видео в верхнем правом углу)\n3️⃣ Появится превью с инструментами обрезки и продолжительности\n4️⃣ Внизу тапаем по значку кадрирования и выбираем нужную область\n5️⃣ Подгоняем длительность инструментами слева и справа на таймлайне\n6️⃣ Нажимаем снизу справа стрелочку и ждём кружочка!"
-                    )
-                    
-                    _ = try await req.client.post(sendMessageUrl) { post in
-                        try post.content.encode(textPayload, as: .json)
-                    }.get()
-                    
-                    req.logger.info("Инструкция отправлена")
                 }
                 
                 return .ok

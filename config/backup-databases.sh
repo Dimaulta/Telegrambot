@@ -59,6 +59,10 @@ create_backup "${PROJECT_DIR}/config/monetization.sqlite" "monetization"
 echo "📦 Создаю бекап contentfabrikabot/db.sqlite..."
 create_backup "${PROJECT_DIR}/contentfabrikabot/db.sqlite" "contentfabrikabot_db"
 
+# 3. Бекап БД Neurfotobot
+echo "📦 Создаю бекап Neurfotobot/db.sqlite..."
+create_backup "${PROJECT_DIR}/Neurfotobot/db.sqlite" "neurfotobot_db"
+
 echo ""
 echo -e "${GREEN}✨ Бекапы успешно созданы!${NC}"
 

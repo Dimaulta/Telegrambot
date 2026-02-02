@@ -97,7 +97,7 @@ docker compose -f docker-compose.prod.yml logs -f traefik
 - **Neurfotobot**: `https://nowbots.ru/neurfoto/webhook`
 - **Roundsvideobot**: `https://nowbots.ru/rounds/webhook`
 - **FileNowBot**: `https://nowbots.ru/filenow/webhook`
-- **GSForTextBot**: `https://nowbots.ru/gs/text/webhook`
+- **GolosNowBot**: `https://nowbots.ru/golosnow/webhook`
 - **ContentFabrikaBot**: `https://nowbots.ru/contentfabrika/webhook`
 - **PereskazNowBot**: `https://nowbots.ru/pereskaznow/webhook`
 - **NowControllerBot**: `https://nowbots.ru/nowcontroller/webhook`

@@ -231,7 +231,7 @@ cd /Users/a1111/Desktop/projects/Telegrambot
   - Не более 20 видео в день на пользователя
 
 
-> Подробный план настройки GolosNowBot с ключами и сертификатами см. в [golosnowbot/docs/SETUP_GOLOSNOWBOT.md](../golosnowbot/docs/SETUP_GOLOSNOWBOT.md) (или в [gsfortextbot/docs/SETUP_GSFORTEXTBOT.md](../gsfortextbot/docs/SETUP_GSFORTEXTBOT.md) для справки).
+> Подробный план настройки GolosNowBot с ключами и сертификатами см. в [golosnowbot/README.md](../golosnowbot/README.md).
 ### Дополнение: быстрая настройка GolosNowBot
 
 Если поднимаешь golosnowbot впервые, выполни один раз:
@@ -312,7 +312,7 @@ docker compose -f docker-compose.dev.yml up neurfotobot
 # Или другой сервис:
 # docker compose -f docker-compose.dev.yml up filenowbot
 # docker compose -f docker-compose.dev.yml up contentfabrikabot
-# docker compose -f docker-compose.dev.yml up gsfortextbot
+# docker compose -f docker-compose.dev.yml up golosnowbot
 # docker compose -f docker-compose.dev.yml up pereskaznowbot
 # docker compose -f docker-compose.dev.yml up roundsvideobot
 # docker compose -f docker-compose.dev.yml up nowcontrollerbot
@@ -383,7 +383,7 @@ docker compose -f docker-compose.dev.yml build --no-cache neurfotobot
 **Вкладки с сервисами (оставляй открытыми, если запускаешь соответствующий бот):**
 - VideoServiceRunner (Roundsvideobot) — порт 8081
 - FileNowBot — порт 8085
-- GSForTextBot — порт 8083
+- GolosNowBot — порт 8083
 - ContentFabrikaBot — порт 8089
 - Neurfotobot — порт 8082
 - PereskazNowBot — порт 8090

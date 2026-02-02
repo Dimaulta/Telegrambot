@@ -29,7 +29,7 @@ https://nowbots.ru/<путь>/webhook
 - Neurfotobot: `https://nowbots.ru/neurfoto/webhook`
 - FileNowBot: `https://nowbots.ru/filenow/webhook`
 - Roundsvideobot: `https://nowbots.ru/rounds/webhook`
-- GSForTextBot: `https://nowbots.ru/gs/text/webhook`
+- GolosNowBot: `https://nowbots.ru/golosnow/webhook`
 - ContentFabrikaBot: `https://nowbots.ru/contentfabrika/webhook`
 - PereskazNowBot: `https://nowbots.ru/pereskaznow/webhook`
 - NowControllerBot: `https://nowbots.ru/nowcontroller/webhook`

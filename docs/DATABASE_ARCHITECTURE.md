@@ -14,7 +14,7 @@ config/monetization.sqlite
 ### Кто использует:
 - ✅ **NowControllerBot** - создает и управляет БД
 - ✅ **Neurfotobot** - проверка подписки на каналы
-- ✅ **GSForTextBot** - проверка подписки на каналы
+- ✅ **GolosNowBot** - проверка подписки на каналы
 - ✅ **ContentFabrikaBot** - проверка подписки на каналы
 - ✅ **FileNowBot** - проверка подписки на каналы
 - ✅ **PereskazNowBot** - проверка подписки на каналы

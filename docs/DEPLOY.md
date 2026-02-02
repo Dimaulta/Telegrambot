@@ -226,7 +226,7 @@ set -a; source config/.env; set +a
 - `https://nowbots.ru/neurfoto/webhook` для Neurfotobot
 - `https://nowbots.ru/filenow/webhook` для FileNowBot
 - `https://nowbots.ru/rounds/webhook` для Roundsvideobot
-- `https://nowbots.ru/gs/text/webhook` для GSForTextBot
+- `https://nowbots.ru/golosnow/webhook` для GolosNowBot
 - `https://nowbots.ru/contentfabrika/webhook` для ContentFabrikaBot
 - `https://nowbots.ru/pereskaznow/webhook` для PereskazNowBot
 - `https://nowbots.ru/nowcontroller/webhook` для NowControllerBot

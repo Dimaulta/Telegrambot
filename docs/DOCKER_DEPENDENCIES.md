@@ -52,7 +52,7 @@
 
 **Статус:** ✅ Готово - только HTTP запросы
 
-### 4. GSForTextBot
+### 4. GolosNowBot
 **Зависимости:**
 - ✅ `curl` - для HTTP запросов
 - ❌ Нет системных зависимостей (все через HTTP API)
@@ -132,7 +132,7 @@ process.executableURL = URL(fileURLWithPath: ffmpeg)
 | Roundsvideobot | ✅ | ❌ | ✅ | - |
 | PereskazNowBot | ✅ | ✅ | ✅ | - |
 | Neurfotobot | ❌ | ❌ | ✅ | HTTP API |
-| GSForTextBot | ❌ | ❌ | ✅ | HTTP API |
+| GolosNowBot | ❌ | ❌ | ✅ | HTTP API |
 | ContentFabrikaBot | ❌ | ❌ | ✅ | SQLite |
 | FileNowBot | ❌ | ❌ | ✅ | HTTP API |
 | NowControllerBot | ❌ | ❌ | ✅ | SQLite |

@@ -506,6 +506,8 @@ tar -czf backup-$(date +%Y%m%d).tar.gz config/*.sqlite contentfabrikabot/db.sqli
 - **Настройка Traefik**: `docs/TRAEFIK_SETUP.md` — подробная инструкция по Traefik и SSL
 - **Безопасная передача .env**: `docs/ENV_SECURITY.md` — способы передачи секретов
 - **SSH настройка**: `docs/SSH_SETUP.md` — настройка SSH ключей и безопасного доступа
+- **Очистка диска на VPS**: `docs/SERVER_STORAGE_CLEANUP.md` — когда заполнен storage, SSH отваливается; команды для очистки Docker, кэша и временных файлов
+- **Доступ к серверу (памятка)**: `docs/SERVER_ACCESS.md` — SSH, ISPmanager (https://85.208.110.226:1500), VNC; логин/пароль ISPmanager в менеджере паролей на Mac
 
 ---
 

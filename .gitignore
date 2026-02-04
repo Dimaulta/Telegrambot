@@ -47,3 +47,7 @@ Neurfotobot/tmp/
 
 # Local nginx configs (development only)
 nginx.conf.fixed
+
+# Server access/cleanup docs (содержат IP, не коммитить)
+docs/SERVER_ACCESS.md
+docs/SERVER_STORAGE_CLEANUP.md

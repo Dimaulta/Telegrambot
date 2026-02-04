@@ -62,6 +62,14 @@ struct YouTubeShortsResolver {
         return current
     }
     
+    private static func nodeJsPathForYtDlp() -> String? {
+        let candidates = ["/usr/bin/nodejs", "/usr/bin/node"]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
+    }
+
     // Используем yt-dlp для получения прямого URL (быстрее и надежнее публичных API)
     private func resolveViaYtDlp(url: String) async throws -> String {
         logger.info("Trying yt-dlp for URL: \(url)")
@@ -88,18 +96,20 @@ struct YouTubeShortsResolver {
             throw Abort(.badRequest, reason: "yt-dlp not found. Install it: brew install yt-dlp (Mac) or apt install yt-dlp (Linux)")
         }
         
-        // Запускаем yt-dlp для получения прямого URL
-        // player_client=tv,android — реже дают 403; Deno в контейнере даёт JS runtime при необходимости
-        let ytDlpProcess = Process()
-        ytDlpProcess.executableURL = URL(fileURLWithPath: ytdlp)
-        
-        ytDlpProcess.arguments = [
-            "--js-runtimes", "node:/usr/bin/nodejs",
+        var args: [String] = []
+        if let nodePath = Self.nodeJsPathForYtDlp() {
+            logger.info("🔍 Using Node.js for yt-dlp at: \(nodePath)")
+            args.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
+        }
+        args.append(contentsOf: [
             "--extractor-args", "youtube:player_client=tv,android",
             "--get-url",
             "--format", "bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             url
-        ]
+        ])
+        let ytDlpProcess = Process()
+        ytDlpProcess.executableURL = URL(fileURLWithPath: ytdlp)
+        ytDlpProcess.arguments = args
         
         let outputPipe = Pipe()
         let errorPipe = Pipe()

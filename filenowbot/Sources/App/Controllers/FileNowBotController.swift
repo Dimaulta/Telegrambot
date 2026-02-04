@@ -637,6 +637,15 @@ final class FileNowBotController {
         logger.info("✅ Video sent via Telegram API")
     }
     
+    /// Путь к Node.js для yt-dlp (Ubuntu: nodejs, NodeSource: node)
+    private static func nodeJsPathForYtDlp() -> String? {
+        let candidates = ["/usr/bin/nodejs", "/usr/bin/node"]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
+    }
+
     // Отправка видео через прямой download через yt-dlp (для YouTube Shorts)
     private func sendTelegramVideoByYtDlp(token: String, chatId: Int64, originalUrl: String, client: Client, logger: Logger) async throws {
         logger.info("📥 Downloading video via yt-dlp from: \(originalUrl)")
@@ -674,13 +683,15 @@ final class FileNowBotController {
         
         // Запускаем yt-dlp для скачивания видео
         // Используем формат без HLS (m3u8), так как YouTube блокирует HLS фрагменты на VPS
-        // Приоритет: 1080p (bestvideo+bestaudio) -> 720p (bestvideo+bestaudio) -> готовое видео
-        // player_client=tv,android — клиенты, которые реже дают 403 (web требует PO token / JS runtime)
-        // Deno в контейнере даёт yt-dlp JS runtime для YouTube при необходимости
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlp)
-        process.arguments = [
-            "--js-runtimes", "node:/usr/bin/nodejs",
+        // player_client=tv,android — реже дают 403; Node.js нужен для извлечения части форматов YouTube
+        var ytDlpArgs: [String] = []
+        if let nodePath = Self.nodeJsPathForYtDlp() {
+            logger.info("🔍 Using Node.js for yt-dlp at: \(nodePath)")
+            ytDlpArgs.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
+        } else {
+            logger.warning("⚠️ Node.js not found; YouTube Shorts may fail (403). Rebuild image with nodejs in Dockerfile.")
+        }
+        ytDlpArgs.append(contentsOf: [
             "--extractor-args", "youtube:player_client=tv,android",
             "-f", "bestvideo[height=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height=720][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height<=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[vcodec^=avc1][ext=mp4][protocol!=m3u8]/best[ext=mp4][protocol!=m3u8]/best",
             "--merge-output-format", "mp4",
@@ -688,7 +699,10 @@ final class FileNowBotController {
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-o", tempFile.path,
             originalUrl
-        ]
+        ])
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ytdlp)
+        process.arguments = ytDlpArgs
         
         let errorPipe = Pipe()
         process.standardError = errorPipe

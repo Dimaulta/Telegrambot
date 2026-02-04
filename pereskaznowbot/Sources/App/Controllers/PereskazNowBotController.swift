@@ -748,7 +748,10 @@ final class PereskazNowBotController: @unchecked Sendable {
         if let nodePath = Self.nodeJsPathForYtDlp() {
             ytDlpArgs.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
         }
-        ytDlpArgs.append(contentsOf: ["--get-duration", "--no-playlist", videoUrl])
+        ytDlpArgs.append(contentsOf: [
+            "--extractor-args", "youtube:player_client=tv,android",
+            "--get-duration", "--no-playlist", videoUrl
+        ])
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)

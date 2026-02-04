@@ -19,10 +19,16 @@
 brew install ffmpeg
 ```
 
-2.1. Установить yt-dlp (для PereskazNowBot):
+2.1. Установить yt-dlp (для PereskazNowBot и FileNowBot):
 
 ```bash
 brew install yt-dlp
+```
+
+2.2. Установить Deno (для FileNowBot — YouTube Shorts; yt-dlp использует Deno как JS runtime):
+
+```bash
+brew install deno
 ```
 
 

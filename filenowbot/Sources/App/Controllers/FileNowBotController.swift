@@ -675,11 +675,12 @@ final class FileNowBotController {
         // Запускаем yt-dlp для скачивания видео
         // Используем формат без HLS (m3u8), так как YouTube блокирует HLS фрагменты на VPS
         // Приоритет: 1080p (bestvideo+bestaudio) -> 720p (bestvideo+bestaudio) -> готовое видео
-        // Используем конкретные форматы по высоте для правильного aspect ratio вертикального видео
-        // Добавляем user-agent для обхода блокировок
+        // player_client=tv,android — клиенты, которые реже дают 403 (web требует PO token / JS runtime)
+        // Deno в контейнере даёт yt-dlp JS runtime для YouTube при необходимости
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.arguments = [
+            "--extractor-args", "youtube:player_client=tv,android",
             "-f", "bestvideo[height=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height=720][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height<=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[vcodec^=avc1][ext=mp4][protocol!=m3u8]/best[ext=mp4][protocol!=m3u8]/best",
             "--merge-output-format", "mp4",
             "--postprocessor-args", "ffmpeg:-movflags +faststart -c:v copy -c:a copy",

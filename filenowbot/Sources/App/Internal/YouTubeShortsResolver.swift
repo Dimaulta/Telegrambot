@@ -89,10 +89,12 @@ struct YouTubeShortsResolver {
         }
         
         // Запускаем yt-dlp для получения прямого URL
+        // player_client=tv,android — реже дают 403; Deno в контейнере даёт JS runtime при необходимости
         let ytDlpProcess = Process()
         ytDlpProcess.executableURL = URL(fileURLWithPath: ytdlp)
         
         ytDlpProcess.arguments = [
+            "--extractor-args", "youtube:player_client=tv,android",
             "--get-url",
             "--format", "bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             url

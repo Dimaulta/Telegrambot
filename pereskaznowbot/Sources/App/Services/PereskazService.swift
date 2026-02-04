@@ -364,6 +364,7 @@ struct PereskazService {
         if ytdlpPath == "yt-dlp" {
             executable = "/usr/bin/env"
             args = ["yt-dlp"] + [
+                "--js-runtimes", "deno:/usr/local/bin/deno",
                 "--extractor-args", "youtube:player_client=tv_simply",
                 "--extract-audio",
                 "--audio-format", "m4a",
@@ -378,6 +379,7 @@ struct PereskazService {
         } else {
             executable = ytdlpPath
             args = [
+                "--js-runtimes", "deno:/usr/local/bin/deno",
                 "--extractor-args", "youtube:player_client=tv_simply",
                 "--extract-audio",
                 "--audio-format", "m4a",

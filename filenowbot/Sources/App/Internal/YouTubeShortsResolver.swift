@@ -94,6 +94,7 @@ struct YouTubeShortsResolver {
         ytDlpProcess.executableURL = URL(fileURLWithPath: ytdlp)
         
         ytDlpProcess.arguments = [
+            "--js-runtimes", "deno:/usr/local/bin/deno",
             "--extractor-args", "youtube:player_client=tv,android",
             "--get-url",
             "--format", "bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",

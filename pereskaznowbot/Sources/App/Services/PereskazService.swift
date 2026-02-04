@@ -365,13 +365,13 @@ struct PereskazService {
         let audioFile = workDir.appendingPathComponent("audio.m4a")
         
         // Запускаем yt-dlp для скачивания аудио
-        // player_client=tv_simply — обход HTTP 403 (см. yt-dlp PO-Token-Guide)
+        // player_client=tv,android — реже требуют PO Token, как в filenowbot
         var baseArgs: [String] = []
         if let nodePath = Self.nodeJsPathForYtDlp() {
             baseArgs.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
         }
         baseArgs.append(contentsOf: [
-            "--extractor-args", "youtube:player_client=tv_simply",
+            "--extractor-args", "youtube:player_client=tv,android",
             "--extract-audio",
             "--audio-format", "m4a",
             "--audio-quality", "7",

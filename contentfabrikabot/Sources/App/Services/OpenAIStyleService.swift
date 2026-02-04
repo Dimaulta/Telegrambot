@@ -3,14 +3,18 @@ import Foundation
 
 struct OpenAIStyleService {
     private let apiKey: String
+    private let model: String
     private let client: Client
     private let logger: Logger
     
+    /// Модель берётся из `OPENAI_MODEL`; по умолчанию `gpt-4o-mini`. После отключения gpt-4o-mini можно использовать `gpt-4.1-nano`, `gpt-4.1-mini` или `gpt-5-mini`.
     init(request: Request) throws {
         guard let apiKey = Environment.get("OPENAI_API_KEY"), !apiKey.isEmpty else {
             throw Abort(.internalServerError, reason: "OPENAI_API_KEY is not set")
         }
         self.apiKey = apiKey
+        let rawModel = Environment.get("OPENAI_MODEL")?.trimmingCharacters(in: .whitespaces) ?? ""
+        self.model = rawModel.isEmpty ? "gpt-4o-mini" : rawModel
         self.client = request.client
         self.logger = request.logger
     }
@@ -43,7 +47,7 @@ struct OpenAIStyleService {
         request.headers.add(name: .contentType, value: "application/json")
         
         let payload = OpenAIRequest(
-            model: "gpt-4o-mini",
+            model: model,
             messages: [
                 OpenAIMessage(role: "system", content: "Ты эксперт по анализу стиля письма. Твоя задача - создать детальное описание стиля автора на основе предоставленных примеров."),
                 OpenAIMessage(role: "user", content: prompt)
@@ -143,7 +147,7 @@ struct OpenAIStyleService {
         request.headers.add(name: .contentType, value: "application/json")
         
         let payload = OpenAIRequest(
-            model: "gpt-4o-mini",
+            model: model,
             messages: [
                 OpenAIMessage(role: "system", content: "Ты помощник, который пишет посты для Telegram каналов в стиле конкретного автора. Твоя задача - точно воспроизвести стиль автора."),
                 OpenAIMessage(role: "user", content: prompt)

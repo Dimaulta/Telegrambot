@@ -340,6 +340,14 @@ struct PereskazService {
     }
     
     /// Скачивает аудио используя yt-dlp
+    private static func nodeJsPathForYtDlp() -> String? {
+        let candidates = ["/usr/bin/nodejs", "/usr/bin/node"]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
+    }
+
     private func downloadWithYtDlp(videoUrl: String, ytdlpPath: String, logger: Logger) async throws -> Data {
         // Создаем временную папку для работы yt-dlp
         let tempDir = FileManager.default.temporaryDirectory
@@ -357,40 +365,31 @@ struct PereskazService {
         let audioFile = workDir.appendingPathComponent("audio.m4a")
         
         // Запускаем yt-dlp для скачивания аудио
-        // Используем более низкое качество, чтобы файл был меньше 25MB (лимит Whisper API)
-        // player_client=tv_simply — обход HTTP 403: YouTube требует PO Token для web-клиента; tv_simply не требует (см. yt-dlp PO-Token-Guide)
+        // player_client=tv_simply — обход HTTP 403 (см. yt-dlp PO-Token-Guide)
+        var baseArgs: [String] = []
+        if let nodePath = Self.nodeJsPathForYtDlp() {
+            baseArgs.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
+        }
+        baseArgs.append(contentsOf: [
+            "--extractor-args", "youtube:player_client=tv_simply",
+            "--extract-audio",
+            "--audio-format", "m4a",
+            "--audio-quality", "7",
+            "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--output", audioFile.path,
+            "--no-mtime",
+            "--no-playlist",
+            videoUrl
+        ])
         let process = Process()
         let (executable, args): (String, [String])
         if ytdlpPath == "yt-dlp" {
             executable = "/usr/bin/env"
-            args = ["yt-dlp"] + [
-                "--js-runtimes", "deno:/usr/local/bin/deno",
-                "--extractor-args", "youtube:player_client=tv_simply",
-                "--extract-audio",
-                "--audio-format", "m4a",
-                "--audio-quality", "7",
-                "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--output", audioFile.path,
-                "--no-mtime",
-                "--no-playlist",
-                videoUrl
-            ]
+            args = ["yt-dlp"] + baseArgs
         } else {
             executable = ytdlpPath
-            args = [
-                "--js-runtimes", "deno:/usr/local/bin/deno",
-                "--extractor-args", "youtube:player_client=tv_simply",
-                "--extract-audio",
-                "--audio-format", "m4a",
-                "--audio-quality", "7",
-                "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--output", audioFile.path,
-                "--no-mtime",
-                "--no-playlist",
-                videoUrl
-            ]
+            args = baseArgs
         }
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args

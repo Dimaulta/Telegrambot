@@ -719,6 +719,14 @@ final class PereskazNowBotController: @unchecked Sendable {
         }
     }
     
+    private static func nodeJsPathForYtDlp() -> String? {
+        let candidates = ["/usr/bin/nodejs", "/usr/bin/node"]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
+    }
+
     /// Получает длительность видео в минутах через yt-dlp
     private func getVideoDuration(videoUrl: String, logger: Logger) async throws -> Int {
         // Проверяем наличие yt-dlp
@@ -736,15 +744,15 @@ final class PereskazNowBotController: @unchecked Sendable {
             throw Abort(.badRequest, reason: "yt-dlp not found")
         }
         
-        // Запускаем yt-dlp для получения длительности
+        var ytDlpArgs: [String] = []
+        if let nodePath = Self.nodeJsPathForYtDlp() {
+            ytDlpArgs.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
+        }
+        ytDlpArgs.append(contentsOf: ["--get-duration", "--no-playlist", videoUrl])
+        
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
-        process.arguments = [
-            "--js-runtimes", "deno:/usr/local/bin/deno",
-            "--get-duration",
-            "--no-playlist",
-            videoUrl
-        ]
+        process.arguments = ytDlpArgs
         
         let pipe = Pipe()
         process.standardOutput = pipe

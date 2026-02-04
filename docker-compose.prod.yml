@@ -4,14 +4,9 @@ version: '3.8'
 # Использование: docker compose -f docker-compose.prod.yml up -d
 
 services:
-  # NowControllerBot - запускается первым для инициализации БД
+  # NowControllerBot - образ собирается в CI (ghcr.io), на VPS только pull
   nowcontrollerbot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: NowControllerBot
-        PORT: 8084
+    image: ghcr.io/dimaulta/telegrambot-nowcontrollerbot:latest
     container_name: telegrambot_nowcontrollerbot
     restart: unless-stopped
     env_file:
@@ -38,12 +33,7 @@ services:
 
   # VideoServiceRunner (RoundsvideoBot)
   roundsvideobot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: VideoServiceRunner
-        PORT: 8081
+    image: ghcr.io/dimaulta/telegrambot-roundsvideobot:latest
     container_name: telegrambot_roundsvideobot
     restart: unless-stopped
     env_file:
@@ -82,12 +72,7 @@ services:
 
   # FileNowBot
   filenowbot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: FileNowBot
-        PORT: 8085
+    image: ghcr.io/dimaulta/telegrambot-filenowbot:latest
     container_name: telegrambot_filenowbot
     restart: unless-stopped
     env_file:
@@ -111,12 +96,7 @@ services:
 
   # GolosNowBot
   golosnowbot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: GolosNowBot
-        PORT: 8083
+    image: ghcr.io/dimaulta/telegrambot-golosnowbot:latest
     container_name: telegrambot_golosnowbot
     restart: unless-stopped
     env_file:
@@ -143,12 +123,7 @@ services:
 
   # ContentFabrikaBot
   contentfabrikabot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: ContentFabrikaBot
-        PORT: 8089
+    image: ghcr.io/dimaulta/telegrambot-contentfabrikabot:latest
     container_name: telegrambot_contentfabrikabot
     restart: unless-stopped
     env_file:
@@ -173,12 +148,7 @@ services:
 
   # Neurfotobot
   neurfotobot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: Neurfotobot
-        PORT: 8082
+    image: ghcr.io/dimaulta/telegrambot-neurfotobot:latest
     container_name: telegrambot_neurfotobot
     restart: unless-stopped
     env_file:
@@ -211,12 +181,7 @@ services:
 
   # PereskazNowBot
   pereskaznowbot:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-      args:
-        PRODUCT: PereskazNowBot
-        PORT: 8090
+    image: ghcr.io/dimaulta/telegrambot-pereskaznowbot:latest
     container_name: telegrambot_pereskaznowbot
     restart: unless-stopped
     env_file:

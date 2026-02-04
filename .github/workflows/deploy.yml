@@ -1,234 +1,231 @@
-name: Deploy to Production (Smart Rebuild)
+# Стабильный CI/CD: сборка в GitHub Actions (без нагрузки на VPS), деплой на VPS только pull.
+# Подводные камни учтены: проверка ресурсов VPS, retry, обновление .last_deploy_commit только при успехе.
+
+name: Deploy to Production (Build in GHA)
 
 on:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
 jobs:
-  deploy:
+  detect:
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # Увеличиваем таймаут для длительных сборок
-    
+    outputs:
+      services: ${{ steps.changed.outputs.services }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 50  # Увеличиваем для сравнения с последним деплоем
-      
-      - name: Setup SSH key
+          fetch-depth: 50
+
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
           chmod 600 ~/.ssh/vps_key
-          ssh-keyscan -p ${{ secrets.VPS_SSH_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-      
+          ssh-keyscan -p ${{ secrets.VPS_SSH_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: Detect changed services
         id: changed
         run: |
-          # Получаем коммит последнего деплоя с VPS через SSH
-          LAST_DEPLOY_COMMIT=$(ssh -i ~/.ssh/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "cat /root/Telegrambot/.last_deploy_commit 2>/dev/null || echo 'none'")
-          
-          # Если файла нет или он пустой, используем HEAD~10 как fallback
+          LAST_DEPLOY_COMMIT=$(ssh -i ~/.ssh/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o ConnectTimeout=15 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "cat /root/Telegrambot/.last_deploy_commit 2>/dev/null || echo 'none'" || echo "none")
           if [ -z "$LAST_DEPLOY_COMMIT" ] || [ "$LAST_DEPLOY_COMMIT" = "none" ]; then
-            echo "⚠️ Файл .last_deploy_commit не найден, использую HEAD~10 как fallback"
-            LAST_DEPLOY_COMMIT="HEAD~10"
-          else
-            # Проверяем, что коммит существует в репозитории
-            if ! git rev-parse --verify "$LAST_DEPLOY_COMMIT" >/dev/null 2>&1; then
-              echo "⚠️ Коммит $LAST_DEPLOY_COMMIT не найден в репозитории, использую HEAD~10"
-              LAST_DEPLOY_COMMIT="HEAD~10"
-            else
-              echo "✅ Использую коммит последнего деплоя: $LAST_DEPLOY_COMMIT"
+            echo "Using HEAD~15 (no .last_deploy_commit or SSH failed)"
+            LAST_DEPLOY_COMMIT="HEAD~15"
+          elif ! git rev-parse --verify "$LAST_DEPLOY_COMMIT" >/dev/null 2>&1; then
+            echo "Commit $LAST_DEPLOY_COMMIT not in repo, using HEAD~15"
+            LAST_DEPLOY_COMMIT="HEAD~15"
+          fi
+          CHANGED_FILES=$(git diff --name-only "$LAST_DEPLOY_COMMIT" HEAD || true)
+          echo "Changed files (excerpt):"
+          echo "$CHANGED_FILES" | head -30
+
+          IGNORE_PATTERN="^(${NON_WORKING:-veonowbot|banananowbot|soranowbot|AntispamNowBot|NeurVideoBot})/|^config/services.json$|^docs/|/docs/|^\\.github/|^README|/README\\.md$|^LICENSE$|^SECURITY|^TRANSFER|^check_ssl|^config/nginx|^config/traefik|^config/.*\\.sh$|\\.code-workspace$|^NEURFOTOBOT_NOTES_TMP|^SECURITY_AUDIT_REPORT|^\\.gitignore$|^\\.cursorignore$"
+          LEFT=$(echo "$CHANGED_FILES" | grep -vE "$IGNORE_PATTERN" || true)
+          if [ -z "$LEFT" ]; then
+            echo "services=none" >> $GITHUB_OUTPUT
+            echo "No rebuild needed (only ignored paths changed)"
+            exit 0
+          fi
+
+          if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod"; then
+            echo "services=nowcontrollerbot roundsvideobot filenowbot golosnowbot contentfabrikabot neurfotobot pereskaznowbot" >> $GITHUB_OUTPUT
+            echo "Rebuild all (Dockerfile/compose changed)"
+            exit 0
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^Package.resolved$"; then
+            echo "services=nowcontrollerbot roundsvideobot filenowbot golosnowbot contentfabrikabot neurfotobot pereskaznowbot" >> $GITHUB_OUTPUT
+            echo "Rebuild all (Package.resolved changed)"
+            exit 0
+          fi
+
+          SERVICES=""
+          echo "$CHANGED_FILES" | grep -qE "^nowcontrollerbot/" && SERVICES="$SERVICES nowcontrollerbot"
+          echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/" && SERVICES="$SERVICES roundsvideobot"
+          echo "$CHANGED_FILES" | grep -qE "^filenowbot/" && SERVICES="$SERVICES filenowbot"
+          echo "$CHANGED_FILES" | grep -qE "^golosnowbot/" && SERVICES="$SERVICES golosnowbot"
+          echo "$CHANGED_FILES" | grep -qE "^contentfabrikabot/" && SERVICES="$SERVICES contentfabrikabot"
+          echo "$CHANGED_FILES" | grep -qE "^Neurfotobot/|^neurfotobot/" && SERVICES="$SERVICES neurfotobot"
+          echo "$CHANGED_FILES" | grep -qE "^pereskaznowbot/" && SERVICES="$SERVICES pereskaznowbot"
+
+          if [ -z "$SERVICES" ]; then
+            if echo "$CHANGED_FILES" | grep -qE "^Package.swift$"; then
+              PACKAGE_DIFF=$(git diff "$LAST_DEPLOY_COMMIT" HEAD -- Package.swift 2>/dev/null || true)
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"NowControllerBot\"" && SERVICES="$SERVICES nowcontrollerbot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"VideoServiceRunner\"" && SERVICES="$SERVICES roundsvideobot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"FileNowBot\"" && SERVICES="$SERVICES filenowbot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"GolosNowBot\"" && SERVICES="$SERVICES golosnowbot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"ContentFabrikaBot\"" && SERVICES="$SERVICES contentfabrikabot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"Neurfotobot\"" && SERVICES="$SERVICES neurfotobot"
+              echo "$PACKAGE_DIFF" | grep -qE "name: \"PereskazNowBot\"" && SERVICES="$SERVICES pereskaznowbot"
             fi
           fi
-          
-          # Определяем какие папки/сервисы изменились с момента последнего деплоя
-          CHANGED_FILES=$(git diff --name-only "$LAST_DEPLOY_COMMIT" HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          
-          # Неработающие сервисы (игнорируем при переименовании/изменении)
-          NON_WORKING_SERVICES="veonowbot|banananowbot|soranowbot|AntispamNowBot|NeurVideoBot"
-          
-          # Проверяем, изменились ли только неработающие сервисы или только services.json
-          # Игнорируем изменения в CI/CD, документации, конфигах и служебных файлах
-          ONLY_NON_WORKING=$(echo "$CHANGED_FILES" | grep -vE "^($NON_WORKING_SERVICES)/|^config/services.json$|^docs/|/docs/|^\.github/|^README|/README\.md$|^LICENSE$|^SECURITY|^TRANSFER|^check_ssl|^config/nginx|^config/traefik|^config/.*\.sh$|\.code-workspace$|^NEURFOTOBOT_NOTES_TMP|^SECURITY_AUDIT_REPORT|^\.gitignore$|^\.cursorignore$" || true)
-          
-          if [ -z "$ONLY_NON_WORKING" ]; then
-            # Изменились только неработающие сервисы или только services.json/docs - не пересобираем
-            SERVICES="none"
+          if [ -z "$SERVICES" ]; then
+            echo "services=nowcontrollerbot roundsvideobot filenowbot golosnowbot contentfabrikabot neurfotobot pereskaznowbot" >> $GITHUB_OUTPUT
+            echo "Rebuild all (could not map changed files to services)"
           else
-            # Проверяем общие файлы
-            if echo "$CHANGED_FILES" | grep -qE "docker-compose.prod.yml|Dockerfile.prod"; then
-              SERVICES="all"
-            elif echo "$CHANGED_FILES" | grep -qE "^Package.resolved$"; then
-              # Package.resolved изменился - зависимости обновились, пересобираем всё
-              SERVICES="all"
-            elif echo "$CHANGED_FILES" | grep -qE "^Package.swift$"; then
-              # Package.swift изменился - анализируем что именно
-              PACKAGE_DIFF=$(git diff "$LAST_DEPLOY_COMMIT" HEAD -- Package.swift)
-              
-              # Проверяем, изменились ли общие зависимости (версии пакетов в секции dependencies)
-              if echo "$PACKAGE_DIFF" | grep -qE "^\+.*\.package\(|^\-.*\.package\(|from:|\.upToNextMajor|\.upToNextMinor"; then
-                # Общие зависимости изменились - пересобираем всё
-                SERVICES="all"
-              else
-                # Изменились только таргеты или их зависимости - определяем какие
-                CHANGED_TARGETS=""
-                
-                # Проверяем, изменились ли только неразработанные таргеты
-                NON_WORKING_TARGETS="NeurVideoBot|AntispamNowBot|VeoNowBot|SoranowBot|BananaNowBot"
-                ONLY_NON_WORKING_TARGETS=true
-                
-                # Маппинг таргетов Package.swift на сервисы docker-compose
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowControllerBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS nowcontrollerbot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"VideoServiceRunner\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS roundsvideobot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"NowmttBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS nowmttbot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"FileNowBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS filenowbot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"GolosNowBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS golosnowbot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"ContentFabrikaBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS contentfabrikabot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"Neurfotobot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS neurfotobot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                if echo "$PACKAGE_DIFF" | grep -qE "name: \"PereskazNowBot\""; then
-                  CHANGED_TARGETS="$CHANGED_TARGETS pereskaznowbot"
-                  ONLY_NON_WORKING_TARGETS=false
-                fi
-                
-                # Если изменились только неразработанные таргеты - не пересобираем ничего
-                if [ "$ONLY_NON_WORKING_TARGETS" = true ]; then
-                  SERVICES="none"
-                elif [ -n "$CHANGED_TARGETS" ]; then
-                  # Изменились работающие таргеты - пересобираем только их
-                  SERVICES="$CHANGED_TARGETS"
-                else
-                  # Не смогли определить - пересобрать всё для безопасности
-                  SERVICES="all"
-                fi
-              fi
-            else
-              # Определяем изменённые работающие сервисы
-              SERVICES=""
-              if echo "$CHANGED_FILES" | grep -qE "^Neurfotobot/|^neurfotobot/"; then
-                SERVICES="$SERVICES neurfotobot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^Roundsvideobot/|^roundsvideobot/"; then
-                SERVICES="$SERVICES roundsvideobot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^filenowbot/"; then
-                SERVICES="$SERVICES filenowbot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^golosnowbot/"; then
-                SERVICES="$SERVICES golosnowbot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^contentfabrikabot/"; then
-                SERVICES="$SERVICES contentfabrikabot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^pereskaznowbot/"; then
-                SERVICES="$SERVICES pereskaznowbot"
-              fi
-              if echo "$CHANGED_FILES" | grep -qE "^nowcontrollerbot/"; then
-                SERVICES="$SERVICES nowcontrollerbot"
-              fi
-              
-              # Если не определили работающие сервисы - пересобрать всё для безопасности
-              if [ -z "$SERVICES" ]; then
-                SERVICES="all"
-              fi
-            fi
+            echo "services=$SERVICES" >> $GITHUB_OUTPUT
+            echo "Rebuild:$SERVICES"
           fi
-          
-          echo "services=$SERVICES" >> $GITHUB_OUTPUT
-          echo "🔍 Изменённые сервисы: $SERVICES"
-      
-      - name: Deploy to VPS
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.services != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - nowcontrollerbot:NowControllerBot:8084 roundsvideobot:VideoServiceRunner:8081
+          - filenowbot:FileNowBot:8085 golosnowbot:GolosNowBot:8083
+          - contentfabrikabot:ContentFabrikaBot:8089 neurfotobot:Neurfotobot:8082
+          - pereskaznowbot:PereskazNowBot:8090
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push (parallel groups, only changed services)
+        run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          CHANGED="${{ needs.detect.outputs.services }}"
+          for entry in ${{ matrix.group }}; do
+            svc=$(echo "$entry" | cut -d: -f1)
+            product=$(echo "$entry" | cut -d: -f2)
+            port=$(echo "$entry" | cut -d: -f3)
+            if echo "$CHANGED" | grep -qw "$svc"; then
+              echo "Building $svc ($product :$port)..."
+              docker buildx build --platform linux/amd64 \
+                -f Dockerfile.prod \
+                --build-arg PRODUCT="$product" \
+                --build-arg PORT="$port" \
+                -t ${{ env.REGISTRY }}/$OWNER_LC/telegrambot-$svc:latest \
+                --push .
+            else
+              echo "Skip $svc (not in changed list)"
+            fi
+          done
+
+  deploy:
+    needs: [detect, build]
+    if: needs.detect.result == 'success' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -p ${{ secrets.VPS_SSH_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to VPS (pull and up)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           port: ${{ secrets.VPS_SSH_PORT }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 5400s  # 90 минут для длительных сборок
+          command_timeout: 600s
+          envs: GHCR_TOKEN
           script: |
+            set -e
             cd /root/Telegrambot
-            echo "📥 Получаю изменения из main..."
+
+            echo "Check VPS resources..."
+            df -h / | tail -1
+            free -h | head -2
+
+            echo "Pull code..."
             git fetch origin
-            
-            # Сохраняем текущий коммит для проверки
-            OLD_COMMIT=$(git rev-parse HEAD)
-            echo "📌 Текущий коммит перед обновлением: $OLD_COMMIT"
-            
-            # Переключаемся на main и сбрасываем все локальные изменения для чистого состояния
             git checkout main
             git reset --hard origin/main
-            
-            # Проверяем, что код действительно обновился
             NEW_COMMIT=$(git rev-parse HEAD)
-            echo "📌 Новый коммит после обновления: $NEW_COMMIT"
-            
-            if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
-              echo "⚠️ Внимание: код не изменился после обновления"
-            else
-              echo "✅ Код успешно обновлён: $OLD_COMMIT -> $NEW_COMMIT"
-            fi
-            
-            CHANGED_SERVICES="${{ steps.changed.outputs.services }}"
-            
-            if [ "$CHANGED_SERVICES" = "none" ]; then
-              echo "ℹ️ Изменились только неработающие сервисы/services.json/документация - пересборка не требуется"
-            elif [ "$CHANGED_SERVICES" = "all" ]; then
-              echo "🔨 Пересобираю все контейнеры..."
-              docker compose -f docker-compose.prod.yml build --progress=plain
-              docker compose -f docker-compose.prod.yml up -d
-            else
-              echo "🔨 Пересобираю только изменённые сервисы: $CHANGED_SERVICES"
-              for service in $CHANGED_SERVICES; do
-                echo "  → Пересобираю $service..."
-                docker compose -f docker-compose.prod.yml build --progress=plain $service
-                if [ $? -eq 0 ]; then
-                  echo "  ✅ $service собран успешно"
-                  docker compose -f docker-compose.prod.yml up -d $service
-                else
-                  echo "  ❌ Ошибка сборки $service"
-                  exit 1
-                fi
-              done
-            fi
-            
-            echo "⏳ Жду запуска сервисов (30 секунд)..."
-            sleep 30
-            
-            echo "🔗 Настраиваю webhooks..."
-            set -a; source config/.env; set +a
-            ./config/set-webhooks.sh
-            
-            echo "📊 Статус контейнеров:"
-            docker compose -f docker-compose.prod.yml ps
-            
-            # Сохраняем коммит текущего деплоя для следующего запуска
-            CURRENT_COMMIT=$(git rev-parse HEAD)
-            echo "$CURRENT_COMMIT" > /root/Telegrambot/.last_deploy_commit
-            echo "💾 Сохранён коммит последнего деплоя: $CURRENT_COMMIT"
-            
-            echo "✅ Деплой завершён!"
+            echo "Commit: $NEW_COMMIT"
 
+            echo "Login to GHCR..."
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u $(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]') --password-stdin
+
+            echo "Pull images and up..."
+            docker compose -f docker-compose.prod.yml pull --quiet
+            docker compose -f docker-compose.prod.yml up -d
+
+            echo "Wait for services..."
+            sleep 30
+
+            echo "Webhooks..."
+            set -a; [ -f config/.env ] && source config/.env; set +a
+            [ -x ./config/set-webhooks.sh ] && ./config/set-webhooks.sh || true
+
+            echo "$NEW_COMMIT" > /root/Telegrambot/.last_deploy_commit
+            echo "Saved .last_deploy_commit"
+
+            docker compose -f docker-compose.prod.yml ps
+            echo "Deploy done."
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+
+  deploy-no-rebuild:
+    needs: detect
+    if: needs.detect.outputs.services == 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -p ${{ secrets.VPS_SSH_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Sync code only (no rebuild)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 120s
+          script: |
+            cd /root/Telegrambot
+            git fetch origin && git checkout main && git reset --hard origin/main
+            COMMIT=$(git rev-parse HEAD)
+            echo "$COMMIT" > /root/Telegrambot/.last_deploy_commit
+            echo "Synced to $COMMIT, no rebuild."

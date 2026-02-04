@@ -680,7 +680,7 @@ final class FileNowBotController {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.arguments = [
-            "--js-runtimes", "deno:/usr/local/bin/deno",
+            "--js-runtimes", "node:/usr/bin/nodejs",
             "--extractor-args", "youtube:player_client=tv,android",
             "-f", "bestvideo[height=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height=720][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/bestvideo[height<=1080][vcodec^=avc1][ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a]/best[vcodec^=avc1][ext=mp4][protocol!=m3u8]/best[ext=mp4][protocol!=m3u8]/best",
             "--merge-output-format", "mp4",

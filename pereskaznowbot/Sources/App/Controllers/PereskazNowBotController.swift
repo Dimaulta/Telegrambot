@@ -740,7 +740,7 @@ final class PereskazNowBotController: @unchecked Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.arguments = [
-            "--js-runtimes", "deno:/usr/local/bin/deno",
+            "--js-runtimes", "node:/usr/bin/nodejs",
             "--get-duration",
             "--no-playlist",
             videoUrl

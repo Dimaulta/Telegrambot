@@ -99,7 +99,15 @@ jobs:
     needs: detect
     if: needs.detect.outputs.services != 'none'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - nowcontrollerbot:NowControllerBot:8084 roundsvideobot:VideoServiceRunner:8081
+          - filenowbot:FileNowBot:8085 golosnowbot:GolosNowBot:8083
+          - contentfabrikabot:ContentFabrikaBot:8089 neurfotobot:Neurfotobot:8082
+          - pereskaznowbot:PereskazNowBot:8090
     steps:
       - uses: actions/checkout@v4
 
@@ -113,30 +121,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Build and push (sequential, only changed services)
+      - name: Build and push (parallel groups, only changed services)
         run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           CHANGED="${{ needs.detect.outputs.services }}"
-          build_one() {
-            local svc=$1 product=$2 port=$3
+          for entry in ${{ matrix.group }}; do
+            svc=$(echo "$entry" | cut -d: -f1)
+            product=$(echo "$entry" | cut -d: -f2)
+            port=$(echo "$entry" | cut -d: -f3)
             if echo "$CHANGED" | grep -qw "$svc"; then
               echo "Building $svc ($product :$port)..."
               docker buildx build --platform linux/amd64 \
                 -f Dockerfile.prod \
                 --build-arg PRODUCT="$product" \
                 --build-arg PORT="$port" \
-                -t ${{ env.REGISTRY }}/${{ github.repository_owner }}/telegrambot-$svc:latest \
+                -t ${{ env.REGISTRY }}/$OWNER_LC/telegrambot-$svc:latest \
                 --push .
             else
               echo "Skip $svc (not in changed list)"
             fi
-          }
-          build_one nowcontrollerbot NowControllerBot 8084
-          build_one roundsvideobot VideoServiceRunner 8081
-          build_one filenowbot FileNowBot 8085
-          build_one golosnowbot GolosNowBot 8083
-          build_one contentfabrikabot ContentFabrikaBot 8089
-          build_one neurfotobot Neurfotobot 8082
-          build_one pereskaznowbot PereskazNowBot 8090
+          done
 
   deploy:
     needs: [detect, build]
@@ -176,7 +180,7 @@ jobs:
             echo "Commit: $NEW_COMMIT"
 
             echo "Login to GHCR..."
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u $(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]') --password-stdin
 
             echo "Pull images and up..."
             docker compose -f docker-compose.prod.yml pull --quiet

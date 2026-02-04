@@ -135,7 +135,7 @@ VIDEO_BOT_TOKEN=PASTE_VIDEO_BOT_TOKEN_HERE
 > - **ContentFabrikaBot:** Подробный план установки, настройки `.env`, OpenAI и вебхука см. в [contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md](../contentfabrikabot/docs/SETUP_CONTENTFABRIKABOT.md).
 > - **SaluteSpeech (GolosNowBot):** Подробный чек-лист для SaluteSpeech (ключи, сертификаты, тесты API) см. в [golosnowbot/README.md](../golosnowbot/README.md) или в [golosnowbot/config/.env.example](../golosnowbot/config/.env.example).
 > - **Neurfotobot:** Полная инструкция по настройке всех сервисов для Neurfotobot (Replicate, локальное хранилище + BASE_URL, Yandex Translate, Google Vision, OpenAI) с пошаговыми инструкциями, ссылками на регистрацию и настройку биллинга см. в [Neurfotobot/docs/SETUP_NEURFOTOBOT.md](../Neurfotobot/docs/SETUP_NEURFOTOBOT.md).
-> - **PereskazNowBot:** Бот для получения расшифровки и саммари YouTube видео. Требует `PERESKAZNOWBOT_TOKEN` (токен бота от @BotFather) и `PERESKAZ_OPENAI_SERVICE` (OpenAI API ключ для Whisper API и GPT). Также требуется установленный `yt-dlp` для скачивания аудио с YouTube (см. шаг 2.1).
+> - **PereskazNowBot:** Бот для получения расшифровки и саммари YouTube видео. Требует `PERESKAZNOWBOT_TOKEN` (токен бота от @BotFather) и `PERESKAZ_OPENAI_SERVICE` (OpenAI API ключ для Whisper API и GPT). Опционально: `OPENAI_MODEL` — модель для GPT (по умолчанию gpt-4o-mini; после отключения укажи gpt-4.1-mini). Также требуется установленный `yt-dlp` (см. шаг 2.1).
 
 
 

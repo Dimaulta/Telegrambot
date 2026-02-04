@@ -245,8 +245,11 @@ struct PereskazService {
         request.headers.add(name: .authorization, value: "Bearer \(apiKey)")
         request.headers.add(name: .contentType, value: "application/json")
         
+        let rawModel = Environment.get("OPENAI_MODEL")?.trimmingCharacters(in: .whitespaces) ?? ""
+        let model = rawModel.isEmpty ? "gpt-4o-mini" : rawModel
+        
         let payload = OpenAIRequest(
-            model: "gpt-4o-mini",
+            model: model,
             messages: [
                 OpenAIMessage(role: "system", content: "Ты помощник, который создает краткие содержания (саммари) для YouTube видео на русском языке. Твоя задача - выделить главные идеи и ключевые моменты из транскрипции видео."),
                 OpenAIMessage(role: "user", content: prompt)
@@ -355,27 +358,47 @@ struct PereskazService {
         
         // Запускаем yt-dlp для скачивания аудио
         // Используем более низкое качество, чтобы файл был меньше 25MB (лимит Whisper API)
-        // Добавляем user-agent для обхода блокировок YouTube на VPS
+        // player_client=tv_simply — обход HTTP 403: YouTube требует PO Token для web-клиента; tv_simply не требует (см. yt-dlp PO-Token-Guide)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlpPath)
-        process.arguments = [
-            "--extract-audio",
-            "--audio-format", "m4a",
-            "--audio-quality", "7", // Качество 7 (еще более низкое) для меньшего размера файла
-            "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1", // Более агрессивное сжатие через ffmpeg
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--output", audioFile.path,
-            "--no-mtime", // Не сохранять время модификации
-            "--no-playlist", // Только одно видео
-            videoUrl
-        ]
+        let (executable, args): (String, [String])
+        if ytdlpPath == "yt-dlp" {
+            executable = "/usr/bin/env"
+            args = ["yt-dlp"] + [
+                "--extractor-args", "youtube:player_client=tv_simply",
+                "--extract-audio",
+                "--audio-format", "m4a",
+                "--audio-quality", "7",
+                "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--output", audioFile.path,
+                "--no-mtime",
+                "--no-playlist",
+                videoUrl
+            ]
+        } else {
+            executable = ytdlpPath
+            args = [
+                "--extractor-args", "youtube:player_client=tv_simply",
+                "--extract-audio",
+                "--audio-format", "m4a",
+                "--audio-quality", "7",
+                "--postprocessor-args", "ffmpeg:-b:a 32k -ar 16000 -ac 1",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--output", audioFile.path,
+                "--no-mtime",
+                "--no-playlist",
+                videoUrl
+            ]
+        }
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = args
         
         // Устанавливаем переменную окружения для временной папки (yt-dlp использует TMPDIR)
         var env = ProcessInfo.processInfo.environment
         env["TMPDIR"] = workDir.path
         process.environment = env
         
-        logger.info("📥 Running yt-dlp: \(ytdlpPath) \(process.arguments?.joined(separator: " ") ?? "")")
+        logger.info("📥 Running yt-dlp: \(executable) \(args.joined(separator: " "))")
         
         try process.run()
         process.waitUntilExit()

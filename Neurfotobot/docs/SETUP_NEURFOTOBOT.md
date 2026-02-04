@@ -135,6 +135,8 @@ Neurfotobot отдаёт архив по HTTP через свой роут:
 **Что нужно получить:**
 - `NEURFOTOBOT_OPENAI_API_KEY` — API ключ (формат: `sk-xxxxxxxxxxxxx`)
 
+Модель модерации задаётся переменной **`OPENAI_MODERATION_MODEL`**. Если не задана — используется **`omni-moderation-latest`**. После отключения этой модели укажи, например, `text-moderation-stable` или новую модель из [документации Moderation API](https://platform.openai.com/docs/guides/moderation).
+
 ⚠️ **Важно:** Используй отдельный ключ для Neurfotobot (не `OPENAI_API_KEY`), чтобы избежать конфликтов с другими проектами.
 
 **Ссылки:**
@@ -187,6 +189,7 @@ GOOGLE_VISION_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # OpenAI Moderation API (опционально)
 NEURFOTOBOT_OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# OPENAI_MODERATION_MODEL=omni-moderation-latest   # Опционально. Модель модерации; по умолчанию omni-moderation-latest. После отключения укажи text-moderation-stable и др.
 
 # Флаги для отключения функций (опционально)
 DISABLE_SAFESEARCH=false          # Отключить модерацию фото
@@ -218,6 +221,7 @@ KEEP_DATASETS_ON_FAILURE=false     # Оставлять датасеты при 
 |-----------|--------------|
 | `GOOGLE_VISION_API_KEY` | [Google Cloud → Credentials](https://console.cloud.google.com/apis/credentials) |
 | `NEURFOTOBOT_OPENAI_API_KEY` | [OpenAI Platform → API Keys](https://platform.openai.com/api-keys) |
+| `OPENAI_MODERATION_MODEL` | Модель модерации (по умолчанию `omni-moderation-latest`). После отключения — `text-moderation-stable` и др. |
 | `YANDEX_CLOUD_FOLDER_ID` | [Yandex Cloud Console](https://console.cloud.yandex.ru/cloud) |
 | `DISABLE_SAFESEARCH` | `true` для отключения модерации фото |
 | `DISABLE_PROMPT_MODERATION` | `true` для отключения модерации промптов |

@@ -8,15 +8,19 @@ struct OpenAIModerationClient {
     }
 
     private let apiKey: String
+    private let model: String
     private let client: Client
 
     private let allocator = ByteBufferAllocator()
 
+    /// Модель модерации берётся из `OPENAI_MODERATION_MODEL`; по умолчанию `omni-moderation-latest`. После отключения модели укажи, например, `text-moderation-stable` или новую модель из документации OpenAI.
     init(request: Request) throws {
         guard let apiKey = Environment.get("NEURFOTOBOT_OPENAI_API_KEY"), !apiKey.isEmpty else {
             throw Abort(.internalServerError, reason: "NEURFOTOBOT_OPENAI_API_KEY is not set")
         }
         self.apiKey = apiKey
+        let rawModel = Environment.get("OPENAI_MODERATION_MODEL")?.trimmingCharacters(in: .whitespaces) ?? ""
+        self.model = rawModel.isEmpty ? "omni-moderation-latest" : rawModel
         self.client = request.client
     }
 
@@ -27,7 +31,7 @@ struct OpenAIModerationClient {
         for attempt in 1...maxRetries {
             do {
                 let url = URI(string: "https://api.openai.com/v1/moderations")
-                let payload = OpenAIRequest(model: "omni-moderation-latest", input: text)
+                let payload = OpenAIRequest(model: model, input: text)
                 let data = try JSONEncoder().encode(payload)
                 var buffer = allocator.buffer(capacity: data.count)
                 buffer.writeBytes(data)

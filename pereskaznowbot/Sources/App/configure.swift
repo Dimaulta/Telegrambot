@@ -1,6 +1,7 @@
 import Vapor
 import Foundation
 import AsyncHTTPClient
+import NIOSSL
 
 func getPortFromConfig(serviceName: String) -> Int {
     let configPath = "config/services.json"
@@ -40,8 +41,37 @@ public func configure(_ app: Application) async throws {
     app.http.client.configuration.timeout = .init(connect: .seconds(60), read: .seconds(600))
     app.http.client.configuration.connectionPool.idleTimeout = .seconds(60)
     
-    // Инициализация базы данных монетизации
+    // SaluteSpeech TLS (fallback при сбоях Whisper)
+    configureSaluteSpeechTLS(app)
+    
     MonetizationService.ensureDatabase(app: app)
     
     try routes(app)
+}
+
+private func configureSaluteSpeechTLS(_ app: Application) {
+    let defaultPath = "config/certs/salutespeech-chain.pem"
+    let path = Environment.get("SALUTESPEECH_CA_PATH") ?? defaultPath
+    
+    guard FileManager.default.fileExists(atPath: path) else {
+        app.logger.info("SaluteSpeech TLS: сертификат не найден (\(path)). Fallback SaluteSpeech может не работать.")
+        return
+    }
+    
+    do {
+        let certificates = try NIOSSLCertificate.fromPEMFile(path)
+        guard certificates.isEmpty == false else {
+            app.logger.warning("SaluteSpeech TLS: файл \(path) не содержит сертификатов.")
+            return
+        }
+        
+        var clientConfig = app.http.client.configuration
+        var tlsConfig = clientConfig.tlsConfiguration ?? TLSConfiguration.makeClientConfiguration()
+        tlsConfig.additionalTrustRoots.append(.certificates(certificates))
+        clientConfig.tlsConfiguration = tlsConfig
+        app.http.client.configuration = clientConfig
+        app.logger.info("SaluteSpeech TLS: добавлены корневые сертификаты из \(path)")
+    } catch {
+        app.logger.error("SaluteSpeech TLS: не удалось загрузить сертификаты из \(path): \(error.localizedDescription)")
+    }
 }

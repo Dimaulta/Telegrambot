@@ -281,24 +281,25 @@ final class PereskazNowBotController: @unchecked Sendable {
             req.logger.info("ℹ️ User \(chatId) has \(remaining) requests remaining today")
         }
         
-        // Проверка длительности видео (максимум 30 минут)
+        // Проверка длительности видео (максимум 30 минут). durationMinutes передаём в processVideoUrl, чтобы не вызывать getVideoDuration повторно.
+        var durationMinutes: Int? = nil
         do {
-            let durationMinutes = try await getVideoDuration(videoUrl: youtubeUrl, logger: req.logger)
-            req.logger.info("📹 Video duration: \(durationMinutes) minutes")
+            let d = try await getVideoDuration(videoUrl: youtubeUrl, logger: req.logger)
+            durationMinutes = d
+            req.logger.info("📹 Video duration: \(d) minutes")
             
-            if durationMinutes > Self.maxVideoDurationMinutes {
-                req.logger.warning("⚠️ Video too long: \(durationMinutes) minutes (max: \(Self.maxVideoDurationMinutes))")
+            if d > Self.maxVideoDurationMinutes {
+                req.logger.warning("⚠️ Video too long: \(d) minutes (max: \(Self.maxVideoDurationMinutes))")
                 _ = try? await sendTelegramMessage(
                     token: token,
                     chatId: chatId,
-                    text: "⏱️ Видео слишком длинное (\(durationMinutes) минут). Максимальная длительность: \(Self.maxVideoDurationMinutes) минут.",
+                    text: "⏱️ Видео слишком длинное (\(d) минут). Максимальная длительность: \(Self.maxVideoDurationMinutes) минут.",
                     client: req.client
                 )
                 return Response(status: .ok)
             }
         } catch {
             req.logger.warning("⚠️ Failed to get video duration: \(error), proceeding anyway")
-            // Продолжаем обработку, если не удалось получить длительность
         }
 
         // Сохраняем ссылку перед проверкой подписки (для автоматической обработки после подтверждения)
@@ -324,25 +325,27 @@ final class PereskazNowBotController: @unchecked Sendable {
             return Response(status: .ok)
         }
 
-        // Обрабатываем ссылку через вынесенную функцию
         return try await processVideoUrl(
             youtubeUrl: youtubeUrl,
             chatId: chatId,
             userId: userId,
             token: token,
-            req: req
+            req: req,
+            durationMinutes: durationMinutes
         )
     }
     
     // MARK: - Обработка видео
     
     /// Обрабатывает YouTube ссылку (вынесено в отдельную функцию для переиспользования)
+    /// - Parameter durationMinutes: длительность видео (если уже получена); nil — запросим через getVideoDuration
     private func processVideoUrl(
         youtubeUrl: String,
         chatId: Int64,
         userId: Int64,
         token: String,
-        req: Request
+        req: Request,
+        durationMinutes: Int? = nil
     ) async throws -> Response {
         // Извлекаем videoId для проверки дубликатов
         guard let videoId = extractVideoIdFromURL(youtubeUrl) else {
@@ -404,6 +407,7 @@ final class PereskazNowBotController: @unchecked Sendable {
             logger.info("📡 Step 1: Getting transcript...")
             let transcript = try await PereskazService.shared.getTranscript(
                 videoUrl: youtubeUrl,
+                app: req.application,
                 client: client,
                 logger: logger
             )
@@ -417,12 +421,17 @@ final class PereskazNowBotController: @unchecked Sendable {
                 client: client
             )
             
-            // Шаг 2: Создаем саммари через GPT
+            // Шаг 2: Создаем саммари через GPT (durationMinutes уже передан или получим при необходимости)
             logger.info("📡 Step 2: Generating summary with GPT...")
-            let durationMinutes = try? await getVideoDuration(videoUrl: youtubeUrl, logger: logger)
+            let dur: Int?
+            if let d = durationMinutes {
+                dur = d
+            } else {
+                dur = try? await getVideoDuration(videoUrl: youtubeUrl, logger: logger)
+            }
             let summary = try await PereskazService.shared.getSummaryWithGPT(
                 transcript: transcript,
-                durationMinutes: durationMinutes,
+                durationMinutes: dur,
                 client: client,
                 logger: logger
             )

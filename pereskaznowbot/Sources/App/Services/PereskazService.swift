@@ -14,7 +14,7 @@ struct PereskazService {
     ///   - client: HTTP клиент Vapor
     ///   - logger: Логгер
     /// - Returns: Текст саммари
-    func getSummary(videoUrl: String, client: Client, logger: Logger) async throws -> String {
+    func getSummary(videoUrl: String, app: Application, client: Client, logger: Logger) async throws -> String {
         guard let apiKey = Environment.get("PERESKAZ_OPENAI_SERVICE"), !apiKey.isEmpty else {
             logger.error("PERESKAZ_OPENAI_SERVICE token is missing")
             throw Abort(.internalServerError, reason: "OpenAI API key not configured")
@@ -24,7 +24,7 @@ struct PereskazService {
         
         // Шаг 1: Получаем транскрипцию видео
         logger.info("🎬 Step 1: Getting transcript from YouTube video...")
-        let transcript = try await getTranscript(videoUrl: videoUrl, client: client, logger: logger)
+        let transcript = try await getTranscript(videoUrl: videoUrl, app: app, client: client, logger: logger)
         logger.info("✅ Transcript received, length: \(transcript.count) characters")
         
         // Шаг 2: Создаем саммари через GPT
@@ -36,8 +36,8 @@ struct PereskazService {
     }
     
     /// Получает транскрипцию YouTube видео
-    /// Пробует разные методы: автоматически сгенерированные субтитры, Whisper API и т.д.
-    func getTranscript(videoUrl: String, client: Client, logger: Logger) async throws -> String {
+    /// Пробует разные методы: субтитры YouTube, Whisper API, при сбое Whisper — SaluteSpeech (fallback)
+    func getTranscript(videoUrl: String, app: Application, client: Client, logger: Logger) async throws -> String {
         guard let videoId = extractVideoId(from: videoUrl) else {
             throw Abort(.badRequest, reason: "Could not extract video ID from URL")
         }
@@ -47,7 +47,7 @@ struct PereskazService {
         // Метод 1: Пробуем получить автоматически сгенерированные субтитры YouTube
         logger.info("🔍 Method 1: Trying to get auto-generated YouTube subtitles...")
         if let transcript = try? await getYouTubeAutoSubtitles(videoId: videoId, client: client, logger: logger) {
-            logger.info("✅ Got transcript from YouTube auto-subtitles")
+            logger.info("✅ [TRANSCRIPT_SOURCE] YouTube auto-subtitles")
             return transcript
         }
         
@@ -56,24 +56,24 @@ struct PereskazService {
         let languages = ["ru", "en", "auto"]
         for lang in languages {
             if let transcript = try? await getYouTubeSubtitles(videoId: videoId, lang: lang, client: client, logger: logger) {
-                logger.info("✅ Got transcript from YouTube (lang=\(lang))")
+                logger.info("✅ [TRANSCRIPT_SOURCE] YouTube subtitles (lang=\(lang))")
                 return transcript
             }
         }
         
-        // Метод 3: Используем Whisper API (если есть ключ OpenAI)
+        // Метод 3: Whisper API, при сбое (502, timeout и т.п.) — SaluteSpeech fallback
         logger.info("🔍 Method 3: Trying Whisper API for speech recognition...")
         if let openaiKey = Environment.get("PERESKAZ_OPENAI_SERVICE"), !openaiKey.isEmpty {
             do {
-                let transcript = try await getTranscriptWithWhisper(videoId: videoId, videoUrl: videoUrl, apiKey: openaiKey, client: client, logger: logger)
-                logger.info("✅ Got transcript from Whisper API")
+                let (transcript, source) = try await getTranscriptWithWhisper(videoId: videoId, videoUrl: videoUrl, apiKey: openaiKey, app: app, client: client, logger: logger)
+                logger.info("✅ [TRANSCRIPT_SOURCE] \(source)")
                 return transcript
             } catch {
                 logger.warning("⚠️ Whisper API failed: \(error)")
             }
         }
         
-        throw Abort(.badRequest, reason: "Не удалось получить транскрипцию видео. У видео нет доступных субтитров, и Whisper API не смог обработать видео.")
+        throw Abort(.badRequest, reason: "Не удалось получить транскрипцию видео. У видео нет доступных субтитров, Whisper и SaluteSpeech не смогли обработать.")
     }
     
     /// Получает автоматически сгенерированные субтитры YouTube
@@ -297,33 +297,45 @@ struct PereskazService {
         return summary
     }
     
-    /// Получает транскрипцию через Whisper API
-    /// Скачивает аудио с YouTube и отправляет в Whisper
-    private func getTranscriptWithWhisper(videoId: String, videoUrl: String, apiKey: String, client: Client, logger: Logger) async throws -> String {
+    /// Получает транскрипцию через Whisper API, при сбое пробует SaluteSpeech (fallback)
+    /// Returns: (transcript, source) где source = "Whisper" или "SaluteSpeech"
+    private func getTranscriptWithWhisper(videoId: String, videoUrl: String, apiKey: String, app: Application, client: Client, logger: Logger) async throws -> (String, String) {
         logger.info("🎤 Using Whisper API for transcription...")
         
-        // Шаг 1: Скачиваем аудио с YouTube
         logger.info("📥 Step 1: Downloading audio from YouTube...")
         let downloadStartTime = Date()
         let audioData = try await downloadYouTubeAudio(videoUrl: videoUrl, videoId: videoId, logger: logger)
         let downloadElapsed = Date().timeIntervalSince(downloadStartTime)
         logger.info("✅ Audio downloaded in \(Int(downloadElapsed)) seconds, size: \(audioData.count) bytes (\(audioData.count / 1024 / 1024) MB)")
         
-        // Проверяем размер файла перед отправкой
         let maxSize = 25 * 1024 * 1024 // 25MB
         if audioData.count > maxSize {
             logger.error("❌ Audio file too large: \(audioData.count) bytes (\(audioData.count / 1024 / 1024) MB), max: \(maxSize / 1024 / 1024) MB")
             throw Abort(.badRequest, reason: "Аудио файл слишком большой (\(audioData.count / 1024 / 1024) MB). Максимальный размер: 25 MB. Попробуй видео покороче.")
         }
         
-        // Шаг 2: Отправляем в Whisper API
         logger.info("🤖 Step 2: Sending audio to Whisper API...")
-        let whisperStartTime = Date()
-        let transcript = try await transcribeWithWhisper(audioData: audioData, apiKey: apiKey, client: client, logger: logger)
-        let whisperElapsed = Date().timeIntervalSince(whisperStartTime)
-        logger.info("✅ Transcription received from Whisper in \(Int(whisperElapsed)) seconds, length: \(transcript.count) characters")
-        
-        return transcript
+        do {
+            let whisperStartTime = Date()
+            let transcript = try await transcribeWithWhisper(audioData: audioData, apiKey: apiKey, client: client, logger: logger)
+            let whisperElapsed = Date().timeIntervalSince(whisperStartTime)
+            logger.info("✅ Whisper OK in \(Int(whisperElapsed))s, \(transcript.count) chars")
+            return (transcript, "Whisper")
+        } catch {
+            logger.warning("⚠️ Whisper failed: \(error)")
+            if let authKey = Environment.get("SALUTESPEECH_AUTH_KEY"), !authKey.isEmpty {
+                logger.info("🔄 Fallback: trying SaluteSpeech...")
+                do {
+                    let transcript = try await app.saluteSpeechRecognitionService.recognize(audioData: audioData, mimeType: "audio/m4a", logger: logger)
+                    logger.info("✅ SaluteSpeech OK (fallback), \(transcript.count) chars")
+                    return (transcript, "SaluteSpeech")
+                } catch {
+                    logger.warning("⚠️ SaluteSpeech fallback failed: \(error)")
+                    throw Abort(.badRequest, reason: "Whisper и SaluteSpeech не смогли обработать аудио.")
+                }
+            }
+            throw error
+        }
     }
     
     /// Скачивает аудио с YouTube используя yt-dlp (если установлен) или альтернативный метод

@@ -29,7 +29,7 @@ struct PereskazService {
         
         // Шаг 2: Создаем саммари через GPT
         logger.info("🤖 Step 2: Generating summary with GPT...")
-        let summary = try await getSummaryWithGPT(transcript: transcript, apiKey: apiKey, client: client, logger: logger)
+        let summary = try await getSummaryWithGPT(transcript: transcript, durationMinutes: nil, apiKey: apiKey, client: client, logger: logger)
         logger.info("✅ Summary generated, length: \(summary.count)")
         
         return summary
@@ -184,18 +184,31 @@ struct PereskazService {
     }
     
     /// Создает саммари через GPT на основе транскрипции
-    func getSummaryWithGPT(transcript: String, client: Client, logger: Logger) async throws -> String {
+    /// - Parameter durationMinutes: длительность видео в минутах; если nil, используется лимит 150 слов
+    func getSummaryWithGPT(transcript: String, durationMinutes: Int? = nil, client: Client, logger: Logger) async throws -> String {
         guard let apiKey = Environment.get("PERESKAZ_OPENAI_SERVICE"), !apiKey.isEmpty else {
             logger.error("PERESKAZ_OPENAI_SERVICE token is missing")
             throw Abort(.internalServerError, reason: "OpenAI API key not configured")
         }
         
-        return try await getSummaryWithGPT(transcript: transcript, apiKey: apiKey, client: client, logger: logger)
+        return try await getSummaryWithGPT(transcript: transcript, durationMinutes: durationMinutes, apiKey: apiKey, client: client, logger: logger)
+    }
+    
+    /// Лимит слов для саммари в зависимости от длительности видео (гибкий лимит)
+    private func maxWordsForDuration(_ minutes: Int) -> Int {
+        switch minutes {
+        case 0..<5: return 40
+        case 5..<15: return 75
+        default: return 125
+        }
     }
     
     /// Создает саммари через GPT на основе транскрипции (внутренний метод с apiKey)
-    private func getSummaryWithGPT(transcript: String, apiKey: String, client: Client, logger: Logger) async throws -> String {
+    private func getSummaryWithGPT(transcript: String, durationMinutes: Int?, apiKey: String, client: Client, logger: Logger) async throws -> String {
         logger.info("🤖 Requesting summary from OpenAI GPT...")
+        
+        let maxWords = durationMinutes.map { maxWordsForDuration($0) } ?? 75
+        logger.info("📏 Summary word limit: \(maxWords) (video: \(durationMinutes.map { "\($0) min" } ?? "unknown"))")
         
         // Ограничиваем длину транскрипции (GPT имеет лимиты токенов)
         let maxLength = 15000 // Примерно 4000 токенов
@@ -207,7 +220,7 @@ struct PereskazService {
         Создай краткое содержание (саммари) следующего текста транскрипции YouTube видео.
         
         Требования к саммари:
-        - Краткое (2-3 абзаца, максимум 500 слов)
+        - Краткое, максимум \(maxWords) слов (строго соблюдай лимит)
         - Понятное и структурированное
         - На русском языке
         - Содержит основные идеи и ключевые моменты

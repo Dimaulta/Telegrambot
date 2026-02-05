@@ -36,8 +36,8 @@ public func configure(_ app: Application) async throws {
     let port = getPortFromConfig(serviceName: "pereskaznowbot")
     app.http.server.configuration.port = port
     
-    // Настройка HTTP клиента: read 600s для Whisper API (транскрипция долгого аудио)
-    app.http.client.configuration.timeout = .init(connect: .seconds(30), read: .seconds(600))
+    // Настройка HTTP клиента: connect 60s, read 600s для Whisper API
+    app.http.client.configuration.timeout = .init(connect: .seconds(60), read: .seconds(600))
     app.http.client.configuration.connectionPool.idleTimeout = .seconds(60)
     
     // Инициализация базы данных монетизации

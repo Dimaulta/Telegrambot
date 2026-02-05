@@ -419,8 +419,10 @@ final class PereskazNowBotController: @unchecked Sendable {
             
             // Шаг 2: Создаем саммари через GPT
             logger.info("📡 Step 2: Generating summary with GPT...")
+            let durationMinutes = try? await getVideoDuration(videoUrl: youtubeUrl, logger: logger)
             let summary = try await PereskazService.shared.getSummaryWithGPT(
                 transcript: transcript,
+                durationMinutes: durationMinutes,
                 client: client,
                 logger: logger
             )
